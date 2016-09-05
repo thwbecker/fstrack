@@ -1,0 +1,51 @@
+# comparison with modified tensor_phase output
+reset
+set term post portrait  enh
+set out 'tensor_phase.ps'
+set multi
+set size 1,.5
+
+set xlabel 'azimuth [deg]'
+set ylabel 'fast azimuth [deg]'
+
+set origin 0.,.5
+set title '50 km depth'
+plot 	'depth_050.out' using (($1==3)?($2):(1/0)) : 5 title 'inc = 3' w l,\
+	'orig/depth_050.out' using (($1==3)?($2):(1/0)) : 5 title '' w p,\
+	'depth_050.out' using (($1==15)?($2):(1/0)) : 5 title 'inc=15' w l,\
+	'orig/depth_050.out' using (($1==15)?($2):(1/0)) : 5 title '' w p
+
+set origin 0.,0
+set title '250 km depth'
+plot 	'depth_250.out' using (($1==3)?($2):(1/0)) : 5 title 'inc = 3' w l,\
+	'orig/depth_250.out' using (($1==3)?($2):(1/0)) : 5 title '' w p,\
+	'depth_250.out' using (($1==15)?($2):(1/0)) : 5 title 'inc=15' w l,\
+	'orig/depth_250.out' using (($1==15)?($2):(1/0)) : 5 title '' w p
+
+set nomulti
+
+# comparison with sav2splitting output
+reset
+set term post portrait  enh
+set out 'sav2splitting.ps'
+set multi
+set size 1,.5
+
+set xlabel 'azimuth [deg]'
+set ylabel 'fast azimuth [deg]'
+
+set origin 0.,.5
+set title '50 km depth'
+plot 	'new_depth_050.out' using (($1==3)?($2):(1/0)) : 5 title 'inc = 3' w l,\
+	'orig/depth_050.out' using (($1==3)?($2):(1/0)) : 5 title '' w p,\
+	'new_depth_050.out' using (($1==15)?($2):(1/0)) : 5 title 'inc=15' w l,\
+	'orig/depth_050.out' using (($1==15)?($2):(1/0)) : 5 title '' w p
+
+set origin 0.,0
+set title '250 km depth'
+plot 	'new_depth_250.out' using (($1==3)?($2):(1/0)) : 5 title 'inc = 3' w l,\
+	'orig/depth_250.out' using (($1==3)?($2):(1/0)) : 5 title '' w p,\
+	'new_depth_250.out' using (($1==15)?($2):(1/0)) : 5 title 'inc=15' w l,\
+	'orig/depth_250.out' using (($1==15)?($2):(1/0)) : 5 title '' w p
+
+set nomulti

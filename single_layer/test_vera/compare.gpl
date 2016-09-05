@@ -1,0 +1,22 @@
+
+
+set xlabel 'incident azimuth [deg]'
+set ylabel 'splitting azimuth [deg]'
+set y2label 'splitting time [s]'
+
+set ytics nomirror
+set y2tics nomirror
+set term post enh color solid
+set out 'comp.ps'
+#set yrange [120:150]
+#set y2range [1:2.5]
+plot 'vera.dat' using (($1==3)?($2+90):(1/0))  : ($5+90) title 'vera azi' w l ,\
+	'vera.dat' using (($1==3)?($2+90):(1/0))  : 6 axes x1y2 title 'vera dt' w l,\
+	'depth_050.out' using (($1==3)?($2):(1/0)) : ($5) title 'my old azi' w l ,\
+	'depth_050.out' using (($1==3)?($2):(1/0)) : 6 axes x1y2 title 'my old dt' w l,\
+	'my.dat' using (($1==3)?($2):(1/0)) : ($5) title 'my azi' w l ,\
+	'my.dat' using (($1==3)?($2):(1/0)) : 6 axes x1y2 title 'my dt' w l
+
+#	'depth_050.old.out' using (($1==3)?($2):(1/0)) : ($5) title 'my old azi' w l ,\
+#	'depth_050.old.out' using (($1==3)?($2):(1/0)) : 6 axes x1y2 title 'my old dt' w l,\
+

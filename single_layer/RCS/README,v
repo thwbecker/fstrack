@@ -1,0 +1,41 @@
+head	1.1;
+access;
+symbols;
+locks
+	becker:1.1; strict;
+comment	@# @;
+
+
+1.1
+date	2005.03.04.20.48.57;	author becker;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@comments from Vera in 02/2005
+
+
+
+splitting for flow model output tensors (splitting in each 50 km layer
+separately):
+
+convert_to_cijkl.cmd is a script to take six tensors (depths 50,100,...,300
+km) and convert from Cij to cijkl format with density normalisation (density
+is hardwired) - calls c6x6to81_dens
+
+tensor_phase calculates splitting parameters in the SKS/SKKS incidence angle
+range for each tensor. parameters incidence angle, azimuth, x and y
+component of fast S direction, fast azimuth, and splitting time over 50 km
+layer thickness are output in depth_???.out, ascii format
+uses subroutines in slowness
+
+@

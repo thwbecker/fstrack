@@ -1,0 +1,7 @@
+#!/bin/bash
+
+for f in 50 100 150 200 250 300;do
+     cat tracer.sav.$f.SAF.s.0.5.dat | sav2splitting > depth_`echo $f | gawk '{printf("%03i",$1)}'`.out 
+done
+
+

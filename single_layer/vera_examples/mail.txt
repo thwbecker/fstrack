@@ -1,0 +1,6 @@
+here a hexagonal, orthorhombic, and monoclinic tensor in sav
+format. Hexagonal is 10 % P and S anisotropy with N-S (I think!)
+fast axis, orthorhombic is from Isaak & Anderson single crystal
+constants with 70% isotropic (randomly oriented) and 30% aligned
+N-S fast and b (slowest axis) up, and monoclinic is from Donna's
+flow models, N-S fast and slow up.

@@ -1,0 +1,3 @@
+LDFLAGS = 
+F90LDFLAGS = 
+MATHLIBS = -llapack -lblas

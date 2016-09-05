@@ -1,0 +1,48 @@
+#
+# plot variations like in Vera's paper: shift azimuth by 90, and make dip -50, as our fast orientations 
+# are south
+#
+set y2tics nomirror
+set ytics nomirror
+set ylabel 'fast azimuth'
+set y2label 'delay time'
+
+set term post portrait enh color solid
+set out 'tensors.ps'
+set multi
+set key outside
+aoff=90
+set xlabel 'azimuth + 90 deg'
+set yrange [120:240]
+set y2range [0:3]
+set xrange [90:450]
+set size 1,.3
+set origin 0,.66
+set title 'hexagonal, inc = 5 degrees, d = 100 km'
+inc=5
+!sav2splitting hex_NSfast_10perc.sav 0 0   100 > tmp.dat
+!sav2splitting hex_NSfast_10perc.sav 0 -50 100 > tmp.50.dat
+plot 'tmp.dat' using (($1==inc)?($2+aoff):(1/0)) : ($5) title 'azi hor' w l,\
+	'tmp.50.dat' using (($1==inc)?($2+aoff):(1/0)) : ($5) title 'azi dip' w l,\
+	'tmp.dat' using (($1==inc)?($2+aoff):(1/0)) : ($6) axes x1y2 title 'dt hor' w l,\
+	'tmp.50.dat' using (($1==inc)?($2+aoff):(1/0)) : ($6) axes x1y2 title 'dt dip' w l
+
+set origin 0,.33
+set title 'orthorombic'
+!sav2splitting orth_NSfast_oliv30_bup.sav 0  0  100 > tmp.dat
+!sav2splitting orth_NSfast_oliv30_bup.sav 0 -50 100 > tmp.50.dat
+plot 'tmp.dat' using (($1==inc)?($2+aoff):(1/0)) : ($5) title 'azi hor' w l,\
+	'tmp.50.dat' using (($1==inc)?($2+aoff):(1/0)) : ($5) title 'azi dip' w l,\
+	'tmp.dat' using (($1==inc)?($2+aoff):(1/0)) : ($6) axes x1y2 title 'dt hor' w l,\
+	'tmp.50.dat' using (($1==inc)?($2+aoff):(1/0)) : ($6) axes x1y2 title 'dt dip' w l
+
+
+set origin 0,0
+set title 'monoclinic'
+!sav2splitting moncl_NSfas_bup.sav 0  0 100 > tmp.dat
+!sav2splitting moncl_NSfas_bup.sav 0 -50 100 > tmp.50.dat
+plot 'tmp.dat' using (($1==inc)?($2+aoff):(1/0)) : ($5) title 'azi hor' w l,\
+	'tmp.50.dat' using (($1==inc)?($2+aoff):(1/0)) : ($5) title 'azi dip' w l,\
+	'tmp.dat' using (($1==inc)?($2+aoff):(1/0)) : ($6) axes x1y2 title 'dt hor' w l,\
+	'tmp.50.dat' using (($1==inc)?($2+aoff):(1/0)) : ($6) axes x1y2 title 'dt dip' w l
+

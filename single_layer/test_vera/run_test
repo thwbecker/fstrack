@@ -1,0 +1,10 @@
+#!/bin/bash
+
+../../bin/i686/tensor_phase 
+cp tmp.cijkl.dat tensor.cijkl.dat
+
+sav2splitting hex_dip.sav 0 0 350 > my.dat
+cp tmp.cijkl.dat sav2splitting.cijkl.dat
+
+gnuplot compare.gpl
+

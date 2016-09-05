@@ -1,0 +1,20 @@
+/* 
+
+header files for Schulte-Pelkum's tensor and splitting routines
+
+*/
+#define VPREC double
+
+
+#define vera_sav_to_cijkl_ftrn vera_sav_to_cijkl_ftrn_
+#define vera_print_cijkl_ftrn vera_print_cijkl_ftrn_
+#define vera_print_cijkl_file_ftrn vera_print_cijkl_file_ftrn_
+#define vera_print_splitting_ftrn vera_print_splitting_ftrn_
+#define vera_layer_split_from_tensor_ftrn vera_layer_split_from_tensor_ftrn_
+
+extern void vera_sav_to_cijkl_ftrn(VPREC *,VPREC *,VPREC *);
+extern void vera_print_cijkl_ftrn(VPREC *,int *);
+extern void vera_layer_split_from_tensor_ftrn(VPREC *,VPREC *,VPREC *,VPREC *,
+					      VPREC *,VPREC *,VPREC *,VPREC *);
+extern void vera_print_splitting_ftrn(VPREC *,VPREC *,VPREC *,VPREC *,VPREC *,VPREC *,int *);
+extern void vera_print_cijkl_file_ftrn(VPREC *);

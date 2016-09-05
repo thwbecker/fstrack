@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# convert to splitting old
+../bin/$ARCH/tensor_phase
+
+
+for f in 050 100 150 200 250;do
+# compare with original output
+    paste depth_$f.out orig/depth_$f.out | gawk -f diff_two_files.awk
+# convert new 
+    cat tracer.sav.$f.SAF.s.0.5.dat | sav2splitting > new_depth_$f.out
+done
+
+# compare outputs
+gnuplot plot_depth_out.gpl

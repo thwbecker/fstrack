@@ -1,0 +1,9 @@
+#!/bin/bash
+ts=${1-"orth_NSfast_oliv30_bup.sav hex_NSfast_10perc.sav  moncl_NSfas_bup.sav"}
+gawk 'BEGIN{for(a=0;a<=360;a+=22.5)for(b=0;b<=90;b+=22.5)for(g=0;g<=90;g+=22.5)print(a,b,g)}' > tmp.angles
+for t in  $ts  ;do
+    paste tmp.angles | gawk '{printf("echo %g %g %g `cat %s | sav2rotate %g %g %g 2> /dev/null | sav2decompose`\n",$1,$2,$3,t,$1,$2,$3)}' t=$t > tmp.dat
+    chmod +x  tmp.dat
+    tmp.dat > res.dat
+    rm tmp.dat
+done

@@ -1,0 +1,19 @@
+#!/bin/bash
+fname=""
+ic=1
+for f in hex_NSfast_10perc.sav hex_NSfast_dip.sav orth_NSfast_oliv30_bup.sav moncl_NSfas_bup.sav; do
+    if [ $ic -gt 2 ];then
+	pkr_seis $f 1 1 2	# hex system
+    else
+	pkr_seis $f 1 1 
+    fi
+    fname="$fname $f.1.ps"
+    ((ic=ic+1))
+done
+
+
+epsmerge -par -x 2 -y 2 \
+    $fname > \
+    $HOME/plates/western_us/pole_figures/compare_splitting_1.ps
+epstopdf     $HOME/plates/western_us/pole_figures/compare_splitting_1.ps
+	

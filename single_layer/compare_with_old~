@@ -1,0 +1,7 @@
+#!/bin/bash
+
+for f in depth_050.out  depth_100.out  depth_150.out  \
+    depth_200.out  depth_250.out  depth_300.out;do
+    paste $f orig/$f | gawk -f diff_two_files.awk
+done
+

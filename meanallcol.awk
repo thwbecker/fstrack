@@ -1,0 +1,1 @@
+../../../awk/meanallcol.awk

@@ -1,0 +1,79 @@
+head	1.2;
+access;
+symbols;
+locks
+	becker:1.2; strict;
+comment	@# @;
+
+
+1.2
+date	2005.11.23.18.50.52;	author becker;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2005.07.01.21.54.24;	author becker;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@program cijkl2sav
+  ! convert vera's cijkl format to thorsten's sav format
+
+  implicit none 
+  double precision, dimension(3,3,3,3) :: c
+  double precision, dimension(6,6) :: c6
+  double precision :: rho
+  character*200 :: rho_string
+  integer :: i,j,k,l
+
+  ! density scaling
+  if(iargc()/=1) then
+     print*, 'usage: cijkl2sav rho'
+     print*, '       reads cijkl from stdin, writes sav to stdout'
+     stop
+  end if
+  call getarg(1,rho_string)
+  read(rho_string,*)rho
+  ! read from stdin
+  call vera_read_cijkl(c,5)
+  ! convert to 6,6
+  call vera_c4c2(c,c6)
+  ! rescale by density
+  do i=1,6
+     do j=1,6
+        c6(i,j)  = c6(i,j)*rho
+     enddo
+  enddo
+
+  ! print to stdout
+  call vera_print_c2_ftrn(c6)   
+
+
+end program cijkl2sav
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 1
+a2 1
+  ! convert vera's cijkl format to throsten's sav format
+d8 1
+d12 7
+a18 2
+  rho = 3.353d0
+  
+@

@@ -1,0 +1,64 @@
+#!/bin/bash
+ver=${1-0.5.1}
+date=`date '+%m%d%y'`
+
+owd=`pwd`
+
+odir=$HOME/tmp/fstrack_package
+
+mkdir -p $odir
+
+for t in fstrack d-rex d-rex/test_output_V1/ \
+    d-rex/orig_output_V1/ eispack \
+    fstrack/single_layer  \
+    fstrack/prem  \
+    fstrack/multi_layer \
+    fstrack/tensors \
+    fstrack/menke_splitting/;do
+    
+    echo $t 
+    mkdir -p $odir/$t
+    cd $HOME/progs/src/$t
+    cp COPYRIGHT COPYING *.awk *.F *.f90 *.f *.c *.h *.sav \
+	predict_splitting makefile Makefile  $odir/$t/
+    cd $odir
+    rm $t/*~
+done
+cd $owd 
+cp README install_fstrack $odir/
+
+cp $HOME/progs/src/fstrack/predict_* $odir/fstrack/
+cp $HOME/progs/src/fstrack/pkr_* $odir/fstrack/
+
+cp -r $HOME/progs/src/fstrack/sw_sens/ $odir/fstrack/
+
+cp $HOME/progs/src/d-rex/test_output_V1/*  $odir/d-rex/test_output_V1/
+cp $HOME/progs/src/d-rex/orig_output_V1/*  $odir/d-rex/orig_output_V1/
+
+# HC lite package
+mkdir $odir/hc/
+cp $HOME/progs/src/cig/hc/*.c $odir/hc/
+cp $HOME/progs/src/cig/hc/*.h $odir/hc/
+cp $HOME/progs/src/cig/hc/Makefile  \
+    $HOME/progs/src/cig/hc/Makefile.include $odir/hc/
+cp -r $HOME/progs/src/cig/hc/prem/ $odir/hc/
+rm -rf $odir/hc/prem/.svn/
+
+cp -r $HOME/progs/src/fstrack/multi_layer/examples/  \
+    $odir/fstrack/multi_layer/
+
+cd $odir
+tar --create --verbose --dereference --gzip --file \
+    $HOME/progs/src/fstrack/fstrack-$ver.$date.tgz .
+
+cp $HOME/progs/src/fstrack/fstrack-$ver.$date.tgz $HOME/tmp/
+
+echo $0: output in $HOME/progs/src/fstrack/fstrack-$ver.$date.tgz
+cp $HOME/progs/src/fstrack/fstrack-$ver.$date.tgz $HOME/public_html/software/
+
+cd $HOME/public_html/software/
+ln -sf fstrack-$ver.$date.tgz  fstrack-recent.tgz
+
+rm -rf $odir
+
+

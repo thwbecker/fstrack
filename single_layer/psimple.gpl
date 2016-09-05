@@ -1,0 +1,30 @@
+! sav2splitting ../tensors/vera_examples/hex_NSfast_10perc.sav      5 45 100 3.353 0 0 > tmp.dat
+! sav2splitting ../tensors/vera_examples/orth_NSfast_oliv30_bup.sav 5  0 200 3.353 0 0 > tmp.2.dat
+! sav2splitting ../tensors/vera_examples/moncl_NSfas_bup.sav        5  0 300 3.353 0 0 > tmp.3.dat
+set term post portrait enh color solid 24
+set out 'example.ps'
+set multi
+set nokey
+set ylabel 'fast azimuth [^o]'
+set xrange [0:180]
+set xtics 0,60,360
+
+set size .975,.4
+set origin 0.025,.6
+#set yrange [-180:180]
+plot 'tmp.dat' using (($2==8.206)?($1):(1/0)) : (($3>100)?-180+$3:$3) title '' w l lw 5,\
+     'tmp.2.dat' using (($2==8.206)?($1):(1/0)) : (($3>100)?-180+$3:$3) title '' w l lw 5,\
+     'tmp.3.dat' using (($2==8.206)?($1):(1/0)) : (($3>100)?-180+$3:$3) title '' w l lw 5
+     
+
+set origin 0,0.1
+set size 1.,.5
+set xlabel 'backazimuth [deg]'
+set ylabel 'split time [s]'
+set key below spacing 1.2 
+set yrange [0:*]
+set ytics 0,0.5,2
+plot 'tmp.dat' using (($2==8.206)?($1):(1/0)) : 4 title 'hex, dip, 100 km' w l lw 5,\
+     'tmp.2.dat' using (($2==8.206)?($1):(1/0)) : 4 title 'ortho, 200 km' w l lw 5,\
+     'tmp.3.dat' using (($2==8.206)?($1):(1/0)) : 4 title 'mono, 300 km' w l lw 5
+

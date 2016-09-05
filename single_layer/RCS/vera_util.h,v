@@ -1,0 +1,65 @@
+head	1.2;
+access;
+symbols;
+locks
+	twb:1.2; strict;
+comment	@ * @;
+
+
+1.2
+date	2005.11.23.22.09.50;	author becker;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2005.07.01.21.54.36;	author becker;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@/* 
+
+header files for Schulte-Pelkum's tensor and splitting routines
+
+*/
+#define VPREC double
+
+
+#define vera_sav_to_cijkl_ftrn vera_sav_to_cijkl_ftrn_
+#define vera_print_cijkl_ftrn vera_print_cijkl_ftrn_
+#define vera_print_cijkl_file_ftrn vera_print_cijkl_file_ftrn_
+#define vera_print_splitting_ftrn vera_print_splitting_ftrn_
+#define vera_layer_split_ftrn vera_layer_split_ftrn_
+#define vera_read_cijkl  vera_read_cijkl_
+extern void vera_sav_to_cijkl_ftrn(VPREC *,VPREC *,VPREC *);
+extern void vera_print_cijkl_ftrn(VPREC *,int *);
+extern void vera_layer_split_ftrn(VPREC *,VPREC *,VPREC *,VPREC *,
+				  VPREC *,VPREC *,VPREC *,VPREC *,VPREC *);
+extern void vera_print_splitting_ftrn(VPREC *,VPREC *,VPREC *,VPREC *,VPREC *,VPREC *,int *);
+extern void vera_print_cijkl_file_ftrn(VPREC *);
+extern void vera_read_cijkl(VPREC *,int *);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d13 1
+a13 1
+#define vera_layer_split_from_tensor_ftrn vera_layer_split_from_tensor_ftrn_
+d17 2
+a18 2
+extern void vera_layer_split_from_tensor_ftrn(VPREC *,VPREC *,VPREC *,VPREC *,
+					      VPREC *,VPREC *,VPREC *,VPREC *);
+@
