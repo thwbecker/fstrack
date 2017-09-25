@@ -72,6 +72,7 @@ int main(int argc, char **argv)
   case BACKWARD_STRAIN:
   case FORWARD_STRAIN:
   case BACKWARD_TIME:
+  case BACKWARD_TIME_DEPTH:
     t_start = time(NULL);strftime(timebuf,79,"%a, %F, %H:%M:%S",localtime(&t_start));
     fprintf(stderr,"\nmain: starting main tracer loop at %s\n",timebuf);
     for(i=0;i < model->ntracer;i++){

@@ -359,7 +359,9 @@ int nr_rkqs(COMP_PRECISION *y,COMP_PRECISION *dydx,
   int ncount=0;
   COMP_PRECISION hold;
   int nerrmax;
-#endif  
+#endif
+  int static eps_adjusted=0;
+  /*  */
   my_vecalloc(&yerr,n,"nr_rkqs: 1");
   my_vecalloc(&ytemp,n,"nr_rkqs: 2");
   if(dp->strain_rate_control){
@@ -373,12 +375,20 @@ int nr_rkqs(COMP_PRECISION *y,COMP_PRECISION *dydx,
      check if timestep large enough and > 0
   */
   if(hmax_loc <= eps){
-    fprintf(stderr,"nr_rkqs: error: h_max: %g at eps: %g (h_max should be >=0)\n",
+    fprintf(stderr,"nr_rkqs: error: h_max: %.5e at eps: %.5e (h_max should be >=0)\n",
 	    hmax_loc,eps);
     if(dp->strain_rate_control)
-      fprintf(stderr,"nr_rkqs: strain rate controlled hmax: %g\n",
+      fprintf(stderr,"nr_rkqs: strain rate controlled hmax: %.5e\n",
 	      calc_max_dt_from_strain_rate(*x,y,dp));
-    exit(-1);
+    //exit(-1);
+    fprintf(stderr,"nr_rkqs: adjusting eps to %.5e\n",hmax_loc);
+    eps = hmax_loc;
+    eps_adjusted++;
+    if(eps_adjusted > 10){
+      fprintf(stderr,"nr_rkqs: likely a problem, bailing out after %i eps adjusts\n",
+	      eps_adjusted);
+      return(-3);
+    }
   }
   /* 
      initial trial stepsize 

@@ -38,6 +38,8 @@
 //
 // bailout depth for backtracing strain if tracers are deeper than this level
 // [non. dim]
+// applies for -bs and -btd 
+//
 #define STRAINMAX_DEPTH_BAILOUT P410_RL
 // initial tracer depth in km if not read from tdepth.dat file [km]
 #define INIT_TRACER_DEPTH_DEF 200.0

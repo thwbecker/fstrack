@@ -21,7 +21,7 @@ void invert3x3c(COMP_PRECISION *a, COMP_PRECISION *ainv)
   // compute determinant
   register COMP_PRECISION d = a[0] * m00 + a[1] * m01 + a[2] * m02;
   if(fabs(d) < EPS_PREC){
-    fprintf(stderr,"invert3x3c: matrix (near) singular: det: %g\n",
+    fprintf(stderr,"invert3x3c: WARNING: matrix (near) singular: det: %g\n",
 	    d);
     print_vector(a,9,stderr);
   }

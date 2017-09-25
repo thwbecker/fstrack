@@ -51,7 +51,7 @@ void  calc_cornerflow_constants(int mode, COMP_PRECISION vel,
     *a = (vel * alpha * sina)/(alpha*alpha - sina*sina);
     *b = 0.0;
     *c = (vel*(alpha * cosa - sina))/(alpha * alpha - sina * sina);
-    *d = -(vel * alpha * sina) /      (alpha * alpha - sina * sina);
+    *d = (vel * alpha * sina) /      (alpha * alpha - sina * sina);
     break;
   case 3:// v = vr; v = -vr;
     *a = (vel * alpha)/(alpha + sina);
@@ -76,7 +76,8 @@ COMP_PRECISION stream(COMP_PRECISION *xcyl,
 		      COMP_PRECISION d)
 {
   COMP_PRECISION cost,sint;
-  cost = cos(xcyl[FSTRACK_THETA]);sint = sin(xcyl[FSTRACK_THETA]);
+  cost = cos(xcyl[FSTRACK_THETA]);
+  sint = sin(xcyl[FSTRACK_THETA]);
   return (xcyl[FSTRACK_R] * (a * sint + b * cost + 
 		     c * xcyl[FSTRACK_THETA] * sint + 
 		     d * xcyl[FSTRACK_THETA] * cost));

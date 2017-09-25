@@ -4,7 +4,7 @@
   deal with default parameters and command line options to change
   those 
 
-  $Id: input_para.c,v 1.37 2010/12/29 19:09:55 twb Exp becker $
+  $Id: input_para.c,v 1.38 2016/09/05 04:44:47 becker Exp $
 
 */
 //
@@ -102,6 +102,8 @@ void check_for_parameters(int argc, char **argv, struct mod *model)
       model->verbose = TRUE;
     }else if(strcmp(argv[i],"-bt")==0)
       model->amode = BACKWARD_TIME;
+    else if(strcmp(argv[i],"-btd")==0)
+      model->amode = BACKWARD_TIME_DEPTH;
     else if(strcmp(argv[i],"-th")==0)
       MDP->history = TRUE;
     else if(strcmp(argv[i],"-uis")==0)
@@ -487,7 +489,9 @@ void phelp(char **argv,struct mod *model)
   fprintf(stderr,"\t-itime\tvalue\tinitial time for forward, final time for backward advection, default: %g\n",
 	  model->itime);
   PE("\t-bt\t\trun advection backward in time (default), then forward to initial location");
-  PE("\t\t\t(This is different from -ft with a negative time)");
+  PE("\t\t\t(This is different from -ft with a negative time)\n");
+  fprintf(stderr,"\t-btd\t\tsame as -bt, but alos limit to depth %g, like for -bs", 
+	  ZDEPTH(STRAINMAX_DEPTH_BAILOUT));
   PE("\t-bs\t\tfollow tracers back until a strain threshold is reached, then go forward to init pos");
   PE("\t\t\tthe threshold strain is defined in the routine mstrain and selected in fstrack.h");
   fprintf(stderr,"\t\t\tNOTE: will also bailout if tracer is deeper than %g km before strain  accumulation\n",

@@ -5,7 +5,7 @@ miscellaneous trigonometry routines dealing with different systems
 (Cartesian and spherical) and other functions on a sphere
 
 
-$Id: trig.c,v 1.17 2007/02/28 19:12:44 becker Exp becker $
+$Id: trig.c,v 1.18 2016/09/05 04:44:47 becker Exp $
 
 
 

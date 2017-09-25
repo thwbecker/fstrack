@@ -28,8 +28,10 @@ my_boolean bailout_crit_fulfilled(struct stt *local_state, int mode,
   static COMP_PRECISION bttime;// backward target time
   /* max strain upwards */
   *mstrain = 0.0;
+  //
   // bailout flags for all criteria
   bailout[0] = bailout[1] = bailout[2] = FALSE;
+  //
   /* init overshoot */
   *overshoot = 0.0;
   if(!init){
@@ -139,6 +141,8 @@ my_boolean bailout_crit_fulfilled(struct stt *local_state, int mode,
     }
     break;			/* end forward strain */
   case BACKWARD_TIME:
+  case BACKWARD_TIME_DEPTH:
+    dovershoot = tovershoot = 0.0;
 #ifdef FSTRACK_DEBUG
     if(local_state->t > model->itime){
       fprintf(stderr,"bailout_crit_fulfilled: error: time (%g) should be smaller than itime (%g)\n",
@@ -147,15 +151,25 @@ my_boolean bailout_crit_fulfilled(struct stt *local_state, int mode,
     }
 #endif
     if(local_state->t <= bttime){// time goes backward
-      *overshoot = (bttime - local_state->t)/model->tf;
+      tovershoot = (bttime - local_state->t)/model->tf;
 #ifdef FSTRACK_DEBUG
-      if(*overshoot < 0){
+      if(tovershoot < 0){
 	fprintf(stderr,"bailout_crit_fulfilled: error: backwar time: overshoot sign error\n");
 	exit(-1);
       }
 #endif
       bailout[2]=TRUE;
     }
+    if(mode == BACKWARD_TIME_DEPTH){
+      if(local_state->x[FSTRACK_R] <= STRAINMAX_DEPTH_BAILOUT){// below depth boundary
+	dovershoot = (STRAINMAX_DEPTH_BAILOUT - local_state->x[FSTRACK_R])/
+	  STRAINMAX_DEPTH_BAILOUT;
+	/* set the depth bailout flag */
+	bailout[1] = TRUE;
+      }
+    }
+    if(bailout[2]||bailout[1])
+      *overshoot = MAX(dovershoot, tovershoot);
     break;
   default:
     fprintf(stderr,"bailout_crit_fulfilled: error: mode %i undefined\n",mode);
@@ -166,6 +180,4 @@ my_boolean bailout_crit_fulfilled(struct stt *local_state, int mode,
     return TRUE;
   else
     return FALSE;
-  
-
 }

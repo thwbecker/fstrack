@@ -119,6 +119,7 @@ void advect(struct trc *tracer, struct mod *model,
 				   then forward to initial position, 
 				   accumulating strain
 				*/
+  case BACKWARD_TIME_DEPTH:	/* same as above, but also use max depth */
   case BACKWARD_DEPTH:		/* 
 				   go back to some depth, and then forward,
 				   accumulating strain 

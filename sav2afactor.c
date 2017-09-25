@@ -1,4 +1,3 @@
-
 #include "fstrack.h"
 /*
 
@@ -127,7 +126,9 @@ int main(int argc, char **argv)
 	    lon,lat,depth,	/* 1..3 */
 	    afactor[0],afactor[1], /* 4..7    Rayleigh wave afactors */
 	    afactor[2],afactor[3],
-	    /* 8: B_c/A B_s/A 10: H_c/F H_s/F 12: G_c/L G_s/L  */
+	    /* 8: B_c/A B_s/A 10: H_c/F H_s/F 
+	       12: G_c/L G_s/L  
+	    */
 	    ba[0],ba[1],hf[0],hf[1],gl[0],gl[1], 
 	    /* 14 = N/L = xi  15 = C/A =phi   16 = eta */
 	    nmod/lmod,cmod/amod,fmod/(amod-2.0*lmod), /* 14...16 */

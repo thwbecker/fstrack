@@ -4,7 +4,7 @@ routines to perform analysis of elastic tensors in terms of splitting
 (see also single_layer)
 
 
-$Id: splitting_util.c,v 1.7 2011/04/12 06:19:09 becker Exp becker $
+$Id: splitting_util.c,v 1.8 2016/09/05 04:44:47 becker Exp $
 
 */
 #include "fstrack.h"

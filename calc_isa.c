@@ -6,7 +6,7 @@ any given point following Kaminski and Ribe (G^3, 2002GC000222, 2002)
 
 uses the tracer's astate state. 
 
-$Id: calc_isa.c,v 1.17 2006/04/18 17:44:51 twb Exp twb $
+$Id: calc_isa.c,v 1.18 2016/09/05 04:44:47 becker Exp $
 
 */
 #include "fstrack_flow.h"

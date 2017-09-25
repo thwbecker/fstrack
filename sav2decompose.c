@@ -29,7 +29,7 @@ scca_old_mode:
 scca_old_mode: 1: only find best-fit, and align
                0: find best and worst fit, and use those as a coordinate system
 
-$Id: sav2decompose.c,v 1.15 2011/04/12 06:19:09 becker Exp becker $
+$Id: sav2decompose.c,v 1.16 2016/09/05 04:44:47 becker Exp $
 
 
 */

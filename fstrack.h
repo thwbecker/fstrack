@@ -1,6 +1,6 @@
 //
 // header files with constants for fstrack
-// $Id: fstrack.h,v 1.36 2010/12/31 18:59:17 becker Exp becker $
+// $Id: fstrack.h,v 1.37 2016/09/05 04:44:58 becker Exp $
 //
 //#define FSTRACK_DEBUG
 #ifndef __FSTRACK_HEADER_SOURCED__
@@ -210,6 +210,7 @@ surface wave sensitivities, list of specified periods in [s]
 #define CALC_LYAPUNOV 5 // calculate lyapunov exponents
 #define ONLY_VEL_STATS 6 // calculate velocity field statistics 
 #define ISA 7 // infinite strain axis
+#define BACKWARD_TIME_DEPTH 8 // advect backward in time, but only down to certain depth
 
 /* texture development codes */
 #define NO_TEXTURE 0

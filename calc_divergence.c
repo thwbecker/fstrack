@@ -6,7 +6,7 @@
   using central differences given a discrete flow
   field as read in by read_vel_grids
   
-  $Id: calc_divergence.c,v 1.5 2004/04/19 18:38:36 becker Exp twb $
+  $Id: calc_divergence.c,v 1.6 2016/09/05 04:44:47 becker Exp $
 
 */
 

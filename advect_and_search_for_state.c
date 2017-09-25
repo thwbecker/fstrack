@@ -71,6 +71,7 @@ int advect_and_search_for_state(struct mod *model,int mode,
   case BACKWARD_DEPTH:
   case BACKWARD_STRAIN:
   case BACKWARD_TIME:
+  case BACKWARD_TIME_DEPTH:
   case FORWARD_STRAIN:
     if(bailout_crit_fulfilled(initial_state,mode,model,&overshoot,bailout,&mstrain)){
       fprintf(stderr,"advect_and_search_for_state: bailout already at init: mode: %i z: %g(%g) e: -(%g) t: %g(%g)\n",
@@ -95,7 +96,7 @@ int advect_and_search_for_state(struct mod *model,int mode,
     determine initial (double) trial timesteps
     
   */
-  if(mode == BACKWARD_TIME){// go backward in time, thus dt can be exact
+  if((mode == BACKWARD_TIME)||(mode == BACKWARD_TIME_DEPTH)){// go backward in time, thus dt can be exact
     dt = -model->tf*2.0;    // choose double since later halfed
   }else{
     if(mode != FORWARD_STRAIN){

@@ -33,7 +33,7 @@ aniso_scale: output tensor will be iso_comp + anis_scale * aniso_comp, i.e. full
 tensor for aniso_scale = 1, isotropic tensor for aniso_scale = 0
 
 
-$Id: sav2cijkl.c,v 1.9 2011/04/12 06:19:09 becker Exp becker $
+$Id: sav2cijkl.c,v 1.10 2016/09/05 04:44:47 becker Exp $
 
 
 */
