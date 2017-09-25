@@ -1,1 +1,1 @@
-/home/becker/awk/produce_splitting_layers.awk
+../../../awk/produce_splitting_layers.awk

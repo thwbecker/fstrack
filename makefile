@@ -176,7 +176,7 @@ seis_tools: sav2cijkl sav2splitting fazi2splitstat \
 	plot_kernel
 #
 # debugging programs
-testing: test_stuff cFfromdiscreteG   sav2splitting.dbg calc_cornerflow cart_tester
+testing: test_stuff cFfromdiscreteG   sav2splitting.dbg calc_cornerflow # cart_tester
 
 
 

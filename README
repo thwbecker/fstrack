@@ -108,10 +108,10 @@ PREREQUISISTES FOR THE FLOW PART (NOT FOR THE REST)
    my case, those variables point to
 
 > echo $GMTHOME/
-/usr/local/src/GMT3.4.3// 
+/usr/local/src/gmt-4.5.16/
 
 > echo $NETCDFDIR/
-/usr/local/src/netcdf-3.5.0//
+/usr/local/src/netcdf-3.5.0/
 
    
 NOTES:

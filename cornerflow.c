@@ -86,9 +86,10 @@ COMP_PRECISION stream(COMP_PRECISION *xcyl,
 		      COMP_PRECISION a, COMP_PRECISION b, COMP_PRECISION c, 
 		      COMP_PRECISION d)
 {
-  COMP_PRECISION sint,cost;
-  sincos(xcyl[FSTRACK_THETA],&sint,&cost);
-  return xcyl[FSTRACK_R] * corner_theta(xcyl[FSTRACK_THETA],a,b,c,d,sint,cost);
+  COMP_PRECISION sint,cost,theta;
+  theta = xcyl[FSTRACK_THETA];
+  sincos(theta,&sint,&cost);
+  return xcyl[FSTRACK_R] * corner_theta(theta,a,b,c,d,sint,cost);
 }
 //
 // obtain velocity at cylidrical coordinates xcyl given constants a,b,c,d
@@ -102,14 +103,18 @@ void cylvel(COMP_PRECISION *xcyl, COMP_PRECISION *veccyl,
   theta = xcyl[FSTRACK_THETA];
   sincos(theta,&sint,&cost);
   veccyl[FSTRACK_R]     =  corner_theta_dt(theta,a,b,c,d,sint,cost);
-  veccyl[FSTRACK_THETA] = -corner_theta(theta,a,b,c,d,sint,cost);
+  veccyl[FSTRACK_THETA] = -corner_theta(   theta,a,b,c,d,sint,cost);
 }
 
 // convert from cylindrical to cartesian coordiates
 void cyl2cart(COMP_PRECISION *xcyl, COMP_PRECISION *xcart)
 {
-  xcart[FSTRACK_X] =  sin(xcyl[FSTRACK_THETA]) * xcyl[FSTRACK_R];
-  xcart[FSTRACK_Y] = -cos(xcyl[FSTRACK_THETA]) * xcyl[FSTRACK_R];
+  COMP_PRECISION cost,sint,theta;
+  theta = xcyl[FSTRACK_THETA];
+  sincos(theta,&sint,&cost);
+  
+  xcart[FSTRACK_X] =  sint * xcyl[FSTRACK_R];
+  xcart[FSTRACK_Y] = -cost * xcyl[FSTRACK_R];
 }
 // convert from cartesian to cylindrical coordinates
 void cart2cyl(COMP_PRECISION *xcart, COMP_PRECISION *xcyl)
@@ -122,9 +127,14 @@ void cart2cyl(COMP_PRECISION *xcart, COMP_PRECISION *xcyl)
 void cylvec2cartvec(COMP_PRECISION *xcyl, COMP_PRECISION *vcyl, 
 		    COMP_PRECISION *vcart)
 {
-  COMP_PRECISION sint,cost;
-  cost = cos(xcyl[FSTRACK_THETA]);
-  sint = sin(xcyl[FSTRACK_THETA]);
+  COMP_PRECISION sint,cost,theta;
+  theta = xcyl[FSTRACK_THETA];
+  sincos(theta,&sint,&cost);
+  /* 
+     e_r =     {sin(theta), -cos(theta)}
+     e_theta = {cos(theta),  sin(theta)}
+
+  */
   vcart[FSTRACK_X] =  sint * vcyl[FSTRACK_R] + cost * vcyl[FSTRACK_THETA];
   vcart[FSTRACK_Y] = -cost * vcyl[FSTRACK_R] + sint * vcyl[FSTRACK_THETA];
 }

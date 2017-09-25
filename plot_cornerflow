@@ -2,16 +2,15 @@
 mode=${1-2}
 alpha=${2-30}
 
-vel=1
-
 inc=-I0.05
-reg=-R-10/10/-10/0
+reg=-R0/10/-10/10
 
-calc_cornerflow $mode $alpha $vel > tmp.dat
+calc_cornerflow $mode $alpha > tmp.dat
+
 
 gawk '{print($1,$2,$5)}' tmp.dat | xyz2grd $reg $inc -Gtmp.phi.grd -V
-gawk '{print($1,$2,$3)}' tmp.dat | xyz2grd $reg $inc -Gtmp.vx.grd -V
-gawk '{print($1,$2,$4)}' tmp.dat | xyz2grd $reg $inc -Gtmp.vy.grd -V
+gawk '{print($1,$2,$4)}' tmp.dat | xyz2grd $reg $inc -Gtmp.vx.grd -V
+gawk '{print($1,$2,$3)}' tmp.dat | xyz2grd $reg $inc -Gtmp.vy.grd -V
 
 
 #ofile=corner.$mode.$alpha.ps
@@ -26,4 +25,4 @@ grdvector tmp.vx.grd tmp.vy.grd -Gorange -W0.5 \
 psbasemap $reg $proj -Ba2f.2:"x":/a2f.2:"y":WesN -O  >> $ofile
 
 
-rm tmp.cpt tmp.*.grd
+rm tmp.*
