@@ -143,8 +143,8 @@ FLOW_HDR_FILES = $(HDR_FILES) $(GGRD_HDR) fstrack_flow.h
 all:  dirs libs tools seis_tools split_tools lpo_tools 
 
 really_all: all all_libs fstrack fstrack.dbg stools \
-	fstrack.dfast sav2decompose.dbg testing
-#
+	fstrack.dfast sav2decompose.dbg testing 
+
 # strain-rate extraction tools
 #
 stools: extract_strain_field 
@@ -176,7 +176,7 @@ seis_tools: sav2cijkl sav2splitting fazi2splitstat \
 	plot_kernel
 #
 # debugging programs
-testing: test_stuff cFfromdiscreteG   sav2splitting.dbg
+testing: test_stuff cFfromdiscreteG   sav2splitting.dbg calc_cornerflow cart_tester
 
 
 
@@ -273,7 +273,7 @@ $(GGRD_LIB):
 #
 fstrack: $(LIBS)  $(FSTRACK_OBJS) $(ODIR)/main.o 
 	$(CC) -o $(BDIR)/fstrack $(FSTRACK_OBJS) $(ODIR)/main.o \
-	-L$(ODIR)/  -lpt -ladvect    -lder  -lpt  -lmiscio \
+	-L$(ODIR)/  -lpt -ladvect   -lder  -lpt  -lmiscio \
 	-llinalg $(DREX_LIBS) $(GGRD_LIBS) $(GMTLIBS) $(EISLIBS)  $(MATHLIBS) $(FTRN_LIB) \
 	$(LDFLAGS) 
 
@@ -306,7 +306,12 @@ fstrack.dfast: $(LIBS_DFAST) $(FSTRACK_OBJS_DFAST) $(ODIR)/main.dfast.o
 
 cart_tester: $(LIBS) $(ODIR)/cart_tester.o 
 	$(CC) $(ODIR)/cart_tester.o	$(FFLAGS) $(INCLUDES) \
-	-o $(BDIR)/cart_tester -lcart -ladvect -lder  -lpt \
+	-o $(BDIR)/cart_tester -L$(ODIR)/    -lcart -ladvect -lder  -lpt \
+	-llinalg -lmiscio  $(EISLIBS) $(MATHLIBS) $(FTRN_LIB) $(LDFLAGS) 
+
+calc_cornerflow: $(LIBS) $(ODIR)/calc_cornerflow.o 
+	$(CC) $(ODIR)/calc_cornerflow.o	$(FFLAGS) $(INCLUDES) \
+	-o $(BDIR)/calc_cornerflow -L$(ODIR)/   -lcart -ladvect -lder  -lpt \
 	-llinalg -lmiscio  $(EISLIBS) $(MATHLIBS) $(FTRN_LIB) $(LDFLAGS) 
 
 average_tracers: $(LIBS) $(ODIR)/average_tracers.o 
@@ -344,7 +349,7 @@ polvgm2cartvgm: $(ODIR)/polvgm2cartvgm.o $(LIBS)
 
 test_stuff: $(LIBS) $(ODIR)/test_stuff.o
 	$(CC) $(ODIR)/test_stuff.o $(INCLUDES) $(OBJS) \
-		-o $(ODIR)/test_stuff -L$(ODIR)/     \
+		-o $(ODIR)/test_stuff -L$(ODIR)/   \
 		 -lmiscio -lder -ladvect -lpt -llinalg   \
 		$(GMTLIBS) $(DREX_LIBS) $(EISLIBS)  $(MATHLIBS) \
 		$(LDFLAGS)

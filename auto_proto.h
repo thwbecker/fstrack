@@ -15,6 +15,7 @@ void read_weights_file(struct dw *, char **);
 unsigned short colocated(struct str *, struct str *, double, double);
 /* bailoutcrit.c */
 unsigned short bailout_crit_fulfilled(struct stt *, int, struct mod *, double *, unsigned short *, double *);
+/* calc_cornerflow.c */
 /* calc_divergence.c */
 void calc_divergence(struct mod *);
 /* calc_isa.c */
@@ -24,10 +25,7 @@ void calc_pipar(double *, double, double *, double *, double *, struct der_par *
 /* calc_lyapunov.c */
 void calc_lyapunov(struct mod *, int);
 /* calc_strain.c */
-void calc_vel_and_strain_rate_units(double, double *, struct der_par *, double *, double *, unsigned short);
 void calc_strainrate_and_vorticity(double *, double *, double *, unsigned short);
-void calc_vel_and_strain_rate(double, double *, struct der_par *, double *, double *, unsigned short);
-double calc_max_dt_from_strain_rate(double, double *, struct der_par *);
 double char_strain_rate_from_vg(double *);
 double char_strain_rate_from_e(double *, double *);
 void calc_el_strain(double *, double *);
@@ -48,6 +46,8 @@ void help(char **);
 /* cijklrotate.c */
 /* cornerflow.c */
 void calc_cornerflow_constants(int, double, double, double *, double *, double *, double *, char **);
+double corner_theta(double, double, double, double, double, double, double);
+double corner_theta_dt(double, double, double, double, double, double, double);
 double stream(double *, double, double, double, double);
 void cylvel(double *, double *, double, double, double, double);
 void cyl2cart(double *, double *);
@@ -75,6 +75,9 @@ void check_phys_lim_tracer(double *, double *);
 void check_physics_based_error(double *, double *, int *, double *, double *, double *);
 int determine_n_error(int, struct der_par *);
 void determine_error_scale(double, double *, double *, double, int, struct der_par *, double *);
+void calc_vel_and_strain_rate(double, double *, struct der_par *, double *, double *, unsigned short);
+double calc_max_dt_from_strain_rate(double, double *, struct der_par *);
+void calc_vel_and_strain_rate_units(double, double *, struct der_par *, double *, double *, unsigned short);
 /* extract_strain_field.c */
 /* fazi2splitstat.c */
 /* generate_vgm.c */

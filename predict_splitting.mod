@@ -1,1 +1,1 @@
-/home/becker/progs/batch/predict_splitting.mod
+../../../progs/batch/predict_splitting.mod

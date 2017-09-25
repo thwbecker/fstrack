@@ -4,12 +4,16 @@
    program to test a cartesian version of the particle tracker/strain
    integration routine as built into fstrack
 
+
+   broken because of single/double precision issue, don't want to fix
+   right now
+
    $Id: cart_tester.c,v 1.2 2004/04/19 18:40:51 becker Exp $
 
 */
 #define ASPECT_RATIO 2.0
 
-void main(int argc,char **argv)
+int main(int argc,char **argv)
 {
   int i,j,k,n[3],nvtimes=1,izero=0,iunity=1,nxny,nxnynz,ngrid,index,
     mode,nsteps=100;
@@ -205,7 +209,8 @@ void main(int argc,char **argv)
     ti = time;
     time += tp;
     dt = (time - ti)/10.0;
-    ellsphere_cart(v[FSTRACK_X],v[FSTRACK_Y],v[FSTRACK_Z],n,(n+1),(n+2),dx,(dx+1),zlevels,&ddummy,
+    ellsphere_cart(v[FSTRACK_X],v[FSTRACK_Y],v[FSTRACK_Z],n,
+		   (n+1),(n+2),dx,(dx+1),zlevels,&ddummy,
 		   &nvtimes,x,&ti,&time,&dt,&iunity,&eps,&izero,&ddummy,lyap,
 		   &ddummy,&ddummy,&izero,&ddummy);
     fprintf(out,"%20.10e %20.10e %20.10e %20.10e\n",x[FSTRACK_X],x[FSTRACK_Y],x[FSTRACK_Z],time);
@@ -227,7 +232,7 @@ void cyl_strain_out(FILE *out,COMP_PRECISION *x,COMP_PRECISION time,int mode)
   // get L^2 from F
   calc_l2_left_stretch((x+3),l2);
   calc_eigensystem_sym(l2,eval,evec,FALSE);
-  fprintf(out,"%g %g %g\n",time,RAD2DEG(xcyl[THETA]),
+  fprintf(out,"%g %g %g\n",time,RAD2DEG(xcyl[FSTRACK_THETA]),
 	  log10(eval[2]/eval[0])*0.5);
 }
 //

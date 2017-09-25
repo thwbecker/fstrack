@@ -1,5 +1,5 @@
 #include "fstrack.h"
-
+#include <math.h>
 /*
   refer to McKenzie (GJRAS, 58, 689, 1979) Table 1 for the 
   definitions of the parameters
@@ -20,14 +20,13 @@
 //
 //
 void  calc_cornerflow_constants(int mode, COMP_PRECISION vel, 
-				COMP_PRECISION alpha, 
+				COMP_PRECISION alpha, /* radians */
 				COMP_PRECISION *a, COMP_PRECISION *b, 
 				COMP_PRECISION *c, COMP_PRECISION *d,
 				char **argv)
 {
   COMP_PRECISION cosa,sina;
-  cosa = cos(alpha);
-  sina = sin(alpha);
+  sincos(alpha,&sina,&cosa);
   switch(mode){
     //
     // listed are the BCs for boundary one and two as in Table 1
@@ -41,7 +40,6 @@ void  calc_cornerflow_constants(int mode, COMP_PRECISION vel,
     *d= -(2.0 * vel)/               (2.0 * alpha - sin(2.0*alpha));
     break;
   case 1:// s_rt = 0; v = vr;
-    fprintf(stderr,"%s: cornerflow: mode 1 (b) not working yet\n",argv[0]);exit(-1);
     *a = (2.0 * vel * alpha * cosa)/(2.0 * alpha - sin(2.0*alpha));
     *b = 0.0;
     *c = 0.0;
@@ -64,10 +62,23 @@ void  calc_cornerflow_constants(int mode, COMP_PRECISION vel,
     exit(-1);
     break;
   }
-  if(fabs(*a)<EPS_COMP_PREC) *a = 0.0;
-  if(fabs(*b)<EPS_COMP_PREC) *b = 0.0;
-  if(fabs(*c)<EPS_COMP_PREC) *c = 0.0;
-  if(fabs(*d)<EPS_COMP_PREC) *d = 0.0;
+}
+
+
+COMP_PRECISION corner_theta(COMP_PRECISION theta,
+			    COMP_PRECISION a, COMP_PRECISION b,
+			    COMP_PRECISION c, COMP_PRECISION d,
+			    COMP_PRECISION sint, COMP_PRECISION cost)
+{
+  return a * sint + b * cost + c * theta * sint + d * theta * cost;
+}
+
+COMP_PRECISION corner_theta_dt(COMP_PRECISION theta,
+			       COMP_PRECISION a, COMP_PRECISION b,
+			       COMP_PRECISION c, COMP_PRECISION d,
+			       COMP_PRECISION sint, COMP_PRECISION cost)
+{
+  return  a * cost - b * sint + c * (sint + theta * cost) + d * (cost - theta*sint);
 }
 //
 // obtain stream function at xcyl given a,b,c,d
@@ -75,12 +86,9 @@ COMP_PRECISION stream(COMP_PRECISION *xcyl,
 		      COMP_PRECISION a, COMP_PRECISION b, COMP_PRECISION c, 
 		      COMP_PRECISION d)
 {
-  COMP_PRECISION cost,sint;
-  cost = cos(xcyl[FSTRACK_THETA]);
-  sint = sin(xcyl[FSTRACK_THETA]);
-  return (xcyl[FSTRACK_R] * (a * sint + b * cost + 
-		     c * xcyl[FSTRACK_THETA] * sint + 
-		     d * xcyl[FSTRACK_THETA] * cost));
+  COMP_PRECISION sint,cost;
+  sincos(xcyl[FSTRACK_THETA],&sint,&cost);
+  return xcyl[FSTRACK_R] * corner_theta(xcyl[FSTRACK_THETA],a,b,c,d,sint,cost);
 }
 //
 // obtain velocity at cylidrical coordinates xcyl given constants a,b,c,d
@@ -90,14 +98,11 @@ void cylvel(COMP_PRECISION *xcyl, COMP_PRECISION *veccyl,
 	    COMP_PRECISION a,COMP_PRECISION b, COMP_PRECISION c, 
 	    COMP_PRECISION d)
 {
-  COMP_PRECISION cost,sint;
-  cost = cos(xcyl[FSTRACK_THETA]);sint = sin(xcyl[FSTRACK_THETA]);
-  veccyl[FSTRACK_R] = a * cost - b * sint + c * (sint + xcyl[FSTRACK_THETA] * cost) + 
-    d * (cost - xcyl[FSTRACK_THETA] * sint);
-  veccyl[FSTRACK_THETA] = 
-    - a * sint - b * cost - c * xcyl[FSTRACK_THETA] * sint - d * xcyl[FSTRACK_THETA] * cost;
-  veccyl[FSTRACK_R]     *= xcyl[FSTRACK_R];
-  veccyl[FSTRACK_THETA] *= xcyl[FSTRACK_R];
+  COMP_PRECISION cost,sint,theta;
+  theta = xcyl[FSTRACK_THETA];
+  sincos(theta,&sint,&cost);
+  veccyl[FSTRACK_R]     =  corner_theta_dt(theta,a,b,c,d,sint,cost);
+  veccyl[FSTRACK_THETA] = -corner_theta(theta,a,b,c,d,sint,cost);
 }
 
 // convert from cylindrical to cartesian coordiates
@@ -118,7 +123,8 @@ void cylvec2cartvec(COMP_PRECISION *xcyl, COMP_PRECISION *vcyl,
 		    COMP_PRECISION *vcart)
 {
   COMP_PRECISION sint,cost;
-  cost = cos(xcyl[FSTRACK_THETA]);sint = sin(xcyl[FSTRACK_THETA]);
+  cost = cos(xcyl[FSTRACK_THETA]);
+  sint = sin(xcyl[FSTRACK_THETA]);
   vcart[FSTRACK_X] =  sint * vcyl[FSTRACK_R] + cost * vcyl[FSTRACK_THETA];
   vcart[FSTRACK_Y] = -cost * vcyl[FSTRACK_R] + sint * vcyl[FSTRACK_THETA];
 }
