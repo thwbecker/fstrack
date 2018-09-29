@@ -168,17 +168,19 @@ c
 c     loop through azimuth, if azimuth is read in as -999
 c     
       integer pass
-      logical loop_azi,rot_tensor(0:max_layer)
+      logical loop_azi,rot_tensor(0:max_layer),use_newfile
       real*8 start_azi,stop_azi,dazi,azi_ref,azi_read
 c     for back-azimuth loops
 
+      use_newfile=.false.       ! default was to open a new file for each azimuth loop
+      
       do i=0,max_layer
          rot_tensor(i) = .false.
       enddo
       loop_azi = .true.
-      start_azi = 180d0
-      stop_azi = -178d0
-      dazi = -2.0d0             ! will be changed to 10 for "SI"
+      start_azi = 0d0
+      stop_azi = 360d0
+      dazi = 2.0d0             ! will be changed to 10 for "SI"
       azi_ref = start_azi
 c     
 c     
@@ -197,9 +199,9 @@ c
 c     
 c     main loop
 c
-c      print *,'OK start'
+c      print *,'OK start', azi_ref,stop_azi
       pass=0
-      do while(loop_azi.and.(azi_ref+dazi.ge.stop_azi)) ! main loop for azimuth scans
+      do while(loop_azi.and.(azi_ref+dazi.lt.stop_azi)) ! main loop for azimuth scans
 
          pass=pass+1
 
@@ -246,9 +248,14 @@ c      print *,'OK start'
                      loop_azi = .true.
                   endif
                endif
-!               print *,k,rot_tensor(k),loop_azi
+c               print *,k,rot_tensor(k),loop_azi, azi_read
                if((k.eq.1).and.(.not.rot_tensor(k)))then
-                  azi_ref = azi_read ! formally, use the read azi of the second layer 
+c     first layer
+                  if(azi_read .lt. -998)then
+                     loop_azi=.true.
+                  else
+                     azi_ref = azi_read ! formally, use the read azi of the second layer
+                  endif
                endif
                do  i=1,3
                   symlay(i,k)=sym33r(3,i)
@@ -319,7 +326,8 @@ c
             if(outs.eq.12)then ! write to file
                filename = out_file
                open (outs,file=filename)
-               print *,'anicake: writing to ',trim(filename)
+               print *,'anicake: writing to ',trim(filename),loop_azi
+               
             endif
             if(idisp.lt.3)then
 
@@ -352,12 +360,12 @@ c
 !     rotate the tensors further around the azimuth, axis 3
 !     
 !     
-            if(outs.eq.12)then ! write to file
+            if((outs.eq.12).and.(use_newfile))then ! write to file
                filename = trim(out_file) //  suffix
                open (outs,file=filename)
                print *,'anicake: looping: writing to ',trim(filename)
             endif
-
+c update azimuth
             azi_ref = azi_ref + dazi
 c
 c     only rotate a selection of tensors 
@@ -668,7 +676,7 @@ c         print *,freq,freqmax,ifreqc,imaxfreq
                else if(idisp.eq.6)then ! SI to stdout and also print out files for splitting intensity
                   bandphase = 'SI'
                   save_rt=.true.
-                  dazi = -10d0
+                  dazi = 10d0
                else if(idisp.eq.7)then ! SKS, second filter to stdout
                   bandphase = 'SK2'
                else if(idisp.eq.8)then ! SKS, third filter to stdout
@@ -753,7 +761,9 @@ c               print *,'writing rt to ',trim(filename)
          endif
 c     
          if(outs.ne.6)then
-            close (outs)
+            if((.not.loop_azi).and.(use_newfile))then
+               close (outs)
+            endif
          endif
          
                                 ! string to append to filenames
