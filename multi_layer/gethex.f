@@ -222,7 +222,7 @@ c Requires:  vera_zeroout,vera_fillout,vera_rotate,VERA_SYM_ROT,HUDSON,CAL_TENSO
          if(verbose)then
             print*, 'File to read tensor from: '
          endif
-      	 read(*,'(a)') tensorfile
+      	 read(*,('(a)')) tensorfile
       	 open(itensorfile,file=tensorfile)
          call vera_read_cijkl(c,itensorfile)
          close(itensorfile)
