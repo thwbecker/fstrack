@@ -268,7 +268,7 @@ subroutine spec_compute_seis(bandphase,qp,qsv,qsh,qpi,qsvi,qshi,&
   !       output of general time domain seismograms
   !       
      do i = 1,ntime
-        write(timefile,'(10f26.16)') (i-1)*dt, &
+        write(timefile,('(10f26.16)')) (i-1)*dt, &
              pxtrace(i),pytrace(i),pztrace(i),&
              svxtrace(i),svytrace(i),svztrace(i),&  
              shxtrace(i),shytrace(i),shztrace(i)	  
@@ -422,7 +422,7 @@ subroutine spec_print_seis(dt,imaxfreq,pxtrace,pytrace,pztrace,svxtrace,svytrace
   !       
   do i = 1,ntime
      ! don't change the output format here, skssplit_xcorr relies on it
-     write(filtfile,'(10f26.16)') (i-1)*dt, pxtrace(i),pytrace(i),pztrace(i),&
+     write(filtfile,('(10f26.16)')) (i-1)*dt, pxtrace(i),pytrace(i),pztrace(i),&
           svxtrace(i),svytrace(i),svztrace(i),	  &
           shxtrace(i),shytrace(i),shztrace(i)	  
   end do
@@ -441,10 +441,10 @@ subroutine spec_print_rt_seis(dt,ntime,imaxfreq,&
   integer :: i
 
   ! save the transverse and radial component for splitting intensity work
-  write(sifile,'(2(e26.14,1x))')dt,dt
+  write(sifile,('(2(e26.14,1x))'))dt,dt
   do i = 1,ntime
      !       transverse   radial
-     write(sifile,'(2(e26.14,1x))')-svytrace(i),-svxtrace(i)
+     write(sifile,('(2(e26.14,1x))'))-svytrace(i),-svxtrace(i)
   enddo
   close(sifile)
 end subroutine spec_print_rt_seis
