@@ -6,7 +6,7 @@
 !
 ! minor modification by TWB 
 !
-! $Id: vera_util.f90,v 1.8 2010/12/31 18:59:54 becker Exp becker $
+! $Id: vera_util.f90,v 1.8 2010/12/31 18:59:54 becker Exp twb $
 !
 !
 ! main routines: vera_slowness and vera__split_from_tensor
@@ -107,11 +107,10 @@ subroutine vera_layer_split_from_tensor_ftrn(cijkl,incidence,azimuth,&
      print *,'incidence: ',incidence
      stop
   endif
-  ! delay time is travel time slow - travel time fast
   dt = laythick / cos_inc * (1.d0/vsphase(2) - 1.0d0/vsphase(1))
   
   !         fast azimuth, in deg
-  faz = pif * atan2(sfaste,sfastn)
+  faz = pif * atan2(sfaste,sfastn)	    
   if(faz.lt.0)then 
      faz = faz + 360.d0
   endif
@@ -283,7 +282,7 @@ subroutine vera_print_splitting_ftrn(inc,az,sfastx,sfasty,faz,dt,filep)
   double precision :: inc,az,faz,dt,sfastx,sfasty
   integer :: filep
   !	    write inc, az, sfastx, sfasty, dt(layer) to file 
-  write(filep,'(f5.1,1x,f5.1,1x,f10.7,1x,f10.7,1x,f8.3,1x,f8.5)') &
+  write(filep,('(f5.1,1x,f5.1,1x,f10.7,1x,f10.7,1x,f8.3,1x,f8.5)')) &
        inc,az,sfastx,sfasty,faz,dt
 end subroutine vera_print_splitting_ftrn
 
@@ -321,6 +320,7 @@ end subroutine vera_fill_and_normalize_c2
 subroutine vera_c2c4(c,cc)   
   implicit none
   double precision ::  c(6,6),cc(3,3,3,3)
+  INTEGER :: i,j,k,l 
   
   cc = 0.d0
 
@@ -451,7 +451,7 @@ subroutine vera_print_c2_ftrn(c)
   implicit none
   double precision ::  c(6,6)
   INTEGER :: i,j
-  write(6,'(24(f5.1,1x))')0,0,0,((c(i,j),&
+  write(6,('(24(f5.1,1x))'))0,0,0,((c(i,j),&
        j=i,6),i=1,6)
   return 
 end subroutine vera_print_c2_ftrn
@@ -477,7 +477,7 @@ subroutine vera_print_cijkl_ftrn(cij,filep)
   implicit none
   double precision :: cij(3,3,3,3)
   integer :: i,j,k,l,filep
-  write(filep,'(1p,9(e14.6,1x))') ((((cij(i,j,k,l),&
+  write(filep,('(1p,9(e14.6,1x))')) ((((cij(i,j,k,l),&
        i=1,3),j=1,3),k=1,3),l=1,3)
   
 end subroutine vera_print_cijkl_ftrn
