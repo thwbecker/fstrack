@@ -140,7 +140,7 @@ int main(int argc, char **argv)
 	gc++;
 	sprintf(ofilename,"gamma.%i.dat",gc);
 	out = fopen(ofilename,"w");
-	for(ii=0;ii<drex->size;ii++)
+	for(ii=0;ii < drex->size;ii++)
 	  fprintf(out,"%11g\t%g\t %11g %11g\n",
 		  drex->odf[ii],
 		  drex->gamma_save[ii*3],

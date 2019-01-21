@@ -257,6 +257,8 @@ void harm_fit_func(double, double *, int, int);
 /* spline.c */
 void nr_spline(double *, double *, int, double, double, double *);
 void nr_splint(double *, double *, double *, int, double, double *, unsigned short, double *);
+/* split_fit.c */
+void calc_skfit_misfit(double, double, double, double, double, double, double *);
 /* splitting_util.c */
 void analyze_splitting_azi_dep(int, int, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, unsigned short, int);
 /* state_handling.c */

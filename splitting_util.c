@@ -42,8 +42,7 @@ ma_dt,sma_dt: same for dt
 
 
 
-note that to assemble the best-fit functions, you will need to 
-do
+note that to assemble the best-fit functions, you will need to do
 
 fazi_model = 	 mean_fazi + std_fazi * 
 		 evaluate_model(razi,npara,a_fazi, 

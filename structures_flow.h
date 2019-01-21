@@ -1,3 +1,4 @@
+#include "hc_ggrd.h"
 /* 
 
 structure to hold all variables that belong to derivative

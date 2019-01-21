@@ -1,12 +1,13 @@
 #include "fstrack.h"
 /* 
 
-convert a file with 
+   convert a file with 
 
-back_azi[deg] fast_azi[deg] dt[s]
+   back_azi[deg] fast_azi[deg] dt[s]
 
-into splitting statistics, can select if delay times are used for
- averaging or not (default is not)
+   into splitting statistics, can select if delay times are used for
+   averaging or not (default is not)
+   
 
 */
 #define MAX_NR_HARM 10

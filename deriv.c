@@ -125,7 +125,7 @@ void fse_derivs_wrapper(COMP_PRECISION time, COMP_PRECISION *y,
     determine alpha from the r,theta,phi location
 
     */
-    if(!ggrd_grdtrack_interpolate_rtp(y[0],y[1],y[2],dp->ggrd_alpha,&alpha,FALSE,FALSE)){
+    if(!ggrd_grdtrack_interpolate_rtp(y[0],y[1],y[2],dp->ggrd_alpha,&alpha,FALSE,FALSE,PREM_RE_KM)){
       PE("fse_derivs_wrapper: interpolation error with alpha grids");
       exit(-1);
     }
