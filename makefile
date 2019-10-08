@@ -140,9 +140,9 @@ FLOW_HDR_FILES = $(HDR_FILES) $(GGRD_HDR) fstrack_flow.h
 #
 # list of targets
 #
-all:  dirs libs tools seis_tools split_tools lpo_tools 
+all:  dirs libs tools seis_tools split_tools lpo_tools fstrack
 
-really_all: all all_libs fstrack fstrack.dbg stools \
+really_all: all all_libs fstrack.dbg stools \
 	fstrack.dfast sav2decompose.dbg testing 
 
 # strain-rate extraction tools
@@ -153,8 +153,10 @@ stools: extract_strain_field
 split_tools: 
 	cd prem; make; cd ../;\
 	cd single_layer; make; cd ../;\
-	cd multi_layer; make ; cd ../;\
-	cd menke_splitting; make ; cd ..;
+	cd multi_layer; make ; cd ../
+# Menke splitting now doesn't compile on Fedora 28 because of the xdr library or something like that
+#	cd menke_splitting; make ; cd ..;
+
 #
 # LPO tools
 lpo_tools: drex calc_lpo_from_streamline generate_vgm
@@ -173,7 +175,7 @@ tools: lpo_tools average_tracers  average_rphi_tracers \
 # seismic anisotropy interpretation tools
 seis_tools: sav2cijkl sav2splitting fazi2splitstat \
 	sav2decompose cijklrotate sav2rotate \
-	plot_kernel
+	plot_kernel split_fit
 #
 # debugging programs
 testing: test_stuff cFfromdiscreteG   sav2splitting.dbg calc_cornerflow # cart_tester
@@ -271,10 +273,11 @@ $(GGRD_LIB):
 # binaries
 #
 #
-fstrack: $(LIBS)  $(FSTRACK_OBJS) $(ODIR)/main.o 
+fstrack: $(LIBS)  $(FSTRACK_OBJS) $(ODIR)/main.o $(FLOW_LIBS)
 	$(CC) -o $(BDIR)/fstrack $(FSTRACK_OBJS) $(ODIR)/main.o \
 	-L$(ODIR)/  -lpt -ladvect   -lder  -lpt  -lmiscio \
-	-llinalg $(DREX_LIBS) $(GGRD_LIBS) $(GMTLIBS) $(EISLIBS)  $(MATHLIBS) $(FTRN_LIB) \
+	-llinalg $(DREX_LIBS) $(GGRD_LIBS) \
+	$(GMTLIBS) $(EISLIBS)  $(MATHLIBS) $(FTRN_LIB) \
 	$(LDFLAGS) 
 
 calc_lpo_from_streamline: $(LIBS) $(ODIR)/calc_lpo_from_streamline.o
@@ -386,6 +389,13 @@ plot_kernel: $(LIBS) $(ODIR)/plot_kernel.o
 sav2splitting: $(LIBS) $(ODIR)/sav2splitting.o $(PREM_OBJS)
 	$(CC) $(INCLUDES) $(ODIR)/sav2splitting.o $(PREM_OBJS) \
 		-o $(BDIR)/sav2splitting -L$(ODIR)/  -lmiscio   -lpt    \
+		-llinalg $(VERA_LIBS) \
+		$(DREX_LIBS) $(EISLIBS)  $(MATHLIBS) \
+		$(FTRN_LIB) $(LDFLAGS) $(VERA_LIBS) 
+
+split_fit: $(LIBS) $(ODIR)/split_fit.o $(PREM_OBJS)
+	$(CC) $(INCLUDES) $(ODIR)/split_fit.o $(PREM_OBJS) \
+		-o $(BDIR)/split_fit -L$(ODIR)/  -lmiscio   -lpt    \
 		-llinalg $(VERA_LIBS) \
 		$(DREX_LIBS) $(EISLIBS)  $(MATHLIBS) \
 		$(FTRN_LIB) $(LDFLAGS) $(VERA_LIBS) 
