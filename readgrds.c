@@ -335,8 +335,11 @@ void read_vel_grids(struct mod *model, my_boolean verbose,
 	   test the frozen/non-frozen routine, this is for debugging only
 	*/
 	x[FSTRACK_R] = ND_RADIUS(100);
-	for(x[FSTRACK_PHI]=LONGITUDE2PHI(0.0);x[FSTRACK_PHI]<=LONGITUDE2PHI(360.0)+1e-5;x[FSTRACK_PHI]+=DEG2RAD(1.0))
-	  for(x[FSTRACK_THETA]=LATITUDE2THETA(89);x[FSTRACK_THETA]<=LATITUDE2THETA(-89)+1e-5;x[FSTRACK_THETA]+=DEG2RAD(1.0)){
+	for(x[FSTRACK_PHI]=LONGITUDE2PHI(0.0);
+	    x[FSTRACK_PHI]<=LONGITUDE2PHI(360.0)+1e-5;x[FSTRACK_PHI]+=DEG2RAD(1.0))
+	  for(x[FSTRACK_THETA]=LATITUDE2THETA(89);
+	      x[FSTRACK_THETA]<=LATITUDE2THETA(-89)+1e-5;
+	      x[FSTRACK_THETA]+=DEG2RAD(1.0)){
 	    fse_derivs_wrapper(0.0,x,dx,12,MDP,vp,vgm,TRUE,TRUE,&frozen,
 			       MDP->strain_fraction_from_gamma);
 	    fprintf(stdout,"%g %g %i\n",PHI2LONGITUDE(x[FSTRACK_PHI]),
