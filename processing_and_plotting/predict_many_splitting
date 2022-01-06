@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+# run a bunch of splitting prediction routines for SAF, or GRE
+#
+models=${1-"pmDnngrand_nt_med med1 med2 med3 pmDsmean_nt pmDnngrand_nt pmDsmean_nt_ol_only pmDstein pmFsmean_nt"}
+types=${2-"SAF.s.0.5 SAF.s.3 SAF.s.2 GRE.s.0.5 GRE.s.2"}	# 
+prepare=${3-1}
+pbs=${4-1}
+
+
+c=1
+for m in $models;do
+    for t in $types ;do
+	for k in sav savd;do
+	    if [ -s $m/results/tracer.$k.100.$t.dat.gz ];then
+		if [ $c -eq 1 ];then
+		    predict_splitting_region $m $t $k $prepare becker64 $pbs
+		    c=0
+		else
+		    predict_splitting_region $m $t $k $prepare scec $pbs
+		    c=1
+		fi
+
+	    fi
+
+	done
+
+    done
+
+done

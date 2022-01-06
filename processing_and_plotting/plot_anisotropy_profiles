@@ -1,0 +1,291 @@
+#!/bin/bash
+#
+# plot regional maps of anisotropy and sample a geodynamic model at certain locations
+#
+lon0=${1--146}
+lat0=${2-9}
+pmap=${3-1}			# maps
+pp=${4-1}			# best estimate profiles
+name=${5-shatsky}
+
+reg=`echo $lon0 $lat0 30 | gawk '{printf("-R%g/%g/%g/%g",$1-$3/2,$1+$3/2,$2-$3/2,$2+$3/2)}'`
+
+iinc=-I0.1			# for interpolation
+
+#proj=-JH`echo $reg | gawk -f reg2midlon.awk`/7
+proj=-JM7
+
+gltype=er.savd;gmodel=safs417nc_er;gd=150;gstrain=0.75 # geodyn anisotropy model
+#gltype=er.savd;gmodel=safs417nc3_er;gd=150;gstrain=0.75 # geodyn anisotropy model
+#gltype=savd;gmodel=safn5h;gd=150;gstrain=0.75 # geodyn anisotropy model
+glayer=36				# velocity layer
+
+#rl=24;rmodel=s362wmani		# radial anisotropy and layer, 150
+
+rl=24;rmodel=savani		# radial anisotropy and layer, 138
+rref=0
+#rref=1				# 0: total xi 1: rel to oceanic mean
+
+
+#za=150.0;amodel=lh08		# azimuthal anisotropy 
+zal=12;amodel=sl2013sva;amodel_dir=sl2013/Models/New/SL2013svA/
+
+addl=1
+
+
+rmode=$lon0.$lat0
+
+if [ $pmap -eq 1 ];then
+    
+    ofile=preg.$rmode.ps
+    
+    #grdimage $reg $proj $datadir/seafloor_age/globalage_1.6.grd -C$datadir/seafloor_age/age.cpt \
+    makecpt -Cocean -T-8000/-1500/250 -D > mtopo.cpt
+    
+    grdimage $reg $proj $datadir/etopo1/ETOPO1_Bed_g_gmt4.grd -Cmtopo.cpt \
+	     -K -P -Ba5f1WesN > $ofile
+    
+    vinc=-I6
+    vscale=-S7
+    # plate velocities, SA frame
+    grdvector $datadir/plates/morvel.vx.0.25.sa.grd $datadir/plates/morvel.vy.0.25.sa.grd  \
+        -T -Q0.05/0.2/0.07n0.25 -R -O $vinc $vscale -J -K -Gwhite -W0.5 >> $ofile 
+
+    # flow velocities at surface
+    nl=`lc $gmodel/vdepth.dat`
+    grdmath $gmodel/vt.$nl.grd NEG = tmp.$$.grd
+    grdvector $gmodel/vp.$nl.grd tmp.$$.grd  \
+	      -T -Q0.05/0.2/0.07n0.25 -R -O $vinc $vscale -J -K -Gcyan -W0.5 >> $ofile 
+    rm tmp.$$.grd
+
+    
+    # flow velocities at depth 
+    grdmath $gmodel/vt.$glayer.grd NEG = tmp.$$.grd
+    grdvector $gmodel/vp.$glayer.grd tmp.$$.grd  \
+	      -T -Q0.05/0.2/0.07n0.25 -R -O $vinc $vscale -J -K -Gred -W0.5 >> $ofile 
+    rm tmp.$$.grd
+    vdepth=`oneline $glayer $gmodel/vdepth.dat | gawk '{printf("%.0f",-$1)}'`
+
+    
+    psscale -D2/-.5/4/.2h -Cmtopo.cpt -B2000/:"depth [m]": -O -K >> $ofile
+    pscoast -Df -R -J -O -W0.5 -K >> $ofile
+    echo $lon0 $lat0 | psxy -R -K -O -J -Sa.5 -Gyellow -W0.5 >> $ofile
+    #psxy ~becker/data/plate_boundaries/nuvel_without_greenwich_crossing.yx  -m -: \
+    #		    -R -J  -O -K   -W6,blue  >> $ofile
+    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt -m  \
+	 -R -J  -O -K   -W1,orange  >> $ofile
+    echo 0.025 0.05 20 0 0 LM "SA-APM"  | pstext -R0/1/0/1 -Wblack -JX7 -O -K -Gwhite >> $ofile
+    echo 0.35 0.05 20 0 0 LM "NNR (surface)"  | pstext -R0/1/0/1 -Wblack -JX7 -O -K -Gcyan >> $ofile
+    echo 0.7 0.05 20 0 0 LM "NNR ($vdepth km)"  | pstext -R0/1/0/1 -Wblack -JX7 -O -K -Gred >> $ofile
+
+    
+    rz=`oneline $rl $datadir/tomography/$rmodel/depths.dat`
+    # radial anisotropy
+    grdsample -Ql -I0.1 $reg -Gtmp.$$.grd $datadir/tomography/$rmodel/xi.$rl.grd 
+    if [ $rref -eq 1 ];then
+	grd2geo_mean_cont_ocean  $datadir/tomography/$rmodel/xi.$rl.grd > tmp.$$
+	read gmean cmean omean < tmp.$$; rm tmp.$$
+	omeans=`echo $omean | gawk '{printf("%5.2f",$1)}'`
+	grdmath tmp.$$.grd $omean SUB = tmp.$$.2;mv tmp.$$.2 tmp.$$.grd
+	makecpt -Cpolar -T-0.05/0.05/0.005 > xi.cpt
+	label="@~d@~@-o@-@~x@~"
+    elif [ $rref -eq 0 ];then
+	makecpt -Chaxby -T1/1.15/0.001 > xi.cpt
+	label="@~x@~"
+    fi
+    
+    grdimage $reg $proj -X8 tmp.$$.grd -Cxi.cpt -K  -Ba5f1wesN -O >> $ofile
+    rm tmp.$$.grd
+    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt -m  \
+	 -R -J  -O -K   -W1,blue  >> $ofile
+    
+
+ 
+    # geodynamics
+    zcat $gmodel/results/tracer.$gltype.$gd.s.$gstrain.dat.gz | \
+	sav2decompose 4 0.7 0 -1 > tmp.$$.in 2> /dev/null
+    gawk -v s=6 \
+         '{if(NR%3==1)print($1,$2,atan2($6,-$5)*57.29578,sqrt(1.0-$4*$4)*$7/s)}' tmp.$$.in |\
+	psxy -O -R -J -K -SVB0.07/0/0 -Ggray -W0.5 >> $ofile
+    
+    sd=`gawk -v i=$zal '{if(NR==i)printf("%g",$1)}' $datadir/tomography/$amodel/depths.dat`
+    echo $amodel $sd
+    cp $datadir/tomography/$amodel/$amodel.$zal.2pam.grd  tmp.$$.amp
+    cp $datadir/tomography/$amodel/$amodel.$zal.2pazi.grd tmp.$$.azi
+    #cp $datadir/tomography/$amodel_dir/$amodel.$zal.2pam.grd  tmp.$$.amp
+    #cp $datadir/tomography/$amodel_dir/$amodel.$zal.2pazi.grd tmp.$$.azi
+    
+    # 2psi
+    grdmath tmp.$$.azi  SIN tmp.$$.amp MUL = tmp.$$.vx
+    grdmath tmp.$$.azi  COS tmp.$$.amp MUL = tmp.$$.vy
+    gmt_plot_vector_field tmp.$$.vx tmp.$$.vy $reg $proj "-Q0.075/0/0 -Gwhite -W0.5" 1 5 $ofile 0 $addl
+
+    # splitting
+    #sks_vec="-SVB0.04/0.02/0.02 -Ggray -W0.5";sks_scale=0.2
+    sks_vec="-SVB0.06/0.06/0.06 -Gcyan -W0.5";sks_scale=0.5
+    
+    gawk '{if($8==1){amp=$6*scl;if(amp!=0){print($3,$2,$4,amp)}}}' \
+	 scl=$sks_scale $datadir/splitting/allwuest.tele.avg.table | \
+	psxy $reg $proj -O -K $sks_vec >> $ofile
+
+    echo 0.025 0.05 20 0 0 LM "$amodel ($sd km)"  | pstext -R0/1/0/1 -Wblack -JX7 -O -K -Gwhite >> $ofile
+    echo 0.44 0.05 20 0 0 LM "SKS"  | pstext -R0/1/0/1 -Wblack -JX7 -O -K -Gcyan >> $ofile
+    echo 0.55 0.05 20 0 0 LM "$gmodel ($gd km)"  | pstext -R0/1/0/1 -Wblack -JX7 -O -K -Ggray >> $ofile
+
+    
+    if [ $rref -eq 1 ];then
+	psscale -D2/-.5/4/.2h -Cxi.cpt -B0.025/:"$label @@ $rz km, @~\341x@~@-o@-@~\361@~ = $omeans": -O -K >> $ofile
+    elif [ $rref -eq 0 ];then
+	psscale -D3.5/-.5/4/.2h -Cxi.cpt -B0.05/:"$label @@ $rz km": -O -K >> $ofile
+    fi
+    #psxy ~becker/data/plate_boundaries/nuvel_without_greenwich_crossing.yx -m -: \
+    #		    -R -J  -O -K   -W5,blue  >> $ofile
+    
+    echo $lon0 $lat0 | psxy $reg $proj  -K -O -Sa.5 -Gyellow -W0.5 >> $ofile
+    
+    
+    pscoast -Df -R -J -O -W0.5 >> $ofile
+    
+    modifybb $ofile 1 2> /dev/null
+    echo $0: output in $ofile
+    convert -density 300 -background white -flatten preg.$rmode.ps $HOME/tmp/preg.$rmode.png
+
+fi
+if [ $pp -eq 1 ];then
+    #
+    #
+    # extract scaling parameters 
+    #
+    #
+    
+    #    for gdd in 37 50 75 88 100 113 125 150 175 200 225 250 275 300 325 350;do
+    
+    
+    #rm pa.?.$name.$rmode.best 2> /dev/null
+    if [ ! -s pa.1.$name.$rmode.best ];then
+	echo $0: computing best estimates of TI and radial parameters
+	
+	for gdd in 50 100  150 200  250  300 350;do
+	    
+	    #                                4       5       6      7
+	    # format will be: lon lat depth ti_r ti_theta ti_phi ti_amp[%] iso hex tet ort mon tri 
+	    zcat $gmodel/results/tracer.$gltype.$gdd.s.$gstrain.dat.gz | sav2decompose  4 0.7 0 -1 > tmp.$$.ti 2> /dev/null # TI axes
+	    #                                              6         7                         9  10   11
+	    # format will be: lon lat depth K[Gpa] G[Gpa] vsh[km/s] vsv[km/s] 50log10(vsh/vsv) chi phi eta sqrt(B_c^2+B_s^2)/A sqrt(H_c^2+H_s^2)/F  sqrt(G_c^2+G_s^2)/L
+	    # (i checked that this gave the same results as the sav2afactor computation below which i somehow preferred from time back)
+	    zcat $gmodel/results/tracer.$gltype.$gdd.s.$gstrain.dat.gz | sav2decompose 22 0.7 0 -1 > tmp.$$.love1 2> /dev/null # Love factors, version one
+	    #                                                                               14 15  16
+	    # format will be: lon lat depth a1 a2 a3 a4 B_c/A B_s/A H_c/F H_s/F G_c/L G_s/L xi phi eta rho A C N L T b1 b2 b3 b4 C_c/N C_s/N C_c/A C_s/A 
+	    #zcat $gmodel/results/tracer.$gltype.$gdd.s.$gstrain.dat.gz | sav2afactor 50 > tmp.$$.love2 2> /dev/null # Love factors, version two
+	    #head -1 tmp.$$.ti | gawk '{print($1,$2,$4,$5,$6,$7)}'
+	    #head -1 tmp.$$.love1 | gawk '{print($1,$2,$9,$10,$11)}'
+	    # that vvoigt = sqrt(0.333333333333333 * vsh * vsh + 0.666666666666667 * vsv * vsv);
+	    #head -1 tmp.$$.love2 | gawk '{print($1,$2,$14,$15,$16)}'
+	    gawk '{print($1,$2,$4,$5,$6,$7)}' tmp.$$.ti | gmtselect $reg -fg > pa.1.$name.$rmode.$gdd.dat
+	    #gawk '{print($1,$2,$14,$15,$16)}' tmp.$$.love2 | gmtselect $reg -fg > pa.2.$name.$rmode.$gdd.dat
+	    gawk '{print($1,$2,$9,$10,$11,($6-$7)/sqrt(1/3*$6**2+2/3*$7**2)*100)}' tmp.$$.love1 | gmtselect $reg -fg > pa.2.$name.$rmode.$gdd.dat 
+	    
+	    for m in 1 2;do		# TI and love
+		# find best estimate by interpolation
+		j=1 
+		for i in 3 4 5 6;do
+		    gawk -v i=$i '{print($1,$2,$i)}'  pa.$m.$name.$rmode.$gdd.dat | surface $reg $iinc -fg -Gtmp.$$.grd
+		    val[$j]=`echo $lon0 $lat0 |grdtrack -fg -Gtmp.$$.grd -Z`
+		    std[$j]=`grd2std tmp.$$.grd`
+		    ((j=j+1))
+		done
+		echo $lon0 $lat0 $gdd ${val[1]} ${std[1]} ${val[2]} ${std[2]} ${val[3]} ${std[3]} ${val[4]} ${std[4]}  >> pa.$m.$name.$rmode.best
+	    done
+	    
+	    
+	    rm pa.?.$name.$rmode.$gdd.dat
+	    
+	done
+	echo $0: best estimates of TI
+	cat pa.1.$name.$rmode.best
+	
+	echo $0: best estimates of xi phi eta va
+	cat pa.2.$name.$rmode.best    
+    else
+	echo $0: WARNING: reusing  pa.?.$name.$rmode.best
+
+    fi
+    #profiles of best estimates from geodynamics
+    ofile=preg.p.$rmode.ps
+    yl0=280
+    lw=8
+    # 
+    psbasemap -JX3/-6 -R0.75/1.2/50/350 -P -K -Ba.1g1f0.01:"@~x, f, h@~":/a50f10:"depth [km]":WeSn > $ofile
+    col=darkgray
+    # 2: global 4: young oc 8: old ocean 16: oceanic average xi
+    gawk '{print($1,$16)}' $gmodel/love.s.$gstrain.chi.dat | spline_sample | gawk '{print($2,$1)}' | psxy -R -J -W12,$col -O -K >> $ofile 
+    #    gawk '{print($1,$4)}' $gmodel/love.s.$gstrain.chi.dat | spline_sample | gawk '{print($2,$1)}' | psxy -R -J -W12,$col,- -O -K >> $ofile 
+    #    gawk '{print($1,$8)}' $gmodel/love.s.$gstrain.chi.dat | spline_sample | gawk '{print($2,$1)}' | psxy -R -J -W12,$col,. -O -K >> $ofile 
+    echo 1.15 75 22 0 0 CM "@~\341x@~@-o@-@~\361@~" | \
+	pstext -G$col -R -J -O -K -B:"`echo $lon0 $lat0 | gawk '{printf("lon %.1f@+o@+, lat %.1f@+o@+",$1,$2)}'`":wesN >> $ofile
+    
+
+    
+    yl=$yl0
+    for i in 1 2 3;do
+	if [ $i -eq 1 ];then	# xi
+	    col=red
+	    label=@~x@~
+	elif [  $i -eq 2 ];then	# phi
+	    col=blue
+	    label=@~f@~
+	elif [ $i -eq 3 ];then	# eta
+	    col=darkgreen
+	    label=@~h@~
+	fi
+	gawk -v i=$i '{print($3,$(3+(i-1)*2+1))}' pa.2.$name.$rmode.best | spline_sample | gawk '{print($2,$1)}' | psxy -R -J -W$lw,$col -O -K >> $ofile 
+	gawk -v i=$i '{print($(3+(i-1)*2+1),$3,$(3+(i-1)*2+2))}' pa.2.$name.$rmode.best  | psxy -Ss.1 -Ex0.1/2,$col -W0.5 -N -R -J -G$col -O -K >> $ofile 
+	echo 1.15 $yl 22 0 0 CM "$label" | pstext -G$col -R -J -O -K >> $ofile
+	((yl=yl+25))
+    done
+    # velocitiy anomaly
+    psbasemap -X3.2 -JX3/-6 -R-5/7/50/350 -P -K -Ba2g10f0.4:"(v@-SH@--v@-SV@-)/v@-S@- [%]":/a50f10:"depth [km]":weSn -O >> $ofile
+    i=4;col=darkcyan
+    gawk -v i=$i '{print($3,$(3+(i-1)*2+1))}' pa.2.$name.$rmode.best | spline_sample | gawk '{print($2,$1)}' | psxy -R -J -W$lw,$col -O -K >> $ofile 
+    gawk -v i=$i '{print($(3+(i-1)*2+1),$3,$(3+(i-1)*2+2))}' pa.2.$name.$rmode.best  | psxy -Ss.1 -Ex0.1/2,$col -W0.5 -N -R -J -G$col -O -K >> $ofile 
+    echo -4 $yl0 22 0 0 ML "radial" | pstext -R -J -K -O -G$col >> $ofile
+    ((yl=yl0+25))
+    # azimuthal anomaly
+    i=4;col=darkorange
+    gawk -v i=$i '{print($3,$(3+(i-1)*2+1))}' pa.1.$name.$rmode.best | spline_sample | \
+	gawk '{print($2,$1)}' | psxy -R -J -W$lw,$col -O -K >> $ofile 
+    gawk -v i=$i '{print($(3+(i-1)*2+1),$3,$(3+(i-1)*2+2))}' pa.1.$name.$rmode.best  | \
+	psxy -B:"(v@-SV1@--v@-SV2@-)/v@-SV@- [%]:"wesN -Ss.1 -Ex0.1/2,$col -W0.5 -N -R -J -G$col -O -K >> $ofile 
+    echo -4 $yl 22 0 0 ML "azimuthal" | pstext -R -J -K -O -G$col >> $ofile
+    # azimuthal properties
+    psbasemap -X3.2 -JX3/-6 -R0/180/50/350 -P -K -Ba30g90f5:"@~a, d@~ [@+o@+]":/a50f10:"depth [km]":weSn -O >> $ofile
+    yl=$yl0
+    for i in 1 2;do
+	if [ $i -eq 1 ];then
+	    col=red;label="@~a@~"	# azimuth, limit to 0... 180
+	    gawk  -v p=`pif` '{print(p*atan2($8,-$6),$3)}' pa.1.$name.$rmode.best | gawk -f dir2orient.awk | \
+		gawk '{print($2,$1)}' | spline_sample | gawk '{print($2,$1)}' | psxy -R -J -W$lw,$col -O -K >> $ofile 
+	    gawk  -v p=`pif` '{print(atan2($8,-$6)*p,$3)}' pa.1.$name.$rmode.best | gawk -f dir2orient.awk | \
+		psxy -R -J -Ss.1 -G$col -W0.5 -O -K -N >> $ofile 
+	else
+	    # dip
+	    col=blue;label="@~d@~"	# azimuth
+	    gawk  -v p=`pif` '{print($3,90+p*atan2($4,sqrt($8**2+$6**2)))}' pa.1.$name.$rmode.best | \
+		spline_sample | gawk '{print($2,$1)}' | psxy -R -J -W$lw,$col -O -K >> $ofile 
+	    gawk  -v p=`pif` '{print(90+p*atan2($4,sqrt($8**2+$6**2)),$3)}' pa.1.$name.$rmode.best | \
+		psxy -R -J -Ss.1 -G$col -W0.5 -O -K -N >> $ofile 
+	    
+	fi
+  	echo 150 $yl 22 0 0 CM "$label" | pstext -G$col -R -J -O -K >> $ofile
+	((yl=yl+25))
+    done
+    echo 1000 1000 | psxy -R -J -O >> $ofile
+    
+    modifybb $ofile 1 2> /dev/null
+    echo $0: output in $ofile
+    convert -density 300 -background white -flatten preg.p.$rmode.ps $HOME/tmp/preg.p.$rmode.png
+fi
+rm tmp.$$.* 2> /dev/null
+
+
+

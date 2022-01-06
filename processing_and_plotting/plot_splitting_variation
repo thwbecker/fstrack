@@ -1,0 +1,162 @@
+#!/bin/bash
+#
+# plot predicted splitting from predict_splitting outputs
+#
+# $Id$
+#
+model=${1-pmDsmean_nt}		# model name
+type=${2-SAF.s.2}		# type of flow model
+var=${3-1}			# variable tensors?
+rcode=${4-1}			# region code
+both=${5-1}			# 0: plot average 1: plot reflectivity multi-layer 
+                                # 2: both avg and reflectivity
+
+splittingdata=$datadir/splitting/socal.table
+
+#svectele="-SV-0.05/0.06/0.06 -G254/102/0 -W0.5/1/1/1" # teleseismic splitting
+svectele="-SV-0.05/0.0/0.0 -G254/102/0 -W0.25/0" # teleseismic splitting
+
+if [ $var -eq 1 ];then
+    savfile="savd"
+    varlabel="SC tensors vary with T, p"
+else				# constant tensors with depth
+    savfile="sav"
+    varlabel="constant SC tensors"
+fi
+
+preg=`region_parameters $rcode 3`
+rname=`region_parameters $rcode 7`
+proj=`region_parameters $rcode 4`
+#ann=`region_parameters $rcode 6`
+ann=-Ba5f1WeSn
+pscr=`region_parameters $rcode 13`
+# schmid type projection
+#preg=-R18/34/32/45 ;proj=-JB12/35/30/42/7;pscr="-Df -N1";ann=-Ba10f2WeSn
+
+topo=1;
+
+ofile=$HOME/tmp/$model.$savfile.$type.splitting.ps
+
+tmpn=/tmp/tmp.$$
+
+psbasemap $preg $proj $ann -P -K > $ofile
+if [ $topo -eq 0 ];then
+    pscoast -O -K $preg $proj $pscr -G200 >> $ofile
+else
+#    makecpt -Ctopo > dem.cpt
+     makecpt -T-4000/2000/200 -Clighter_gray >dem.cpt
+#    makecpt -T-4000/2000/200 -Chot >dem.cpt
+    grdcut  $datadir/etopo2/etopo2.grd  $preg -G$tmpn.grd
+    grdgradient -A65 -Nt $tmpn.grd -G$tmpn.i.grd
+    grdimage $tmpn.grd -I$tmpn.i.grd $preg $proj -Cdem.cpt -O -K >> $ofile
+    rm $tmpn.*.grd
+    pscoast -O -K $preg $proj $pscr -W5 >> $ofile
+fi
+#psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+gawk -f prickbry.awk $HOME/plates/rick_plates/data/med_bdrys | \
+    psxy -M $preg  $proj  -O -K   -W8/200/0/0  >> $ofile
+
+
+ifile=$model/results/tracer.splitting.$type.$savfile.dat
+if [ ! -s $ifile ];then
+    echo $0: error: $ifile not found
+    exit
+fi
+#emacs $ifile
+scale=.2
+#
+# select data, input file is
+#  1   2  sav averages                  t_i                  from splitting
+#           3                            7                   11                13
+# lon lat mean_fazi d_fazi mean_dt d_dt t_r t_t t_p hex_frac mean_fazi d_fazi mean_dt d_dt 
+#
+#
+#gawk '{if((($1-0.5)%1==0)&&(($2-0.5)%1==0))print($0}}' > tmp.dat
+cp $ifile tmp.dat
+
+piecol=0/0/200
+#
+# plot splitting
+#
+if [[ $both -eq 0 || $both -eq 2 ]];then
+#
+# MEAN LAYER
+#
+#
+    if [ -s $splittingdata ];then
+# data
+	gawk -v s=$scale '{amp=$6*s;print($3,$2,$4,amp)}' $splittingdata | \
+	    mypsxy $preg $proj   -O -K $svectele   >> $ofile
+    fi
+    
+#
+# predicted splits
+#
+# length variation
+    if [ $both -eq 2 ];then
+	label="mean $type"
+    else
+	label=""
+    fi
+    gawk -v s=$scale '{print($1,$2,$3,($5+$6)*s)}' tmp.dat | \
+	mypsxy -SV-0.03/0/0 -G0 -W1 $preg $proj  -O -K -B:."$label": >> $ofile
+# angular variation
+    gawk -v s=$scale '{dx=$4;if(dx<7)dx=7;print($1,$2,($5-$6)*s,$3-dx,$3+dx);\
+    print($1,$2,($5-$6)*s,180+$3-dx,180+$3+dx)}' tmp.dat | \
+	mypsxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+
+fi
+
+#
+#
+# INDIVIDUAL
+#
+if [ $both -eq 2 ];then
+    psbasemap $preg $proj -Ba2f.2g1wESn:."reflectivity (@~d@~t reduced by 5)": -X7.5 -O -K >> $ofile
+    if [ $topo -eq 0 ];then
+	pscoast -O -K $preg $proj $pscr -G200 >> $ofile
+    else
+	grdimage $datadir/etopo2/etopo2.grd $preg $proj -Cdem.cpt -O -K >> $ofile
+	pscoast -O -K $preg $proj $pscr -W1 >> $ofile
+    fi
+    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+	$preg  $proj  -O -K   -W5/200/0/0  >> $ofile
+
+    echo -.05 1.1 22 0 0 MC "$varlabel" | pstext -R0/1/0/1 -N -JX7 -O -K >> $ofile
+ 
+fi
+
+if [[ $both -eq 2 || $both -eq 1 ]];then
+    if [ -s $splittingdata ];then
+# data
+	gawk -v s=$scale '{amp=$6*s;print($3,$2,$4,amp)}' $splittingdata | \
+	    mypsxy $preg $proj   -O -K $svectele   >> $ofile
+    fi
+# fazi 11 sfazi 12 dt 13 sdt 14
+# length variation
+    gawk -v s=$scale '{print($1,$2,$11,($13+$14/5)*s)}' tmp.dat | \
+	mypsxy -SV-0.03/0/0 -G0 -W1 $preg $proj  -O -K >> $ofile
+# angular variation
+    gawk -v s=$scale '{dx=$12;if(dx<7)dx=7;print($1,$2,($13-$14/5)*s,$11-dx,$11+dx);\
+    print($1,$2,($13-$14/5)*s,180+$11-dx,180+$11+dx)}' tmp.dat | \
+	mypsxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+
+fi
+echo 100 1000 | psxy $preg $proj -O >> $ofile
+    
+
+echo $0: output in $ofile
+
+if [ $both -eq 2 ];then
+    epsmerge --orientation Landscape -x 1 -y 1 --print --postscript -par \
+	$ofile > tmp.ps 2> /dev/null; mv tmp.ps $ofile
+fi
+
+gv $ofile &
+#convert $ofile $HOME/tmp/$model.$savfile.$type.splitting.png
+#rm tmp.dat
+
+
+
+
+

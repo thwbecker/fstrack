@@ -1,0 +1,75 @@
+#!/bin/bash
+#
+# plot predicted splitting
+#
+model=${1-pmDsmean_nt}		# model
+z=${2-50}			# depth
+type=${3-s.0.5}			# type of flow model
+var=${4-0}			# variable tensors?
+rcode=1				# region code
+
+layerd=50
+if [ $var -eq 1 ];then
+    savfile="savd"
+    density=`echo $z | readprem_z | gawk '{print($3/1000)}'`
+else				# constant tensors with depth
+    savfile="sav"
+    density=3.353
+fi
+
+preg=`region_parameters $rcode 3`
+rname=`region_parameters $rcode 7`
+proj=`region_parameters $rcode 4`
+ann=`region_parameters $rcode 6`
+pscr=`region_parameters $rcode 13`
+
+
+
+ofile=$model.$savfile.$type.$z.splitting.eps
+
+psbasemap $preg $proj -Ba2f.2g1WeSn -P -K > $ofile
+
+pscoast -O -K $preg $proj $pscr -G200 >> $ofile
+
+
+
+zcat $model/results/tracer.$savfile.$z.$rname.$type.dat.gz > tmp.dat
+sav2splitting tmp.dat 1 0 $layerd $density > tmp.splitting.dat
+zcat $model/results/tracer.f.s.$z.$rname.$type.dat.gz | gawk '{print($4,$5,$6,$7,$8,$9)}' | eigen3ds | \
+    gawk '{e1=$9;e2=$5;e3=$1;e1r=$10;rh2=1.0-e1r*e1r;e1t=$11;e1p=$12;e1h=(e2!=0)?(log(e1/e2)*sqrt(rh2)):(log(e1/e3)*sqrt(rh2));\
+           a=atan2(e1p,-e1t)*57.29578;if(a<0)a+=360;print(a,e1h);}' > tmp.2
+zcat $model/results/tracer.f.s.$z.$rname.$type.dat.gz | gawk '{print($1,$2)}' > tmp.1
+paste tmp.1 tmp.2 > tmp.fse.dat 
+
+each=4;scale=.75
+
+#
+# plot splitting
+#
+# length variation
+gawk -v e=$each -v s=$scale '{if(NR%e==0)print($1,$2,$4,($6+$7)*s)}' tmp.splitting.dat | \
+    mypsxy -SV-0.03/0/0 -G0 -W1 $preg $proj  -O -K >> $ofile
+# angular variation
+gawk -v e=$each -v s=$scale '{if(NR%e==0){dx=$5;if(dx<7)dx=7;print($1,$2,($6-$7)*s,$4-dx,$4+dx);\
+    print($1,$2,($6-$7)*s,180+$4-dx,180+$4+dx)}}' tmp.splitting.dat | \
+    mypsxy -SW -W1 -G180 $preg $proj  -O -K >> $ofile
+#
+# FSE
+#
+fsescale=`minmax -C tmp.fse.dat | gawk '{print(0.4/$8)}'`
+
+gawk -v e=$each '{if(NR%e==0){print($1,$2,$3,$4*scl)}}' scl=$fsescale tmp.fse.dat | \
+    mypsxy  -SV-0.03/0/0  -W1 -G0/0/200 $preg $proj  -O -K >> $ofile
+#
+# TI axes
+#
+gawk -v e=$each -v s=$scale '{if(NR%e==0){if($13>0){print($1,$2,$14,$15/3*s)}}}' tmp.splitting.dat | \
+    mypsxy -SV-0.05/0/0  -W1/200/0/0 $preg $proj  -O -K >> $ofile
+
+
+echo 100 1000 | psxy $preg $proj -O >> $ofile
+
+echo $0: output in $ofile
+
+#rm tmp.splitting.dat tmp.fse.dat tmp.1 tmp.2
+

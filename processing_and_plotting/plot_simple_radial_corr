@@ -1,0 +1,80 @@
+#!/bin/bash
+
+tmodels="savani_xi semum2.xi"
+
+lmax=31
+
+strain=0.75
+zmin=50;zmax=350;dz=50
+
+grdmath $HOME/plates/paleo_spreading/ocean_for_gsh.1.grd 0 NAN $HOME/plates/paleo_spreading/ocean_for_gsh.1.grd ADD 2 DIV = tmp.mask.grd
+lmax_expand=8
+
+for m in safs417nc3 safs417nc3_er;do
+    
+    rfile=sh_xi_models/cc.$m.dat # cross correlation
+    if [ ! -s $rfile ];then
+
+	z=$zmin
+	while [ $z -le $zmax ];do
+	    
+	    extract_layer sh_xi_models/$m.s.$strain.$lmax.m.ab $z  2> /dev/null     | abconvert 0 0 1 0 $lmax_expand 2> /dev/null | shsyn 1 0 tmp.1 2> /dev/null
+	    gmean=`grd2geo_mean tmp.1.grd `
+	    out="$z $gmean "
+	    for t in $tmodels;do
+		extract_layer $datadir/tomography/models/$t.$lmax.m.ab $z  2> /dev/null | abconvert 0 0 1 0 $lmax_expand 2> /dev/null | shsyn 1 0 tmp.2 2> /dev/null
+		
+		tmean=`grd2geo_mean tmp.2.grd`
+		
+		grdmath tmp.1.grd tmp.mask.grd MUL = tmp.1.o.grd
+		grdmath tmp.2.grd tmp.mask.grd MUL = tmp.2.o.grd
+		
+		gcorr=`calc_grd_correlation  tmp.1.grd   tmp.2.grd   2> /dev/null | gawk '{print($1)}'` # global
+		gocorr=`calc_grd_correlation tmp.1.o.grd tmp.2.o.grd 2> /dev/null | gawk '{print($1)}'` # oceanic
+		
+		rm tmp.2.grd tmp.2.o.grd 
+		
+		out="$out $t $tmean $gcorr $gocorr "
+	    done
+	    rm tmp.1.grd tmp.1.o.grd
+	    echo $out >> $rfile
+	    tail -1 $rfile
+	    ((z=z+dz))
+	done
+    fi
+
+    
+done
+
+reg=-R0.98/1.1/50/350
+proj=-JX5/-5
+
+for m in safs417nc3 safs417nc3_er;do
+    ofile=ccxi.$m.amp.ps
+    psbasemap $reg $proj -Bg1a.05f.01:"@~x@~":/a50f10:"depth [km]":WeSn -K -P > $ofile
+    gawk '{print($1,$4)}' sh_xi_models/cc.$m.dat | spline_sample | gawk '{print($2,$1)}' | psxy -W8,blue -R -J -O -K >> $ofile # savani
+    gawk '{print($1,$8)}' sh_xi_models/cc.$m.dat | spline_sample | gawk '{print($2,$1)}' | psxy -W8,red -R -J -O -K >> $ofile # semum2
+    gawk '{print($1,$2)}' sh_xi_models/cc.$m.dat | spline_sample | gawk '{print($2,$1)}' | psxy -W8,black -R -J -O -K >> $ofile # model
+
+    echo 1000 1000 | psxy -R -J -O >> $ofile
+    modifybb $ofile
+    echo $0: written to $ofile
+done
+
+reg=-R-.3/1/50/350
+for m in safs417nc3 safs417nc3_er;do
+    ofile=ccxi.$m.corr.ps
+    psbasemap $reg $proj -Bg1a.2f.02:"r@-8@- (oceanic regions)":/a50f10:"depth [km]":WeSn -K -P > $ofile
+
+    #gawk '{print($1,$5)}' sh_xi_models/cc.$m.dat | spline_sample | gawk '{print($2,$1)}' | psxy -W8,blue,- -R -J -O -K >> $ofile # savani
+    gawk '{print($1,$6)}' sh_xi_models/cc.$m.dat | spline_sample | gawk '{print($2,$1)}' | psxy -W8,blue -R -J -O -K >> $ofile # savani oceanc
+
+    #gawk '{print($1,$9)}' sh_xi_models/cc.$m.dat | spline_sample | gawk '{print($2,$1)}' | psxy -W8,red,- -R -J -O -K >> $ofile # semum2
+    gawk '{print($1,$10)}' sh_xi_models/cc.$m.dat | spline_sample | gawk '{print($2,$1)}' | psxy -W8,red -R -J -O -K >> $ofile # semum2, oc
+    echo -.2 200 28 0 0 LM "SAVANI" | pstext -R -J -O -K -Gblue -Wwhite >> $ofile
+    echo -.2 250 28 0 0 LM "SEMum2" | pstext -R -J -O -K -Gred  -Wwhite >> $ofile
+    
+    echo 1000 1000 | psxy -R -J -O >> $ofile
+    modifybb $ofile
+    echo $0: written to $ofile
+done

@@ -1,0 +1,287 @@
+#!/bin/bash
+#
+# THIS IS THE OLD VERSION!  THERE IS NOW PLOT_SIMPLE_SPLIT
+#
+models=${1-"cig_rum_smean_pb.01_E10_vis100k300_150_0.3_1_60_n65_selfg pl_rs_100_.1_100_10 safs417nc_er  tib_pvel_s4 tib_weak_new_s4 safs417nc safs417 safn17h safn1h  tib_weak_new_s2  tib_weak_new_s tib_weak_mix_new_s2ns lisa_rum_oc_crat_w2 lisa_rum_oc_crat_w lisa_rum_oc lisa_tomo_crat_w lisa_rum_oc_crat "}		# model
+type=${2-s.0.75}			# type of flow model
+cfmode=${3-0}			# depth cutoff mode:  0: none 1: top 2: bottom 
+                                #                    -1: old none
+
+rcode=${4-2}			# region code, 1 for SAF 8 for CAR, 48 for Alboran
+smethod=${5-1}			# split method code: -1: no particular 
+                                #                        mention (Menke)
+                                #                     0: Vera  SKS
+                                #                     1: Menke SKS
+                                #                     2: Menke SK2
+                                #                     3: Vera  SK2
+
+dtcoff=0.2			# predicted splitting times need to be > dtcoff for consideration
+                                # in mean weighted misfits
+mlabel=1			# add a label for model
+topo=1				# plot topo on overview map
+var=1			# look for p, T variable tensors?
+
+
+gv=0			        #  display plots in ghostview
+verbose=0			# progress messages?
+
+orig=0				# original data or averaged?
+calc_misfit=1			# for averaged data, compute misfit
+
+
+# plotting stuff
+#scale=0.35
+scale=0.2
+
+vecsize=0.045/0/0		# synth
+veccol=white;piecol=gray
+svectele=0.04/0/0		# data
+telecol=orange
+
+tmpn=/tmp/$USER.$HOST.$$.sspotted;trap "rm -f $tmpn.* ; exit" 0 1 2  15
+tmpn_string=\\/tmp\\/$USER.$HOST.$$.sspotted
+
+
+if [ $var -eq 1 ];then 
+    sav="savd"
+else 
+    sav="sav"
+fi
+
+echo 297 11.5 > tmp.$$.loc
+filter_string="gmtselect -fg -C50/tmp.$$.loc -Ic " # remove some stations
+filter_string_inv="gmtselect  -fg -C50/tmp.$$.loc   " # remove some stations
+
+
+#
+# splitting data file
+#
+#data=$datadir/splitting/splitting.$rcode.0.5.tele.avg.table
+data=$datadir/splitting/splitting.$rcode.table
+#data=$datadir/splitting/allwuest.table
+
+
+#
+# plotting parameters
+#
+if [ $rcode -eq 48 ];then
+    preg=-R-12/2/30/42
+elif [ $rcode -eq 8 ];then
+    preg=-R-80/-58/3/21
+else
+    preg=`region_parameters $rcode 3`
+fi
+#preg=-R235/245.5/32/43
+rname=`region_parameters $rcode 7`
+proj=`region_parameters $rcode 4`
+#proj=-JQ`echo $preg | gawk -f reg2midlon.awk`/7
+#ann=`region_parameters $rcode 6`
+ann=-Ba5f1WeSn
+pscr=`region_parameters $rcode 13`
+
+mc=1
+fs=""
+for model in $models;do
+
+    sdir=$model/results/spotted/
+    if [ $smethod -eq -1 ];then #  old version, no method distinction
+	sstring=$cfmode
+    else
+	sstring=$cfmode.$smethod
+    fi
+    wdir=$sdir/splitting.$rcode.$type.$sav.$sstring/
+
+    
+
+    ofile=$HOME/tmp/$model.$cfmode.$rname.$type.$sav.map.ps 
+    echo $0: $ofile
+
+
+    psbasemap $preg $proj $ann -P -K > $ofile
+    if [ $topo -eq 0 ];then
+	pscoast -O -K $preg $proj $pscr -G200 >> $ofile
+    else
+	makecpt -Cocean -T-8500/3000/10 > dem.cpt
+
+	grdimage $datadir/etopo2/etopo2.grd \
+	    $preg $proj -Cdem.cpt -O -K >> $ofile
+	pscoast -O -K $preg $proj $pscr -W1 >> $ofile
+    fi
+    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -m -: \
+	$preg  $proj  -O -K   -W5,red  >> $ofile
+#
+# model results
+#
+
+    stype=split			# 3D
+    #stype=split.a			# avg
+
+    j=1;k=1;i=1			# create file with synthetics
+    rm $tmpn.synth 2> /dev/null
+    while [ -s $wdir/$stype.$j.$k ];do
+	while [ -s $wdir/$stype.$j.$k ];do
+	    
+	# lon lat azi dazi dt ddt
+	    echo `cat $wdir/split.$j.$k.location` ` gawk '{print($1,$2,$3)}' $wdir/$stype.$j.$k | fazi2splitstat stdin 0` >> $tmpn.synth
+	#tail -1 $tmpn.synth
+	    ((i=i+1))
+	    ((k=k+1))
+	done
+	k=1
+	((j=j+1))
+    done
+    sort -n $tmpn.synth | uniq > $tmpn.2 ; mv $tmpn.2 $tmpn.synth
+    echo $0: wdir $wdir
+    nsynth=`lc $tmpn.synth`
+    echo $0: $nsynth synthetics
+
+    if [ $nsynth -eq 0 ];then
+	echo $0: error, no synthetics
+	exit
+    fi
+    
+
+
+# length
+    #echo  $filter_string
+    gawk -v s=$scale '{print($1,$2,$3,($5+$6)*s)}'  $tmpn.synth |  $filter_string | \
+	psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+
+# angular variation, need to use directions, unlike what manual says
+    gawk -v s=$scale '{dir=$3;dx=$4;if(dx<5)dx=5;print($1,$2,$5*s,dir-dx,dir+dx);\
+          print($1,$2,$5*s,180+dir-dx,180+dir+dx);}'  $tmpn.synth  |  $filter_string | \
+	psxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+
+# length variation
+    gawk -v s=$scale '{print($1,$2,$3,($5-$6)*s)}' $tmpn.synth  |  $filter_string | \
+	psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+
+
+
+# data
+    if [ $orig -eq 1 ];then		# all splits
+	gawk -v s=$scale '{amp=$6*s;print($3,$2,$4,amp)}' $data | $filter_string | \
+	    psxy $preg $proj   -O -K -W0.5 -SVB$svectele -G$telecol  >> $ofile
+    else				# averaged
+	if [ ! -s $data.avg ];then
+	    stations=`gawk '{print(tolower($1))}' $data | sort | uniq`
+	    for stat in $stations;do
+		gawk '{if(tolower($1)==stat)print($0)}' stat=$stat $data > $tmpn.dat
+		n=`lc $tmpn.dat`
+		if [ $n -gt 1 ];then
+		    echo `gawk '{if(NR==1)print($3,$2)}'  $tmpn.dat` `gawk '{print($14,$4,$6)}' $tmpn.dat | fazi2splitstat stdin 0 2> /dev/null` >> $data.avg
+
+		    
+		else
+		    echo `gawk '{print($3,$2)}'  $tmpn.dat` `gawk '{print($4,"NaN",$6,"NaN")}' $tmpn.dat` >> $data.avg
+		fi
+		echo $0: station $stat n $n `tail -1 $data.avg `
+	    done
+
+	else
+	    echo $0: WARNING: reusing $data.avg
+	fi
+	ndata=`lc $data.avg`
+	echo $0: $ndata data points
+	if [ $calc_misfit -eq 1 ];then
+	    rm $tmpn.dmisfit 2> /dev/null
+	    i=1
+	    while [ $i -le $ndata ];do
+		oneline $i $data.avg > $tmpn.d.dat
+		gawk '{print($1,$2)}' $tmpn.d.dat > $tmpn.p
+		gmtselect -fg -C2/$tmpn.p $tmpn.synth > $tmpn.s.dat
+		#cat $tmpn.p
+
+
+		nsf=`lc $tmpn.s.dat`
+		if [ $nsf -gt 1 ];then # duplicates
+		    head -1 $tmpn.s.dat > $tmpn.dat; mv $tmpn.dat $tmpn.s.dat
+		elif [ $nsf -eq 0 ];then
+		    echo
+		    echo not found
+		    echo
+		fi
+		paste $tmpn.d.dat $tmpn.s.dat | $filter_string_inv > $tmpn.filt
+		if [ `lc $tmpn.filt` -gt 0 ];then
+		    echo $0: WARNING filtering  these stations
+		    cat $tmpn.filt
+		fi
+
+		paste $tmpn.d.dat $tmpn.s.dat  | $filter_string | gawk '{print($1,$2,$3,$9)}' | gawk -f cdirdiff.awk | gawk '{print($2)}' > $tmpn.adiff # angular difference
+		paste $tmpn.d.dat $tmpn.s.dat  | $filter_string | gawk '{print($11-$5)}' > $tmpn.tdiff # time difference, model-data
+		paste $tmpn.d.dat $tmpn.adiff $tmpn.tdiff >> $tmpn.dmisfit
+		((i=i+1))
+	    done
+	    echo $0: mean angular misfit `gawk -f mean.awk col=7 $tmpn.dmisfit | gawk -f togformat.awk`
+	    echo $0: mean delay time mismatch  `gawk -f mean.awk col=8 $tmpn.dmisfit | gawk -f togformat.awk`
+
+	    echo
+	    # variation
+	    #gawk -v s=$scale '{dir=$3;dx=$4;if(dx<5)dx=5;print($1,$2,$5*s,dir-dx,dir+dx);\
+            #print($1,$2,$5*s,180+dir-dx,180+dir+dx);}'  $tmpn.dmisfit | $filter_string | \
+	#	psxy -SW -W2,$telecol $preg $proj  -O -K >> $ofile
+	    
+	    # color by angular mismath
+	    makecpt -T0/90/5 -Cseis -I > $tmpn.da.cpt
+	    #psscale -C$tmpn.da.cpt -D.25/3.5/2/.2 -B30/:"@~Da@~@+o@+": -O -K >> $ofile
+	    psscale -C$tmpn.da.cpt -D6/1.5/2/.2 -B30/:"@~Da@~@+o@+": -O -K >> $ofile
+	    gawk -v s=$scale '{amp=$6*s;print($1,$2,$7,$3,$5*s)}' $tmpn.dmisfit | $filter_string | \
+		psxy $preg $proj   -O -K -W0.5 -SVB$svectele -C$tmpn.da.cpt -G$telecol  >> $ofile
+
+	else
+
+
+	    gawk -v s=$scale '{dir=$3;dx=$4;if(dx<5)dx=5;print($1,$2,$5*s,dir-dx,dir+dx);\
+          print($1,$2,$5*s,180+dir-dx,180+dir+dx);}' $data.avg  | $filter_string |\
+		psxy -SW -W2,$telecol $preg $proj  -O -K >> $ofile
+	    
+
+	    gawk -v s=$scale '{amp=$6*s;print($1,$2,$3,$5*s)}' $data.avg | $filter_string  | \
+		psxy $preg $proj   -O -K -W0.5 -SVB$svectele -G$telecol  >> $ofile
+	fi
+    fi
+
+
+#
+# plot station labels
+#
+#gawk '{print($2,$3,$1)}' $wdir/stationlist.dat | sort -n | uniq > $tmpn.stations
+#gawk 'BEGIN{a=0;d=.7;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;a+=60;
+#      print($1,$2);print($1+x,$2+y);print(">");}' $tmpn.stations | \
+#	  psxy $preg $proj -N -O -K -W3/0/0/255 -M >> $ofile
+#gawk 'BEGIN{a=0;d=.7;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;
+#      printf("%g %g %i %g %i MC %s\n",$1+x,$2+y,10,0,0,$3);a+=60;}' $tmpn.stations | \
+#	  pstext $preg $proj -N -O -K -G0/0/255 >> $ofile
+#    gawk '{printf("> %g %g %i %g %i CM 0.2 0.3 c\n%s\n",$1,$2,14,0,0,$3 )}'  | \
+#    pstext $preg $proj -N128 -G0 -O -M -K -D.2/.2 -W128O>> $ofile
+
+# scale
+    scaledelt=2.5
+    px2=0.1;py=0.1
+    echo $px2 $py $scaledelt 90 | gawk '{amp=$3*scl;if(amp!=0){print($1,$2,$4,amp);}}' scl=$scale | \
+	psxy -R0/1/0/1 -JX7   -O -K -SVB$svectele -N -G$telecol -W1 >> $ofile
+    pyp=`echo $py | gawk '{print($1-0.02)}'`
+    echo $px2 $pyp 20 0 0 TC "@~d@~t = $scaledelt s" |\
+	pstext -R0/1/0/1 -JX7 -O -K  -N  >> $ofile
+    pyp=`echo $pyp | gawk '{print($1-0.05)}'`
+    if [ $mlabel -eq 1 ];then	# model string
+	echo 0.01 0.01 18 0 0 BL "`echo $model | gawk -f rename.awk` " | pstext -R0/1/0/1 -JX7 -O -K  -N -G1 >> $ofile
+    fi
+
+    echo 100 1000 | psxy $preg $proj $ann -O >> $ofile
+    modifybb $ofile  2> /dev/null
+    fs="$fs $ofile"
+    ((mc=mc+1))
+
+    if [ $gv -eq 1 ];then
+	gv $ofile &
+    fi
+done
+if [ $mc -gt 2 ];then
+    \epsmerge -par --orientation Portrait -x 1 -y 3 $fs > $HOME/tmp/compare.ps
+    epstopdf $HOME/tmp/compare.ps
+    echo $0: Output in $HOME/tmp/compare.pdf
+fi
+
+
+rm tmp.$$.loc 2> /dev/null

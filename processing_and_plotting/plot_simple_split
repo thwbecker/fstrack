@@ -1,0 +1,786 @@
+#!/bin/bash
+#
+# carib
+#
+#models=${1-"cig_rum_smean_pb.01_E10_vis100k300_150_0.3_1_60_n65_selfg pl_rs_100_.1_100_10 tib_weak_new_s4 tib_pvel_s4 safs417nc_er safs417nc safs417 safn17h safn1h  tib_weak_new_s2  tib_weak_new_s tib_weak_mix_new_s2ns lisa_rum_oc_crat_w2 lisa_rum_oc_crat_w lisa_rum_oc lisa_tomo_crat_w lisa_rum_oc_crat"}		# geodynamic model
+#rcode=8				# region code
+#
+models=${1-"globalh.8.7.150.1.150.0.01.0.01.500.50.plate globalh.8.10.150.1.150.0.01.0.01.500.50.plate globalh.6reg.7.150.1.150.0.01.0.1.500.50.plate globalh.6.7.150.1.150.0.01.0.1.500.50.plate_mid globalh.6.7.150.1.150.0.01.0.1.500.50.plate_high globalh.6.7.150.1.150.0.01.0.1.500.50.plate globalh.6.7.150.1.150.0.01.0.1.500.50.plate.nodens"}
+
+#models=${1-"med_weak_mix_nsmit med_weak_mix_ns2 med_weak_mix_ns3 med_weak_mix_ns2e2 med_weak_mix_ns2e2k med_weak_mix_ns2e  med_weak_mix_ns2e3 med_weak_mix_ns2e2k cig_rum_smean_pb.01_E10_vis100k300_150_0.3_1_60_n65_selfg gl_ab1_1000_.1_1000_30 gl_ab2_1000_.1_1000_30 gl_ab2_100_.1_100_30 gl_ab3_100_.1_100_30 gl_ab3_100_1_100_30 gl_ab3_10_1_10_30 gl_ab4_1000_.1_1000_30 gl_ab4_100_.1_100_30 gl_ab5_1000_.1_1000_30 lisa_rum_oc_crat lisa_rum_oc_crat_w2 lisa_rum_oc_crat_w lisa_rum_oc lisa_tomo_crat_w pl_ab1_1000_.1_1000_30 pl_ab1_100_1_100_30_hs3_nsb pl_ab1k_100_1_100_30 pl_ab2_1000_.1_1000_30 pl_ab2_100_1_100_30_hs3_nsb pl_ab2_100_.1_100_30 pl_ab2k_100_1_100_30 pl_ab3_100_.1_100_30 pl_ab3_100_1_100_30 pl_ab3_10_1_10_30 pl_ab3k_100_1_100_30 pl_ab4_100_1_100_30_hs3_nsb pl_ab4_100_.1_100_30 pl_ab4k_100_1_100_30 pl_ab5_1000_.1_1000_30 pl_ab5_100_1_100_30_hs3_nsb pl_ab5k_100_1_100_30 pl_ab6_100_1_100_100 pl_ab6_100_1_100_30 pl_ab6k_100_1_100_30 pl_ab7_100_1_100_100 pl_rs_100_.1_100_10 safn17h safn1h safs417nc safs417 tib_pvel_s4 tib_weak_mix_new_s2ns tib_weak_new_s2 tib_weak_new_s4 tib_weak_new_s"}
+#strains=${2-"s.1"}			# strain amount
+#strains=${2-"s.0.5 s.1 s.2"}			# strain amount
+strains=${2-"s.0.75 s.1.5"}			# strain amount
+topo=${3-0}
+rcode=${4-48}			# region code
+modes=${5-"0 1"}			# 0: all depths 1: below lithosphere
+preg=${6-""}				# if set, will use a subset of the region, else use the default region from region_parameters
+#
+# for the geodynamic model, use the detailed information or that based on an 
+# average tensor
+#
+avg=${7-0}				# 1: use splitting based on average tensor
+                                # 0: use splitting based on average of depth dependent tensor
+
+add_data=${8-1}			# 0: only topo map, with keel and seismicity 
+                                # 1: add data and predictions, color by azimuthal misfit
+                                # 2: only predictions
+                                # 3: add data and predictions, color by ddt
+
+
+short_labels=${9-5}		# short labels (for paper) 2: different version 3: for Med 4: for Alboran 5: for NAM
+gv=${10-0}
+check_ba=${11-0}			# attempt a detailed fit based on back-azimuth
+add_ti=${12-0}				# if > 0, will try to plot  TI axes in background
+
+tmpn=/tmp/$USER.$HOST.$$.torque_tmp
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+weak=nuvel
+btype=nuvel
+
+echo $0: $add_data
+
+save_predictions=0	# store model predicitons in $HOME/tmp
+
+
+
+if [ $rcode = "2-65" ];then	# merger
+    drcode=2
+else
+    drcode=$rcode
+fi
+
+# splitting data to compare with
+if [ `echo $preg | gawk '{if($1=="-R-78/-58/3/13.5")print(1);else print(0)}'` -eq 1 ];then # detect if this is a Caribbean plot
+
+    data_file=$datadir/splitting/splitting.50 # original, with back-azimuth (add .table), or averaged ( add 0.1.tele.avg.table)
+    carib_model=1
+elif [ $rcode -eq 65 ];then
+    sreg=`region_parameters $drcode 3`
+    cat $datadir/splitting/allwuest.table > $tmpn.tmp
+    cat $HOME/plates/colombia/splitting/rob/usc.table >> $tmpn.tmp
+    gawk '{print($3,$2,$0)}' $tmpn.tmp | gmtselect -fg $sreg | \
+	gawk '{for(i=3;i<=NF;i++)printf("%s ",$i);printf("\n")}' > $tmpn.table
+    data_file=$tmpn
+    carib_model=0
+else
+    data_file=$datadir/splitting/splitting.$drcode # original, with back-azimuth (add .table), or averaged ( add 0.1.tele.avg.table)
+    carib_model=0
+fi
+
+echo
+echo $0: using $data_file.table for splitting results
+echo
+
+dist_max=40			# maximum distance for assignment
+
+assemble_all_misfits=0		# overwrite table of best fit parameters?
+
+# should we use pre-averaged split tables or recompute?
+use_pre_avg=0			# 1: use 0.1 avg files 0: make a new one from original data
+
+
+if [ $rcode -eq 56 ];then
+    sc_lon=23;sc_lat=30
+elif [ $rcode -eq 12 ];then
+    sc_lon=10;sc_lat=-37
+else
+    sc_lon=-2;sc_lat=29.5
+fi
+#
+#
+# for plotting 
+#
+if [ `echo $preg | gawk '{if($1=="")print(1);else print(0)}'` -eq 1 ];then
+    preg=`region_parameters $drcode 3`
+    if [[ $drcode -eq 48 || $drcode -eq 56 ]];then
+	ann=-Ba5f1WesN
+    elif [ $drcode -eq 65 ];then
+	ann=-Ba4f1wEsN
+    else
+	ann=-Ba10f2WesN
+    fi
+    if [[ $drcode -eq 62 || $drcode -eq 48 || $drcode -eq 56 ]];then
+	scale=0.3 			# scale of delay times
+    elif [ $drcode = 59 ];then
+	scale=0.15
+    else
+	scale=0.2 			# scale of delay times
+    fi
+    original_region=1
+    fitfile=splitfit.$rcode.dat
+else
+    if [ `echo $preg | gawk -f  reg2wesn.awk | gawk '{if(($2-$1)>25)print(1);else print(0)}'` -eq 1 ];then
+	ann=-Ba20f2WesN
+    else
+	if [[ $drcode -eq 48 || $drcode -eq 56 ]];then
+	    ann=-Ba2f.2WesN
+	elif [ $drcode -eq 65 ];then
+	    ann=-Ba4f1wEsN
+  	else
+	    ann=-Ba5f1WesN
+	fi
+    fi
+
+    if [ $drcode -eq 62 ];then
+	scale=0.35 			# scale of delay times
+    elif [ $drcode -eq 56 ];then
+	scale=0.25 			# scale of delay times
+    else
+	scale=0.25 			# scale of delay times
+    fi
+    original_region=0
+    echo $preg | gawk -f  reg2wesn.awk > $tmpn.r.dat
+    read w e s n < $tmpn.r.dat
+    fitfile=splitfit.$rcode.$w.$e.$s.$n.dat
+fi
+if [ $drcode -eq 56 ];then
+    ann=-Ba10f1/a10f1wEsN
+elif [ $drcode -eq 31 ];then
+    ann=-Bf30a30g30
+fi
+rname=`region_parameters $drcode 7`
+#proj=`region_parameters $drcode 4`
+if [[ $drcode -eq 56 || $drcode -eq 4 || $drcode -eq 2 ]];then
+    #proj=-JQ`echo $preg | gawk -f reg2midlon.awk`/10
+    proj=-JM15
+
+elif [ $drcode -eq 31 ];then
+    proj=-JA0/-90/10
+else
+    proj=-JH`echo $preg | gawk -f reg2midlon.awk`/7
+fi
+#pscr=`region_parameters $drcode 13`
+pscr="-Dh -A5000"
+if [ $drcode -eq 62 ];then
+    vecsize=0.065/0/0		# vectors
+elif [ $drcode -eq 56 ];then
+    vecsize=0.06/0/0		# vectors
+else
+    vecsize=0.045/0/0		# vectors
+fi
+
+
+if [ $drcode -eq 56 ];then
+    psc_loc=-D12.75/7/2.5/.25h
+else
+    psc_loc=-D-.75/7/2/.2
+fi
+echo $0: rcode $rcode drcode $drcode proj $proj preg $preg ann $ann
+
+#
+#
+
+#
+# convert the original splitting data, omitting nulls, only using those with back-azimuth information
+# this is for detailed misfit, assuming zero back-azimuth means no back-azimuth information
+# 
+# also remove outlier station
+#
+# lon lat azi d_azi dt d_dt b_azi code(1=SKS,2=SKKS)
+#
+if [ $carib_model -eq 1 ];then
+    reg_out1=-R285.9569/285.9571/4.5869/4.5871 	# regions to exclude
+    reg_out2=-R-64/-62/11/12 	# regions to exclude
+
+    gawk '{if(($1!="fake")&&($14!=0)&&($6!=0))print($3,$2,$4,$5,$6,$7,$14,$8)}' \
+	$data_file.table | gmtselect -Ir -fg $reg_out1 | gmtselect -Ir -fg $reg_out2 > $tmpn.data 
+else
+    reg_out1=""			# this will fail, on purpose
+    reg_out2=""
+    gawk '{if(($1!="fake")&&($14!=0)&&($6!=0))print($3,$2,$4,$5,$6,$7,$14,$8)}' \
+	$data_file.table > $tmpn.data 
+fi
+
+np=`lc $tmpn.data`
+echo $0: we have $np non-null data with back-azimuth information
+
+
+#
+# averaged splits, works without back-azimuth
+#
+
+if [ $use_pre_avg -eq 1 ];then
+# lon lat azi d_azi dt d_dt
+    if [ $carib_model -eq 1 ];then
+	gawk '{if($6!=0)print($3,$2,$4,$5,$6,$7)}' $data_file.0.1.tele.avg.table | gmtselect -Ir -fg $reg_out1 | gmtselect -Ir -fg $reg_out2 > $tmpn.data_avg # averaged
+    else
+	gawk '{if($6!=0)print($3,$2,$4,$5,$6,$7)}' $data_file.0.1.tele.avg.table > $tmpn.data_avg # averaged
+    fi
+else
+    #rm $data_file.pss.avg 2> /dev/null
+    if [ ! -s $data_file.pss.avg  ];then
+
+	echo $0: recomputing  $data_file.pss.avg
+	echo $data_file.pss.avg  
+
+	# 
+    # average each station for non-nulls
+    #
+	if [ $carib_model -eq 1 ];then
+	    gawk '{if(($1 != "fake")&&($6 != 0))print($2,$3)}'  $data_file.table | \
+		sort | uniq | gmtselect -Ir -fg $reg_out1 -: | gmtselect -Ir -fg $reg_out2 -: > $tmpn.latlon
+	else
+	    gawk '{if(($1 != "fake")&&($6 != 0))print($2,$3)}'  $data_file.table | \
+		sort | uniq > $tmpn.latlon
+	fi
+	gawk '{lon=($2<0)?($2+360):($2);print($1,lon)}' $tmpn.latlon > $tmpn.1 ; mv $tmpn.1 $tmpn.latlon
+
+	nn=`lc $tmpn.latlon`
+	echo $0: determined $nn stations with non-null entries
+	i=1
+	while [ $i -le $nn ];do
+	    oneline $i $tmpn.latlon > $tmpn.dd
+	    read lat lon < $tmpn.dd
+	#
+	# bazi fazi dt, for non-nulls. if there are no back-azimuths, the periodicity fit won't work
+	# but we're not using that anyway
+	#
+	    gawk -v lat=$lat -v lon=$lon \
+		 '{tlon=$3;if(tlon<0)tlon+=360;if(($1!="fake") && ($2==lat) && (sqrt((tlon-lon)**2)<1e-5) && ($6 != 0))print($14,$4,$6)}' $data_file.table > $tmpn.dd
+	    nsplit=`lc $tmpn.dd`
+	    echo lon $lon lat $lat nsplit $nsplit
+	# output format is lon lat fazi d_fazi dt d_dt
+	    if [ $nsplit -eq 0 ];then
+		echo $0: error, no split found for $lon $lat
+		
+		exit
+	    elif [ $nsplit -eq 1 ];then
+		echo $lon $lat `cat $tmpn.dd | gawk '{print($2,0,$3,0)}'` >> $data_file.pss.avg 
+	    else
+		echo $lon $lat `cat $tmpn.dd | fazi2splitstat 2> /dev/null | gawk '{print($1,$2,$3,$4)}'` >> $data_file.pss.avg 
+	    fi
+	    tail -1 $data_file.pss.avg 
+	    ((i=i+1))
+	done
+
+
+    else
+	echo $0: WARNING: reusing $data_file.pss.avg
+    fi
+    cp $data_file.pss.avg  $tmpn.data_avg
+fi
+
+gmtselect -fg $tmpn.data_avg -R-76/-73/3/5
+
+ndavg=`lc $tmpn.data_avg`
+echo $0: number of average $ndavg data entries
+
+
+if [ $assemble_all_misfits -eq 1 ];then
+# overwrite fittnig file?
+    rm splitfit.$rcode.dat 2> /dev/null
+fi
+
+for model in $models;do
+    rm tmp.*.misfit 2> /dev/null
+    
+    echo 
+    echo $model
+    echo
+    for strain in $strains;do
+	for mode in $modes;do
+	    ((mode10=mode+10))
+	    if [ $mode -eq 0 ];then
+		bdir=$model/results/simple_split/splitting.$rcode/
+	    else
+		bdir=$model/results/simple_split/splitting.$rcode/$mode/
+	    fi
+	    if [ $drcode -eq 48 ];then
+		bdir=alboran/$bdir/
+	    fi
+	    #
+	    # prefer scec drive
+	    #
+	    idir=/home/scec-00/twb/tmp/$bdir
+	    if [ ! -s $idir ];then
+		echo $0: $idir not found, trying $bdir
+		idir=$bdir
+		if [ !  -s $idir ];then
+		    echo $0: not found
+		    exit
+		fi
+	    fi
+	    
+	    if [ $avg -eq 1 ];then
+		file=$idir/split.$strain.$mode.15.avg.sstat
+		require_col=6
+	    else
+		file=$idir/split.$strain.$mode.15.sstat
+		require_col=12
+	    fi
+	    if [ ! -s $file ];then
+		echo $0: $file not found
+	    else
+		echo
+		echo $0: using $file
+		echo 
+
+		sort -n $file | uniq > $tmpn.file # take out duplicates
+		if [ $add_data -eq 3 ];then
+		    gggname=ssdtmap
+		else
+		    gggname=ssmap
+		fi
+
+		if [ $avg -eq 0 ];then
+		    ofile=$HOME/tmp/$model.$rname.$strain.$mode.$gggname.ps
+		    ofile_pdf=$HOME/tmp/$model.$rname.$strain.$mode.$gggname.pdf
+		else
+		    ofile=$HOME/tmp/$model.$rname.$strain.$mode.$gggname.avg.ps
+		    ofile_pdf=$HOME/tmp/$model.$rname.$strain.$mode.$gggname.avg.pdf
+		fi
+		if [ $drcode -eq 48 ];then
+		    model_title=`echo $model | gawk -f lisa_title.awk`
+		    if [ $model_title = "xxx" ];then
+			model_title=$model
+		    fi
+		elif [ $drcode -eq 4 ];then
+		    . global_title
+		else
+		    . carib_title
+
+		fi
+		echo $0: model title: $model_title
+		
+		psbasemap $preg $proj $ann -P -K > $ofile
+		if [ $topo -eq 0 ];then
+		    #pscoast -O -K $preg $proj $pscr -S200 -G220 $ann >> $ofile
+		    pscoast -O -K $preg $proj $pscr -W0.5 $ann >> $ofile
+    #veccol=blue;piecol=cyan
+		    veccol=white;piecol=gray
+		    veccol_data=darkgray
+		else
+		#makecpt -Cocean -T-8500/3000/10 > dem.cpt
+		    veccol=white;piecol=gray
+		    veccol_data=darkgray
+    #
+		    if [ -s $datadir/etopo1/ETOPO1_Bed_g_gmt4.grd ];then
+			grdcut $datadir/etopo1/ETOPO1_Bed_g_gmt4.grd  $preg -G$tmpn.grd -fg
+		    else
+			grdcut $datadir/etopo2/etopo2.grd  $preg -G$tmpn.grd -fg
+		    fi
+		#grdcut $datadir/etopo5/etopo5.grd  $preg -G$tmpn.grd
+		    if [ $topo -eq 2 ];then
+			grd2cpt -Cocean $tmpn.grd -E51 > $tmpn.cpt
+		    else
+#			grdinfo $tmpn.grd
+			#grd2cpt -Cgray $tmpn.grd -E51 > $tmpn.cpt
+			grd2cpt -Cgray $tmpn.grd > $tmpn.cpt
+#			makecpt -T-4500/3500/100 -Cgray > $tmpn.cpt
+		    fi
+		    grdimage $tmpn.grd $preg $proj -C$tmpn.cpt -O -K >> $ofile
+		    #pscoast -O -K $preg $proj $pscr -W1 $ann -N1 >> $ofile
+		    pscoast -O -K $preg $proj $pscr -W1 $ann >> $ofile
+		fi
+
+		if [ $topo -eq 2 ];then
+		    pb_col=orange
+		else
+		    pb_col=darkblue
+		fi
+
+		abdens_model=`echo $model | gawk 'BEGIN{FS="_";}{if(substr($2,1,2)=="ab"){print(substr($2,3))}else print(0)}'`
+		if [ $abdens_model -gt 0 ];then
+		    pfile="/home/jesus/laalpert/GMT/AlboranSea/models/model"$abdens_model"/polygons/Alboran_model"$abdens_model".gmt" 
+		    if [ ! -s $pfile ];then
+			echo $pfile not found
+		    else
+			psxy $preg $proj -W6 -Glightblue  $pfile -O -K -m >> $ofile
+		    fi
+		fi
+		if [[ `echo $weak | gawk '{if(match($1,"Bird"))print(1);else print(0)}'` -eq 1 ]];then
+		    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+			$preg  $proj  -O -K   -W5,$pb_col  >> $ofile
+		else
+		    if [ $btype = "nuvel" ];then
+			psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -m -: \
+			    $preg  $proj  -O -K   -W5,$pb_col  >> $ofile
+		    else
+			gawk -f prickbry.awk $HOME/plates/rick_plates/bdrys/med/med_bdrys | \
+			    psxy -m $proj $preg -W5,$pb_col -O -K >> $ofile
+
+		    fi
+		    
+		fi
+		#gawk '{print($1,$2)}' madagascar_stations.txt | psxy $proj $preg -O -K -Sc.1 -W0.5 -Gorange >> $ofile
+		if [ `echo $model | gawk '{if(match($1,"keel"))print(1);else print(0)}'` -eq 1 ];then
+		    echo plotting keels
+		    grdcontour -C0.5 -A $HOME/CITCOM/fulltest/car_craton.s.2.grd $preg $proj -fg -O -K -W6 >> $ofile
+		fi
+
+		if [ $add_ti -ne 0 ];then
+		    tivec="-SVB0.04/0/0 -Gorange -W0.5"
+		    ifile=$model/results/tracer.savd.$add_ti.$strain.dat.gz 
+		    zcat $ifile | gmtselect -fg $preg | sav2decompose 4 0.7 0 -1 > $tmpn.ti 2> /dev/null # convert from SAV to TI
+		     # horizontal component of TI
+		    gawk '{print($1,$2,$6*sqrt(1.0-$4*$4)*$7)}' $tmpn.ti | surface $preg -I2 -G$tmpn.vx
+		    gawk '{print($1,$2,-$5*sqrt(1.0-$4*$4)*$7)}' $tmpn.ti | surface $preg -I2 -G$tmpn.vy
+		   
+		    ti_scale=20
+		    #gawk -v s=$ti_scale '{print($1,$2,atan2($6,-$5)*57.29578,sqrt(1.0-$4*$4)*$7/s)}' $tmpn.ti  | psxy -O $preg $proj $tivec -K >> $ofile
+		    grdvector $tmpn.vx $tmpn.vy -E -T -Q0.04/0/0 \
+			-Gdarkgreen -W0.5 $preg $proj -O -K -I5 -S$ti_scale >> $ofile
+
+		fi
+		#echo
+		if [ $save_predictions -eq 1 ];then
+		    cat $tmpn.file | gmtselect -fg $preg  | gawk '{printf("%.2f %.2f\t %.1f %.1f\t%.2f %.3f\n",$1,$2,$3,$4,$5,$6)}' > $HOME/tmp/$model.s.$strain.m.$mode.a.$avg.dat
+		fi
+		#cat $HOME/tmp/$model.s.$strain.m.$mode.a.$avg.dat
+		#echo
+		if [[ $add_data -ne 0 ]];then
+#
+# model
+#
+
+		    if [ $add_data -ne 3 ];then
+
+			# lon lat azi dazi dt ddt 
+			gawk '{print($1,$2,$3,$4,$5,$6)}' $tmpn.file > $HOME/tmp/skspred.$model.$strain.$mode.dat
+
+			# length
+			gawk -v s=$scale '{print($1,$2,$3,($5+$6)*s)}'  $tmpn.file | \
+			    psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+			
+# angular variation, need to use directions, unlike what manual says
+			gawk -v s=$scale '{dir=$3;dx=$4;if(dx<5)dx=5;print($1,$2,$5*s,dir-dx,dir+dx);\
+                                       print($1,$2,$5*s,180+dir-dx,180+dir+dx);}'  $tmpn.file | \
+			    psxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+			
+# length variation
+			gawk -v s=$scale '{print($1,$2,$3,($5-$6)*s)}' $tmpn.file  | \
+			    psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+		    fi
+
+		    if [[ $add_data -eq 1 || $add_data -eq 3 ]];then
+#
+# sort by back-azimuth
+#
+
+		    if [[ $check_ba -eq 1 && $np -ne 0 ]];then
+			echo $0: checking  back-azimuth information for detailed misfit
+		# locations available
+			ls -d $idir/*/*/split.$strain.$mode.dat.gz | gawk 'BEGIN{FS="/";}{print($(NF-2),$(NF-1))}'  > $tmpn.mloc
+			nloc=`lc $tmpn.mloc`
+			if [ $nloc -eq 0 ];then
+			    echo $0: looking for 
+			    echo $idir/\*/\*/split.$strain.$mode.dat.gz 
+			    echo $0: error, no individual split files found
+			    exit
+			fi
+			echo $0: checking for $np splits with back-azimuths given, $nloc model locations available
+			
+			rm $tmpn.fits $tmpn.bafit 2> /dev/null
+			i=1
+			while [ $i -le $np ];do
+			    oneline $i $tmpn.data > $tmpn.dat
+			    read lon lat azi d_azi dt d_dt b_azi code < $tmpn.dat
+		    # find location in file
+			    echo $lon $lat | gawk '{printf("%.0f %.0f",$1,$2)}' > $tmpn.dat
+			    read lon_s lat_s < $tmpn.dat
+
+		    #echo data $i lon $lon lat $lat azi $azi d_azi $d_azi dt $dt d_dt $d_dt b_azi $b_azi 
+
+			    gawk -v km=1 -v lon0=$lon -v lat0=$lat -f dist_on_sphere_in_file.awk $tmpn.mloc > $tmpn.d
+			    paste $tmpn.mloc $tmpn.d | sort -n +2 | head -1 > $tmpn.dat
+			    read lon_use lat_use dist < $tmpn.dat
+			    if [ `echo $dist $dist_max | gawk '{if($1<$2)print(1);else print(0)}'` -eq 1 ];then
+			#echo $0: using $lon_use $lat_use at distance $dist
+			#
+			# select the closest back-azimuth that isn't a null or has high misfit
+			#
+				echo $0: using SKS for all 
+				if [[ $code -eq 1 || $code -eq 2 ]];then # SKS
+				    echo SKS $idir/$lon_use/$lat_use/split.$strain.$mode.dat.gz  
+				    zcat $idir/$lon_use/$lat_use/split.$strain.$mode.dat.gz  | \
+					gawk -v b=$b_azi '{dx=b-$1;if(dx<0)dx=-dx;print($0,dx)}' | sort -n +4 | head -1 > $tmpn.dat
+				else
+				    echo SKKS $idir/$mode10/$lon_use/$lat_use/split.$strain.$mode10.dat.gz  
+				    zcat $idir/$mode10/$lon_use/$lat_use/split.$strain.$mode10.dat.gz  | \
+					gawk -v b=$b_azi '{dx=b-$1;if(dx<0)dx=-dx;print($0,dx)}' | sort -n +4 | head -1 > $tmpn.dat
+			
+				fi
+				read mbazi mazi mdt merr dx < $tmpn.dat
+			# only select those with significant delay time prediction and small error
+				if [ `echo $mdt $merr | gawk '{if(($1>0.1)&&($2<0.5))print(1);else print(0)}'` -eq 1 ];then
+				    echo $lon $lat $mazi $azi $mdt $dt >> $tmpn.fits
+				else
+				    echo $0: null or error: $lon $lat $mbazi $mazi $mdt $merr
+				fi
+			    else
+				echo $0: did not find model split for $lon $lat
+			    fi
+			    ((i=i+1))
+			done
+			#
+			#
+			#
+			echo $0: original fits `lc $tmpn.fits`
+			gmtselect -fg $preg $tmpn.fits > $tmpn.use;mv $tmpn.use $tmpn.fits
+			echo $0: after $preg selecion `lc $tmpn.fits`
+			
+			#cat $tmpn.fits | sort -n
+			nbfit=`lc $tmpn.fits`
+			gawk '{print($1,$2,$3,$4)}' $tmpn.fits  > $tmpn.afits
+			mean_bfit=`gawk -f cdirdiff.awk $tmpn.afits | gawk -v col=2 -f mean.awk | gawk '{printf("%.1f",$1)}'`
+			gawk '{print($5-$6)}' $tmpn.fits  > $tmpn.dt.fits # model-data delay time
+			mean_b_dt_misfit=`gawk -f mean.awk $tmpn.dt.fits | gawk '{printf("%.2f",$1)}'`
+
+
+			echo $0: determined detailed misfit for $nbfit splits, mean value $mean_bfit, mean delay $mean_b_dt_misfit
+			if [ $nbfit -eq 0 ];then
+			    echo $0: error, no detailed splits found
+			    mean_bfit=NaN
+			fi
+		    else
+			nbfit="NaN";mean_bfit="NaN";mean_b_dt_misfit="NaN";
+		    fi
+
+
+#
+# average values 
+#
+#
+# misfit
+#
+		    gawk -v c=$require_col '{if(NF==c)print($1,$2,$3,$4,$5,$6)}' $tmpn.file | gmtselect -fg $preg > $tmpn.model
+		    navg=`lc $tmpn.model`
+		    echo
+		    echo $0: computing misfit based on average values  $navg model locations $ndavg data averages
+		    echo 
+
+# output is
+# lon lat data_azi data_dt model_azi model_dt
+		    associate_spatial_data $tmpn.data_avg $tmpn.model 4 4 $dist_max | \
+			gawk '{print($1,$2,$3,$5,$9,$11)}' > $tmpn.assign
+
+		    echo $0: original fits `lc $tmpn.assign`
+		    gmtselect -fg $preg $tmpn.assign > $tmpn.use;mv $tmpn.use $tmpn.assign
+		    echo $0: after $preg selecion `lc $tmpn.assign`
+		
+		    
+		    if [ $drcode -eq 48 ];then
+			    #
+			    # lon lat data_azi data_dt model_azi model_dt
+			    #
+			rm $tmpn.resfile 2> /dev/null
+			rpc=1
+			for rpol in spainwest spaineast GibraltarArc Atlas;do
+			    pol_file=alboran/polygons/$rpol.dat
+			    gmtselect -F$pol_file -fg  $tmpn.assign > $tmpn.areg
+			    r_n=`lc $tmpn.areg`
+			    r_dir_diff=`gawk '{print($1,$2,$3,$5)}' $tmpn.areg  | gawk -f cdirdiff.awk | gawk '{print($2)}' | gawk -f mean.awk | gawk -f togformat.awk`
+			    r_dt_diff=`gawk '{print($6-$4)}'  $tmpn.areg  | gawk -f mean.awk | gawk -f togformat.awk`
+			    echo $rpol $r_n $r_dir_diff $r_dt_diff | gawk '{printf("%10s %3i %5.1f %5.2f\t",$1,$2,$3,$4)}' >> $tmpn.resfile
+			    ((rpc=rpc+1))
+			done
+			echo $model `cat $tmpn.resfile` > regional_misfit.txt
+			cat regional_misfit.txt
+		    fi
+
+
+		    
+
+		    gawk '{print($1,$2,$3,$5)}' $tmpn.assign | gawk -f cdirdiff.awk | gawk '{print($2)}' > $tmpn.diff
+		    gawk '{print($6-$4)}' $tmpn.assign  > $tmpn.dt.diff # model-data delay time
+
+		    gawk '{print($4)}' $tmpn.assign > $tmpn.mweight # use data delay time for scaling misfits
+# data 
+		    
+		    gawk -v s=$scale '{print($1,$2,$3,$5*s)}'  $tmpn.data_avg | \
+			psxy -SVB$vecsize -G$veccol_data -W0.5 $preg $proj  -O -K >> $ofile
+# fitted data colored by misfit
+
+
+
+
+		   
+		    if [ $add_data -eq 1 ];then
+			makecpt -T0/90/5 -Cseis -I > $tmpn.da.cpt
+		    # plot the data colored by angular misfit
+			if [ $short_labels -eq 4 ];then
+			    psscale -C$tmpn.da.cpt -D0.75/2/2.25/.2 -B30/:"@~Da@~[@+o@+]": -O -K >> $ofile
+			elif [ $short_labels -eq 3 ];then
+			    psscale -C$tmpn.da.cpt $psc_loc -B30/:"@~Da@~[@+o@+]": -O -K >> $ofile
+			elif [ $short_labels -eq 2 ];then
+			    psscale -C$tmpn.da.cpt -D0.75/-.3/2.25/.2h -B30/:"@~Da@~[@+o@+]": -O -K >> $ofile
+			elif [ $short_labels -eq 1 ];then
+			    psscale -C$tmpn.da.cpt -D5.25/1.2/2/.15h -B30/:"@~Da@~[@+o@+]": -O -K >> $ofile
+			else
+			    psscale -C$tmpn.da.cpt -D0.75/-.3/2.25/.2h -B30/:"@~Da@~[@+o@+]": -O -K >> $ofile
+			fi
+			paste $tmpn.assign $tmpn.diff | gawk -v s=$scale '{print($1,$2,$7,$3,$4*s)}'  | \
+			    psxy $preg $proj   -O -K -W0.5 -SVB$vecsize -C$tmpn.da.cpt   >> $ofile
+		    elif [ $add_data -eq 3 ];then # delay time
+			makecpt -T-1/1/0.2 -Cseis -D > $tmpn.dt.cpt
+			psscale -C$tmpn.dt.cpt -D0.75/2/2.25/.2 -E -B0.5/:"@~D(d@~t@~)@~ [s]": -O -K >> $ofile
+			paste $tmpn.assign $tmpn.dt.diff | gawk -v s=$scale '{print($1,$2,$7,$3,$4*s)}'  | \
+			    psxy $preg $proj   -O -K -W0.5 -SVB$vecsize -C$tmpn.dt.cpt   >> $ofile
+		   
+
+		    fi
+
+		    
+
+
+		    nfit=`lc $tmpn.diff`
+		    mean_misfit=`gawk -f mean.awk $tmpn.diff | gawk '{printf("%.1f",$1)}'`
+		    # weighted mean
+		    mwm=`paste $tmpn.mweight $tmpn.diff | gawk -f wmean.awk | gawk '{printf("%.1f",$1)}'`		# weighted by delay time
+		    mean_dt_misfit=`gawk -f mean.awk $tmpn.dt.diff | gawk '{printf("%.2f",$1)}'`
+
+		    echo $0: average misfit based on $nfit associated locations: $mean_misfit mean_w_misfit: $mwm delay time: $mean_dt_misfit 
+		    echo
+		    if [ $short_labels -eq 2 ];then
+			echo 0.35 -.04 18 0 29 LM "N = $nfit, @~\341Da\361@~ = $mean_misfit($mwm)@+o@+,  @~\341D(d@~t@~)\361@~ = $mean_dt_misfit s" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    elif [ $short_labels -eq 4 ];then
+			echo 0.42 .04 22 0 29 LM "@~\341Da\361@~ = $mean_misfit@+o@+,  @~\341D(d@~t@~)\361@~ = $mean_dt_misfit s" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    elif [ $short_labels -eq 1 ];then
+			echo 0.3 0.07 17 0 29 LM "@~\341Da\361@~ =  $mean_misfit($mwm)@+o@+" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			echo 0.6 0.07 17 0 29 LM "@~\341D(d@~t@~)\361@~ =  $mean_dt_misfit s" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			
+		    elif [ $short_labels -eq 3 ];then
+			echo 0.05 0.05 18 0 29 LM "N = $nfit, @~\341Da\361@~ = $mean_misfit($mwm)@+o@+,  @~\341D(d@~t@~)\361@~ = $mean_dt_misfit s" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    else
+			echo 0.35 -.04 18 0 29 LM "N = $nfit, @~\341Da\361@~ = $mean_misfit($mwm)@+o@+,  @~\341D(d@~t@~)\361@~ = $mean_dt_misfit s" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    fi
+		    if [ $nfit -gt 0 ];then
+			echo $nfit $mean_misfit $mean_dt_misfit > tmp.avg.misfit
+		    fi
+		    if [[ $np -gt 0 && $check_ba -eq 1 ]];then
+			if [ $short_labels -eq 2 ];then
+			    echo 0.35 -.08 18 0 29 LM "N@-b@- = $nbfit, @~\341Da\361@~@-b@- = $mean_bfit@+o@+, @~\341D(d@~t@~)\361@~@-b@- = $mean_b_dt_misfit s" | \
+				pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			elif [ $short_labels -eq 1 ];then
+			    echo 0.3 .03 17 0 29 LM "@~\341Da\361@~@-b@- = $mean_bfit@+o@+" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			    echo 0.6 .03 17 0 29 LM "@~\341D(d@~t@~)\361@~@-b@- = $mean_b_dt_misfit s" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			else
+			    echo 0.35 -.08 18 0 29 LM "N@-b@- = $nbfit, @~\341Da\361@~@-b@- = $mean_bfit@+o@+, @~\341D(d@~t@~)\361@~@-b@- = $mean_b_dt_misfit s" | \
+				pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			fi
+			echo $nbfit $mean_bfit $mean_b_dt_misfit > tmp.ba.misfit
+		    fi
+
+		    if [ $avg -eq 1 ];then
+			echo 0.35 -.08 8 0 29 LM "averaging method" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    fi
+		    if [ $short_labels -eq 0 ];then
+			if [ `echo $model | gawk '{if(match($1,"global"))print(1);else print(0)}'` -eq 1 ];then
+			    echo 0.35 -.12 18 0 31 LM "$model" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			else
+			    if [ $model = "$model_title" ];then
+				echo 0.35 -.12 18 0 31 LM "$model_title" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			    else
+				echo 0.35 -.12 18 0 31 LM "$model_title ($model)" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			    fi
+			fi
+		    elif [ $short_labels -eq 3 ];then
+			if [ "$model_title" = "$model" ];then
+			    echo 0.05 0.1 18 0 31 LM "$model_title" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			else
+			    echo 0.05 0.1 18 0 31 LM "$model_title ($model)" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+			fi
+		    elif [ $short_labels -eq 2 ];then
+			echo 0.35 -.08 18 0 31 LM "$model_title" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    elif [ $short_labels -eq 4 ];then
+			echo
+		    elif [ $short_labels -eq 5 ];then
+			echo 0.5 -.08 18 0 31 LM "$model_title" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    else
+			echo 0.05 -.05 18 0 31 LM "$model_title, N = $nfit, N@-b@- = $nbfit" | pstext -R0/1/0/1 -JX7 -O -K -N >> $ofile
+		    fi
+# end plot
+		    # entries with back-azimuth info
+		    #cat $tmpn.data
+		    #gawk '{print($1,$2)}' $tmpn.data |psxy $preg $proj   -O -K -Sc0.05 -Gblack    >> $ofile
+		    # end add data =1 part 
+		    fi
+
+		    add_scale=1
+		    if [[ $add_scale -eq 1 && $add_data -ne 3 ]];then
+		    #
+		    # add scale
+		    # 
+			scale_col=cyan
+			sc_lat_off=4
+			gawk -v sc_lon=$sc_lon -v sc_lat=$sc_lat -v sc_lat_off=$sc_lat_off \
+			    -v s=$scale '{print(sc_lon,sc_lat+sc_lat_off,90,(2)*s)}'  $tmpn.file | \
+			    psxy -SVB$vecsize -G$scale_col -W0.5 $preg $proj  -O -K >> $ofile
+			
+# angular variation, need to use directions, unlike what manual says
+
+			gawk  -v sc_lon=$sc_lon -v sc_lat=$sc_lat  -v sc_lat_off=$sc_lat_off \
+			    -v s=$scale '{dir=90;dx=45;print(sc_lon,sc_lat+sc_lat_off,1.5*s,dir-dx,dir+dx);\
+                                                        print(sc_lon,sc_lat+sc_lat_off,1.5*s,180+dir-dx,180+dir+dx);}'  $tmpn.file | \
+			    psxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+			
+# length variation
+
+
+			gawk -v sc_lon=$sc_lon -v sc_lat=$sc_lat  -v sc_lat_off=$sc_lat_off \
+			    -v s=$scale '{print(sc_lon,sc_lat+sc_lat_off,90,1*s)}' $tmpn.file  | \
+			    psxy -SVB$vecsize -G$scale_col -W0.5 $preg $proj  -O -K >> $ofile
+			echo $sc_lon $sc_lat 18 0 0 CM "@~d@~t = 1.5@~\261@~0.5 s, @~a@~=90@~\261@~45@+o@+" | \
+			    pstext  $preg $proj  -O -K -Wwhite >> $ofile
+
+		    fi
+
+
+		else		# only overview
+
+		    rc=1
+		    for rpol in spainwest spaineast GibraltarArc Atlas;do
+			pol_file=alboran/polygons/$rpol.dat
+			col=`platecolor $rc`
+			psxy -m $pol_file $preg $proj -fg -O -K -W6,$col >> $ofile
+
+			((rc=rc+1))
+		    done
+
+		    colormap2=tmp.cpt
+		    #makecpt -Crainbow -T0/300/5 -I > $colormap2
+		    makecpt -Crainbow -T0/200/5 -D -I > $colormap2
+		    psscale -D1/-.2/2/.2h -C$colormap2 -Ef -B100/:"z@-seis@- [km]": -O -K >> $ofile
+		    psxy $datadir/rum/allslabs_rum.gmt -m -C$colormap2 $preg $proj -fg -O -K -W4 >> $ofile
+
+		    grdcontour -C0.25 -A ~/CITCOM/fulltest/car_craton.s.2.grd $preg $proj -fg -O -K -W6 >> $ofile
+		    
+		    gawk '{print($1,$2,$3,$4/100)}' $datadir/quakes/engdahl/EHB.xyzmw | sort -n +2 -r | \
+			psxy -O -K -Sc $preg $proj -C$colormap2 -W0.5 -fg >> $ofile
+
+
+		    gawk '{print($3,$2)}' $datadir/splitting/splitting.$drcode.table | \
+			psxy $preg $proj -Si.15 -Gwhite -W0.5 -O -K >> $ofile
+
+		    echo $0: no data plotting, $ofile
+
+		fi
+		
+
+		echo 100 1000 | psxy $preg $proj -O >> $ofile
+		modifybb $ofile 2> /dev/null
+		echo $0: written to $ofile
+		epstopdf $ofile $ofile_pdf
+		#rm $ofile 
+		if [ $gv -eq 1 ];then
+		    gv $ofile 
+		fi
+		if [ $nfit -eq 0 ];then
+		    echo $0: no splits, deleting
+		    rm $ofile
+		else
+		    echo $0: model $model strain $strain mode $mode mean_misfit $mean_misfit n $nfit \
+			 bfit: $nbfit mean_bfit: $mean_bfit mean_dt_misfit: $mean_dt_misfit  mean_w_misfit:  mean_b_dt_misfit: $mean_b_dt_misfit >> $fitfile 
+		    tail -1 $fitfile
+		fi
+	    fi
+	done
+    done
+done
+if [ $assemble_all_misfits -eq 1 ];then # print best models
+    sort +8 -n $fitfile | head -20
+fi
+
+

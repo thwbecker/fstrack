@@ -1,0 +1,162 @@
+#!/bin/bash
+
+models=${1-"med_weak_mix_ns med_weak_mix_ndns med_mix med_weak_mix_nsc med_weak_mix med_weak_mix_nsg med_weak_mix_slns med_weak_mix_nst med_weak_mix_nsw med_weak_mix_nsa med_weak_mix_nsa2 med_weak_mix_nsa2p med_weak_mix_nsa2_vc"}
+
+oview=${2-1}
+pfiles=${3-1}
+
+# desired models
+#models="   med_weak_mix_ns med_weak_mix_ndns med_mix med_weak_mix_nsc med_weak_mix med_weak_mix_nsg med_weak_mix_slns med_weak_mix_nst"
+#
+#runcitcom med_weak_mix_ns 216 xxx 8 24:00:00
+#runcitcom med_weak_mix_ndns 216 xxx 8 24:00:00 4
+#
+#we should compare the reference model with:
+#
+#-reference model:              med_weak_mix_ns * 
+#-no density:                   med_weak_mix_ndns * 
+#-high density:                 med_weak_mix_hdns *
+#(-no weak zones at all:         med_mix)
+#-ara coupled:                  med_weak_mix_nsc *
+#-southern weak zone for adria  med_weak_mixh * 
+#-visc (t):                     med_weak_mix_nst *
+#-no alpine coupling in east:   med_weak_mix_nsa *
+
+#-slab from sismicity:          med_weak_mix_slns *
+#-keels stiff                   med_weak_mix_nsk *
+#-all of alps coupled:          med_weak_mix_nsa2 *
+#-anatolia split                med_weak_mix_nsas *
+#-anatolia split, slabs         med_weak_mix_nsass *
+#-all of alps and pelep. cpld:  med_weak_mix_nsa2p *
+
+
+#-all of alps c, simpl. visc.:  med_weak_mix_nsa2_vc
+#-no claudia model:             med_weak_mix_nsg
+#-wide weak zone:               med_weak_mix_nsw
+
+# additional models:
+#-souther weak, visc(t):        med_weak_mix_t
+
+
+frame="-NUB"		# reference frame, AFR or EUR, or NNR, or -EUR, or -NUB
+
+pname=`echo $frame | gawk '{if(substr($1,1,1)=="-")print(substr($1,2));else print($1)}'`
+
+
+#
+# reference model at different depth
+#
+
+remove_mnr=0			# no mnr correction
+
+ref_model=med_weak_mix_ns
+comp_model=med_weak_mix_nsc	
+
+#
+# remove the reference frame files
+#
+rm */EUR.corr.v? */NUB.cfixed.v? */v?.nr.grd 2> /dev/null
+
+
+if [ $oview -eq 1 ];then
+    if [ -s $ref_model ];then
+	fs=""
+	for depth in 0 100 200 300 400 500;do
+	    
+	    plot_global_model_vel $ref_model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 0
+	    cp $ref_model/vel.$depth.NUB.g.ps claudio/global//ref.$ref_model.$depth.NUB.ps
+	    fs="$fs ref.$ref_model.$depth.NUB.ps"
+	done
+	cd claudio/global/
+	\epsmerge -par --print --postscript --orientation Landscape -x 3 -y 2 $fs > ref.$ref_model.NUB.ps
+	cd ../../
+    else
+	echo $0: ref model $ref_model not found
+	exit
+    fi
+
+    if [ -s $comp_model ];then
+    # comparison model 
+	fs=""
+	for depth in 0 100 200 300 400 500;do
+	    
+	    plot_global_model_vel $comp_model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 0
+	    cp $comp_model/vel.$depth.NUB.g.ps claudio/global//comp.$comp_model.$depth.NUB.ps
+	    fs="$fs comp.$comp_model.$depth.NUB.ps"
+	done
+	cd claudio/global/
+	\epsmerge -par --print --postscript --orientation Landscape -x 3 -y 2 $fs > comp.$comp_model.NUB.ps
+	cd ../../
+	rm $fs
+    else
+	echo $0: comparison model $comp_model not found
+	exit
+    fi
+    
+    
+#
+# loop through models and make surface map view plots
+#
+    for model in $models;do
+	depth=0
+	plot_global_model_vel $model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 0 
+	cp $model/vel.$depth.NUB.g.ps claudio/global//$model.vel.$depth.NUB.ps
+    done
+
+fi
+
+if [ $pfiles -eq 1 ];then
+#
+# loop through models and make profiles
+#
+
+# profile 1
+echo 15 46 22 33 > prof.dat	# start and end points for velocity profiles
+#    echo 12 45.5 22 33 > prof.dat	# start and end points for velocity profiles
+# profile 2
+    echo 36 46 22 33 >> prof.dat
+#echo 26 46 24 33 >> prof.dat
+    echo 10 39 28 41  >> prof.dat
+    echo 8 49 18 42 >> prof.dat
+    
+    np=`lc prof.dat`
+    
+    rm prof*vel
+    
+    use_prof=1
+    for model in $models;do
+	depth=0
+	rm prof.*.ps 2> /dev/null
+	plot_global_model_vel $model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 $use_prof
+	cp $model/vel.$depth.NUB.g.ps claudio/global//$model.velp.$depth.NUB.ps
+	mv prof.$model.*.ps  claudio/global//
+	
+	
+	((use_prof=use_prof+1))
+
+
+    done	
+    # combine profiles from different models
+	
+
+    i=1
+    while [ $i -le $np ];do
+	plot_vel_profile -1 $i
+	mv prof.all.$i.ps claudio/global//prof.all.$i.ps
+	((i=i+1))
+    done
+
+
+    rm prof.dat
+fi
+
+cd claudio/global/
+for f in `ls *.ps`;do
+    epstopdf $f
+    gzip -f $f 
+
+done
+cd ../../
+
+
+tar --create --verbose --gzip --file $HOME/public_html/ftp/claudio_global.tgz claudio/global/

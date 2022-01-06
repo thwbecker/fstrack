@@ -1,0 +1,185 @@
+#!/bin/bash
+#
+# plot radial anisotropy factors, use chi
+# 
+models=${1-"safs417nc safs417nc_er pmDsmean_nt safs4 med_weak_mix_nsmit med_weak_mix_ns2 med_weak_mix_ns3 med_weak_mix_ns2e2  med_weak_mix_ns2e2k med_weak_mix_ns2e  med_weak_mix_ns2e3 med_weak_mix_ns2e3k "}
+cmodel=${2-"sb10"}
+
+strain=${3-0.75}
+depths=${4-"100 150 200"}
+rcode=${5-55}
+gv=${6-0}
+
+#rcode=0				# region code
+
+remove_mean=0			# remove the regional mean anisotropy?
+
+
+lmax=20				# smoothing
+#lmax=31				# smoothing
+
+
+tfhw=10				# exp half width for model damping
+grdimage="grdimage -Ql"
+
+tmpn=/tmp/$USER.$HOST.nnr.$$.tnr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+region_parameters $rcode 8 > tmp.dat
+read xmin xmax ymin ymax < tmp.dat; rm tmp.dat
+
+reg=`region_parameters $rcode 3`
+pscr=`region_parameters $rcode 13` # pscoast
+#ann=`region_parameters $rcode 6` # annotation
+ann=-Ba20f1/a10f1
+#proj=`region_parameters $rcode 4` # projection
+
+proj=-JH`echo $reg | gawk -f reg2midlon.awk `/5
+
+rname=`region_parameters $rcode 7` # region name
+
+makecpt -T.875/1.125/0.0025 -Chaxby  -I -D > chi.cpt
+makecpt -T-.15/0.15/0.001 -Chaxby  -I -D > dchi.cpt
+
+
+gmtset BASEMAP_TYPE plain
+
+for model in $models;do
+
+
+    dx=0.5
+    inc=-I$dx
+
+    dc=1
+	
+    for depth in $depths;do
+
+	.  $HOME/CITCOM/fulltest/name_med
+	echo model $model depth $depth strain $strain $title
+	#
+	# rphi version
+	#
+	file=$model/results/$rname/tracer.rphid.0.$depth.$rname.s.$strain.dat.gz
+	if [ ! -s $file ];then
+	    file=$model/results/tracer.rphid.0.$depth.s.$strain.dat.gz
+	    if [ ! -s $file ];then
+		file=$model/results/tracer.er.rphid.0.$depth.s.$strain.dat.gz
+		if [ ! -s $file ];then
+		    echo $0: file $model/results/tracer.er.rphid.0.$depth.s.$strain.dat.gz
+		    echo $0: $model/results/tracer.rphid.0.$depth.s.$strain.dat.gz and not found
+		    ls $model/results/tracer.*rphid.0.*.s.$strain.dat.gz
+		    exit
+		fi
+	    fi
+	fi
+	echo $0: using $file
+	#
+	# savd version
+	#
+	#if [ -s $model/results/$rname/tracer.er.savd.$depth.$rname.s.$strain.dat.gz ];then
+	#    file2=$model/results/$rname/tracer.er.savd.$depth.$rname.s.$strain.dat.gz
+	#elif [ -s $model/results/$rname/tracer.savd.$depth.$rname.s.$strain.dat.gz ];then
+	#    file2=$model/results/$rname/tracer.savd.$depth.$rname.s.$strain.dat.gz 
+	#else
+	#    file2=xxx
+	#fi
+	
+	#
+	# model
+	#
+	rm model.$depth.grd 2> /dev/null
+        #  chi = N/L = (v_{SH}/v_{SH})^2
+	zcat $file | gawk '{print($1,$2,$5/$4)}' | surface -fg $reg $inc -Gtmp.$$.grd
+	if [ $remove_mean -eq 1 ];then
+	    mean=`grd2geo_mean tmp.$$.grd`
+	    grdmath tmp.$$.grd $mean SUB = model.$depth.grd
+	    cmp=dchi.cpt
+	else
+	    cp tmp.$$.grd model.$depth.grd
+	    cmp=chi.cpt
+	fi
+	rm tmp.$$.grd
+	
+	#if [ -s $file2 ];then
+	#    echo $0: using $file2
+	#    zcat $file2 | sav2afactor 50  2> /dev/null  | gawk '{print($1,$2,$14)}' | surface -fg $reg $inc -Gmodel.$depth.grd
+	#fi
+	#
+	# for grids
+	#
+	if [ $depth -eq 50 ];then
+	    z_seis=52.5
+	elif [ $depth -eq 100 ];then
+	    z_seis=102.5
+	elif [ $depth -eq 150 ];then
+	    z_seis=165
+	elif [ $depth -eq 200 ];then
+	    z_seis=215
+	elif [ $depth -eq 250 ];then
+	    z_seis=270
+	else
+	    z_seis=$z
+	fi
+	havelayer=`gawk -v d=$z_seis   '{if($1==d){print(NR);p=1}}END{if(!p)print(0)}' $datadir/tomography/$cmodel/depths.dat`
+	if [ $havelayer -ne 0 ];then # use grid
+	    grd2xyz $datadir/tomography/$cmodel/xi.$havelayer.grd  | \
+		surface -fg  -I$dx -Lld -Lud -R$xmin/$xmax/$ymin/$ymax -Gtmp.$$.grd 
+	else			# expand
+	    extract_layer $datadir/tomography/$cmodel/d.xi.31.ab $depth 2> /dev/null | \
+		shsyn $dx 0 tmp.$$ $xmin $xmax $ymin $ymax 2> /dev/null
+	fi
+	if [ $remove_mean -eq 1 ];then # remove regional mean
+	    mean=`grd2geo_mean tmp.$$.grd`
+	    grdmath tmp.$$.grd $mean SUB = tomo.$depth.grd
+	else
+	    cp tmp.$$.grd tomo.$depth.grd
+	fi
+	rm tmp.$$.grd
+
+
+	ofile=$HOME/tmp/$model.$cmodel.s.$strain.$rcode.eps
+
+	if [ $dc -eq 1 ];then
+	    $grdimage model.$depth.grd -C$cmp $reg $proj -Y8 -X1 `echo $ann`WeSn -P -K > $ofile
+	else
+	    $grdimage model.$depth.grd -C$cmp $reg $proj -X-5.5 -Y-3.25 `echo $ann`WeSn  -O -K >> $ofile
+	fi
+	if [ $dc -eq 1 ];then
+	    echo -0.1 0.92 28 0 3 ML "$title" | pstext -R0/1/0/1 -JX3.  -O -N -K >> $ofile
+	fi
+	echo 1.75 0.8 23 0 0 MC "$depth km" | pstext -R0/1/0/1 -JX3.  -O -N -K >> $ofile
+
+	pscoast $pscr -W2,128 $reg $proj -O -K >> $ofile
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+	    $reg  $proj  -O -K   -W2,green  >> $ofile
+
+
+
+	$grdimage tomo.$depth.grd -C$cmp -X5.5 $reg $proj `echo $ann`WeSn  -O -K >> $ofile
+	if [ $dc -eq 1 ];then
+	    echo -0.1 0.92 28 0 3 ML "$cmodel" | pstext -R0/1/0/1 -JX3.  -O -N -K >> $ofile
+	fi
+	pscoast $pscr -W2,128 $reg $proj -O -K >> $ofile
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+	    $reg  $proj  -O -K   -W$ncol  >> $ofile
+	if [ $dc -eq 3 ];then
+	    if [ $remove_mean -eq 1 ];then
+		psscale -D-.1/-.5/3/.2h -B.05/:"@~dx@~": -O -E -K -C$cmp >> $ofile
+	    else
+		psscale -D-.1/-.5/3/.2h -B.05/:"@~x@~": -O -E -K -C$cmp >> $ofile
+	    fi
+	fi
+
+        ((dc=dc+1))
+
+    done
+    echo 1000 1000 | psxy $reg $proj -O >> $ofile
+
+    modifybb $ofile 2> /dev/null
+#    epstopdf $ofile
+    echo $0: output in $ofile
+    if [ $gv -eq 1 ];then
+	gv $ofile &
+    fi
+    rm tomo.*.grd  model.*.grd
+done

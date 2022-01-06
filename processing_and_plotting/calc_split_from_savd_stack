@@ -1,0 +1,102 @@
+#!/bin/bash
+#
+# compute a column stack of sav tensors
+#
+model=${1-carib.7.12}
+lon=${2-232}
+lat=${3-22}
+strain=${4-0.75}
+rname=${5-NAM}
+ofile=${6-tmp.dat}
+loc_dir=${7-xxx}		# local directory
+
+n_concurrent=1			
+
+incidence=10
+dz=25
+
+owd=`pwd`
+
+tmpd=/tmp/$USER.$$.$lon.$lat.tt.$model.$strain.$mode.$rname
+mkdir $tmpd
+cd $tmpd
+tmpn=tmp
+trap "rm -rf $tmpd ; exit" 0 1 2 15
+
+
+tfile=tracer.savd.25.$rname.s.$strain.dat.gz
+
+if [ -s $loc_dir/$tfile ];then
+    idir=$loc_dir/
+elif [ -s $datadir/flow_field/finite_strain/$model/results/$rname/$tfile ];then
+    idir=$datadir/flow_field/finite_strain/$model/results/$rname/
+elif [ -s /home/scec-00/twb/tmp/$model/results/$rname/$tfile ];then
+    idir=/home/scec-00/twb/tmp/$model/results/$rname/
+else
+    echo $0: error, $tfile not found for model $model  > /dev/stderr
+    exit
+fi
+reg=`echo $lon $lat | gawk '{printf("-R%g/%g/%g/%g",$1-0.1,$1+0.1,$2-0.1,$2+0.1)}'`
+
+#echo $0: idir $idir strain $strain 
+#echo $0: lon lat $lon $lat reg $reg rname $rname
+
+depths=`gawk -v dz=$dz 'BEGIN{for(x=25;x<=350;x+=dz)printf("%g ",x)}'`
+
+dc=1
+for d in $depths;do
+    tfile=tracer.savd.$d.$rname.s.$strain.dat.gz
+    if [ ! -s $idir/$tfile ];then
+	echo $0: error, $idir $tfile not found > /dev/stderr
+	exit
+    fi
+    zcat $idir/$tfile | gmtselect -fg $reg > $tmpn.$d.out &
+    ((dc=dc+1))
+    if [ $dc -ge $n_concurrent ];then
+	wait
+	dc=1
+    fi
+done
+wait
+
+
+
+rm $tmpn.stack.* 2> /dev/null
+for d in $depths;do
+    n=`lc $tmpn.$d.out`
+    if [ $n -ne 1 ];then
+	echo $0: error found $n entries for depth $d > /dev/stderr
+	exit
+    fi
+    for mode in 0 1 2 3;do	# 
+	. $owd/split_mode_parameters # selects bounds
+	((mc=mode+1))
+	if [ `echo $d | gawk -v l=$left_sm_bound -v r=$right_sm_bound '{if(($1>=l)&&($1<=r))print(1);else print(0)}'` -eq 1 ];then
+	    (( dl[$mc] = dl[$mc] + dz ))
+	    cat $tmpn.$d.out >> $tmpn.stack.$mode
+	fi
+    done
+done
+res=""
+for mode in 0 1 2 3;do
+    ((mc=mode+1))
+    #echo $0: mode $mode dl ${dl[$mc]} 
+
+    rm $tmpn.sav.$mode 2> /dev/null
+    gawk -f averageallcol.awk $tmpn.stack.$mode > $tmpn.sav.$mode
+    if [ ! -s $tmpn.sav.$mode ];then
+	echo $0: error, no tensor produced for $model $lon $lat $strain $rname > /dev/stderr
+	exit
+    fi
+    rm $tmpn.sks.$mode 2> /dev/null
+    sav2splitting $tmpn.sav.$mode 1 0 ${dl[$mc]} 3.353 0 0 0 1 $incidence 2> /dev/null | gawk '{print($4,$5,$6,$7)}' > $tmpn.sks.$mode 
+    if [ ! -s $tmpn.sks.$mode ];then
+	echo $0: error, no SKS results produced for $model $lon $lat $strain $rname mode $mode > /dev/stderr
+	exit
+    fi
+    res="$res $mode "`cat $tmpn.sks.$mode`
+done
+echo $lon $lat $res > $ofile
+#echo $0: written to $ofile
+
+

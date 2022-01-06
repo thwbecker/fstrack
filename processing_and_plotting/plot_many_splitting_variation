@@ -1,0 +1,10 @@
+#!/bin/bash
+ms="med1 med2 med3 pmDnngrand_nt_med pmDnngrand_nt pmDpmean_m01_med pmDsmean_nt_ol_only pmDsmean_nt pmDstein pmFsmean_nt"
+ts="s.0.5 s.2"
+
+for m in $ms;do
+    for t in $ts;do
+	plot_splitting_variation $m GRE.$t 1 33
+    done
+done
+

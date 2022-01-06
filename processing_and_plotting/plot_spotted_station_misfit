@@ -1,0 +1,137 @@
+#!/bin/bash
+#
+# plot a station misfit file as produced by plot_spotted_splitting
+#
+model=${1-pmDsmean_nt}		# model
+type=${2-s.2}			# type of flow model
+cfmode=${3-0}			# depth curoff mode: 0: none 1: top 2: bottom -1: old none
+
+var=1				# variation of properties with depth
+#
+#rcode=1			# region code
+rcode=8			# region code
+
+# temp
+tmpn=/tmp/$USER.$HOST.$$.sspotted;trap "rm -f $tmpn.* ; exit" 0 1 2  15
+#
+# plotting parameters
+#
+
+preg=`region_parameters $rcode 3`
+
+rname=`region_parameters $rcode 7`
+proj=`region_parameters $rcode 4`
+#ann=`region_parameters $rcode 6`
+ann=-Ba5f1WeSn
+pscr=`region_parameters $rcode 13`
+topo=1;				# plot topo on overview map
+pstation=0			# plot station label?
+
+if [ $var -eq 1 ];then 
+    sav="savd"
+else 
+    sav="sav"
+fi
+
+#start_dir=$model/results/spotted/
+start_dir=$model/results/splitting.$rcode/splitting/
+
+
+if [ $cfmode -eq -1 ];then	# old 
+    wdir=$start_dir/splitting.$rcode.$type.$sav/
+else			# new
+    wdir=$start_dir/splitting.$rcode.$type.$sav.$cfmode/
+fi
+# input file
+ifile_r=$wdir/station_misfits.r.dat
+ifile_a=$wdir/station_misfits.a.dat
+# 
+split_data_dir=$datadir/splitting/splitting.$rcode.sorted/
+
+if [ ! -s $ifile_r ];then
+    echo $0: $ifile_r not found
+    exit
+fi
+#echo $ifile_r
+# splitting data
+data=$datadir/splitting/splitting.$rcode.table
+
+
+# filename
+ofile=$HOME/tmp/$model.$cfmode.$rname.$type.$sav.sm.map.ps 
+
+
+psbasemap $preg $proj $ann -P -K > $ofile
+if [ $topo -eq 0 ];then
+    pscoast -O -K $preg $proj $pscr -G200 >> $ofile
+else
+#    makecpt -Ctopo  > dem.cpt
+    makecpt -Clight_gray -T-5000/2500/100 > dem.cpt
+    grdimage $datadir/etopo2/etopo2.grd $preg $proj -Cdem.cpt -O -K >> $ofile
+    pscoast -O -K $preg $proj $pscr -W1 >> $ofile
+fi
+psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+    $preg  $proj  -O -K   -W5/200/0/0  >> $ofile
+    
+if [ -s  $split_data_dir/only_nulls ];then
+# data nulls
+    psxy $split_data_dir/only_nulls $preg $proj  -O -K -Sa0.2 -G255/0/0 -W0.5 >> $ofile
+fi
+
+if [ $pstation -eq 1 ];then
+#
+# plot station labels
+#
+    gawk '{print($2,$3,$1)}' $ifile_r | sort  | uniq > $tmpn.stations
+    gawk 'BEGIN{a=0;d=.7;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;a+=60;
+      print($1,$2);print($1+x,$2+y);print(">");}' $tmpn.stations | \
+	  psxy $preg $proj  -O -K -W3/0/0/255 -M >> $ofile
+    gawk 'BEGIN{a=0;d=.7;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;
+      printf("%g %g %i %g %i MC %s\n",$1+x,$2+y,10,0,0,$3);a+=60;}' $tmpn.stations | \
+	  pstext $preg $proj  -O -K -N -G0/0/255 >> $ofile
+fi
+
+scale=75
+#
+# plot azimuth misfits
+#
+makecpt -T-2/2/0.1 -Chot > $tmpn.amp
+modifycptends $tmpn.amp
+# loop through measures
+np=`lc $ifile_r`
+i=1
+while [ $i -le $np ];do
+    oneline $i $ifile_r > $tmpn.dat
+    read stat lon lat n dazi dt t < $tmpn.dat
+#    echo $stat $dazi
+    lw=`echo $n | gawk '{print($1/4)}'`
+    #gawk '{print($2,$3,$5/s)}' s=$scale $ifile_r | \
+    #	mypsxy $preg $proj -O -Sc -K -W$lw >> $ofile
+    gawk '{print($2,$3,$6/$7,$5/s)}' s=$scale $ifile_r | \
+    	mypsxy $preg $proj -C$tmpn.amp -O -Sc -K -W$lw >> $ofile
+    ((i=i+1))
+done
+mypsscale -E -C$tmpn.amp -D1.5/1.25/1.5/.15h -B1/:"@~D(d@~t@~)/d@~t": -O -K >> $ofile
+
+#
+# labels
+#
+px1=0.2;py1=0.3
+px2=0.25;py2=0.1
+
+echo $px1 $py1 45 | gawk '{print($1,$2,$3/s)}' s=$scale  | \
+    mypsxy  -R0/1/0/1 -JX7 -O -K  -N -G128 -Sc  >> $ofile
+echo $px1 $py1 14 0 0  CM "@~\341Da\361 = 45@~@+o@+" | \
+    pstext -R0/1/0/1 -JX7 -O -K  -N  >> $ofile
+
+mstring=`echo $model $type | gawk -f rename.awk`
+if [ $var -eq 0 ];then 
+    mstring="$mstring C = const."
+fi
+echo $px2 $py2 20 0 0 TC "$mstring" |\
+    pstext -R0/1/0/1 -JX7 -O -K  -N -G1 >> $ofile
+
+
+echo 100 1000 | psxy $preg $proj -O >> $ofile
+modifybb $ofile 35 35 600 610 2> /dev/null
+echo $0: output in $ofile > /dev/null

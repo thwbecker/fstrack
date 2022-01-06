@@ -1,0 +1,42 @@
+#!/bin/bash
+gtracer=${1-1}
+
+#model=pmDsmean_nt
+#cd $model
+
+if [ $gtracer -eq 1 ];then
+    gawk 'BEGIN{for(x=240;x<=250;x+=5)for(y=-40;y<=0;y+=5)print(x,y,400)}' > tracer.lonlatz.dat
+    rm hist.*.dat
+    fstrack -wt 1000 -ns 1000 -tim 3 -fs -strain 3
+#    fstrack -wt 1000 -ns 400 -tim 3 -ft -time 30
+fi
+
+
+ofile=stream.ps
+reg=-R220/290/-50/10 
+proj=-JQ`echo $reg | gawk -f reg2midlon.awk`/7
+gmtset BASEMAP_TYPE plain
+
+
+pscoast -Ba5f1g10WeSn -Dc -G128 -K -P $reg $proj > $ofile
+psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+    $reg  $proj  -O -K   -W4/255/0/0  >> $ofile
+
+makecpt -T0/500/5 -Chaxby > depth.cpt
+i=0
+while [ -s hist.$i.dat ];do
+    psxy hist.$i.dat -Cdepth.cpt -Sc0.05 $reg $proj -O -K >> $ofile
+    tail -1 hist.$i.dat | gawk '{print($1,$2,8,0,0,"CM",i)}' i=$i | \
+	pstext -O -K $reg $proj -W255 >> $ofile
+    echo $0: plotted hist.$i.dat
+    ((i=i+1))
+done
+psscale -N50 -D3.5/-.35/4/.2h -B250/:"km": -Cdepth.cpt -O -K >> $ofile
+echo 1000 1000 | psxy -O $reg $proj >> $ofile
+echo $0: output in $ofile
+
+
+gmtset BASEMAP_TYPE fancy
+
+#cd ..
+

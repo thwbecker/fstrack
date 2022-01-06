@@ -1,0 +1,721 @@
+#!/bin/bash
+#
+# run various types of finite strain calculations
+# $Id: run_fstrack,v 1.14 2007/08/20 00:21:55 twb Exp becker $
+#
+wstrain=${1-1}			# loop through -bs type finite strains
+wtime=${2-0}			# loop through -bt type backward times
+wstrain_no_shallow=${3-0}	# run a shallow frozen computation for -bs -strain 0.5
+wisa=${4-0}			# run a ISA computation
+strains=${5-"3 2 1 0.5 0.2"}	# list of strains to loop through
+times=${6-"1 5 10 20"}		# list of times to loop through
+#
+type=${7-0}			# 0: low vertical spacing  global 
+                                # 1: fine vertical spacing global 
+                                # 2: fine vertical spacing,regional 
+                                # 3: low vertical spacing, regional
+                                # 4: high vertical spacing, spotted dset 2
+                                # 5: ultra-fine vertical spacing,regional 
+                                # 6: high vertical spacing, spotted dset 4
+                                # 7: ultra-high vertical spacing, but not laterally
+                                # 8: low vertical spacing, regional, but at special depths 30,50,80,100,130,160,210,250,270,400
+                                # 9: low vertical spacing  global,  but at special depths 30,50,80,100,130,160,210,250,270,400
+                                # <0: use a single depth -type
+
+wtexture=${8-0} 		# compute texture?
+                                #
+spawn=${9-24}			# if spawn is set to n>0, will use spawn CPUs per node in a PBS or SLURM request 
+                                #
+                                # if spawn is < 0, will use n PBS or SLURM job requests
+                                #
+wbdepth=${10-0}			# run an advection scheme back to a certain depth
+bstime=${11-60}			# backward limit time 
+extra_opts=${12-""}		# extra options
+region_code=${13-0}		# if regional computation is selected (type == 2 or 3), which region 
+                                # code should be used? 1 == SAF 24 == MED
+                                # if spotted computation is chose (type == 4 or type == 6), which table to use
+queue=${14-"xxx"}     		# for PBS or SLURM, xxx uses no queue spec 
+kernel=${15-"0"}		# 0: PREMd, 1: PREMi, 2: yang
+#
+# other parameters
+#
+#
+if [[ $TACC_SYSTEM ]];then
+    use_slurm=1	     # 0: use PBS 1: use SLURM (TACC)
+    # 0: debug 1: execute 2: override PBS, run local
+    execute=1
+else
+    use_slurm=0
+    # 0: debug 1: execute 2: override PBS, run local
+    execute=2
+
+fi
+
+#queue=becker64			# for PBS on HPCC
+#
+jobc_local=0
+((maxnum_fstrack_proc=NR_CPUS-2))		# single host direct run maximum number of jobs
+
+#
+# depth spacing
+#
+ld_depths="50 100 150 200 250 300 350" # 7 levels
+# 14 levels for spotted at 25 km spacing (dset 2)
+sp_depths="25 50 75 100 125 150 175 200 225 250 275 300 325 350 375" 
+# 16 levels
+hd_depths="37 50 75 88 100 113 125 150 175 200 225 250 275 300 325 350" 
+# more 
+hd_depths2="25 50 75 100 125 150 175 200 225 250 275 300 325 350 375 400" 
+# even more, 20
+hd_depths3="20 40 60 80 100 120 140 160 180 200 220 240 260 280 300 320 340 360 380 400"
+# 10 km spacing for spotted (dset 4)
+sph_depths="10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300 310 320 330 340 350"	
+#
+# depth wise spacing in km for kernel type computations
+#
+kspace=5
+
+if [ $kernel -eq 0 ];then	# without $HOME!
+    swskf=progs/src/fstrack/sw_sens/PREMd/fsens
+elif [ $kernel -eq 1 ];then
+    swskf=progs/src/fstrack/sw_sens/PREMi/fsens
+elif [ $kernel -eq 2 ];then
+    swskf=progs/src/fstrack/sw_sens/yang/fsens
+else
+    echo $0: SW kernel $kernel undefined
+    exit
+fi
+
+
+if [ $spawn -ne 0 ];then	# use PBS and multiple CPUs
+    
+    if [ ! -s pbs_log_files/ ];then
+	mkdir pbs_log_files/ 
+    fi
+    if [ ! -s pbs_batch_files/ ];then
+	mkdir pbs_batch_files/
+    fi
+    if [ $spawn -gt 0 ];then
+	ppn=$spawn
+    else
+	((spawn=-spawn))
+	ppn=1
+    fi
+
+    echo $0: using PBS or SLURM with $spawn nodes ppn $ppn
+    #
+    # decide on queue and walltime
+    #
+    if [ `echo $queue | gawk '{if($1=="xxx")print(1);else print(0)}'` -eq 1 ];then
+	# main queue on HPCC
+	qstring=""
+	echo $0: using main queue
+	walltime=48:00:00
+    else			# private queues
+	qstring="-q $queue"
+	echo $0: using $qstring
+	walltime=48:00:00
+    fi
+else				# no spawning
+    pbs=0
+    echo $0: using local host $HOST
+fi
+
+
+
+kernelres=0			# kernel type computation
+if [ $type -eq 0 ];then		# global, lo-res
+    depths="$ld_depths"
+    ntracer=15000		# per layer
+    regional=0
+elif [ $type -eq 1 ];then
+    #
+    # global, surface wave type computations, denser spacing
+    #
+    #depths="$hd_depths" # 16 levels
+    #depths="$hd_depths2" # 16 levels
+    depths="$hd_depths3" # 20 levels
+    ntracer=15000		# per layer
+    regional=0
+elif [ $type -eq 2 ];then
+    # regional computation, high res, 14
+    depths="$sp_depths"
+    regional=1
+elif [ $type -eq 3 ];then
+    # regional computation, fewer levels
+    depths="$ld_depths"
+    regional=1
+elif [ $type -eq 4 ];then
+    # spotted, lo res
+    depths="$sp_depths"
+    regional=2
+elif [ $type -eq 5 ];then
+    # regional computation, ultra-high res for kernels
+    depths=`gawk --assign spc=$kspace 'BEGIN{l1=5;l2=400;lr=l2-l1;n=lr/spc+1;dz=lr/n;
+        for(z=l1;z<=l2;z+=spc)print(z)}'` 
+    kernelres=1
+    regional=1
+elif [ $type -eq 6 ];then
+    # spotted, high res
+    #depths="$sph_depths"
+    depths="$hd_depths3"
+    regional=2
+elif [ $type -eq 7 ];then
+    # regional computation, ultra-high res for kernels
+    depths=`gawk --assign spc=$kspace 'BEGIN{l1=5;l2=400;lr=l2-l1;n=lr/spc+1;dz=lr/n;
+        for(z=l1;z<=l2;z+=spc)print(z)}'` 
+    regional=1
+elif [ $type -eq 8 ];then
+    # regional computation, special levels
+    depths="30 50 80 100 130 160 210 250 270 400"
+    regional=1
+elif [ $type -eq 9 ];then		# global, lo-res
+    depths="30 50 80 100 130 160 210 250 270 400"
+    ntracer=15000		# per layer
+    regional=0
+elif [ $type -lt 0 ];then	# single depth
+    depths=`echo $type | gawk '{print(-$1)}'`
+    ntracer=15000		# per layer
+    regional=0
+else
+    echo $0: error type $type undefined
+    exit
+fi
+
+#
+# make directories for output
+#
+if [ ! -s plots/ ];then
+    mkdir plots 
+fi
+if [ ! -s results/ ];then
+    mkdir results 
+fi
+
+# get name, tracers, etc. from region_code
+region_name=`region_parameters $region_code 7`
+if [ $regional -eq 1 ];then
+    #
+    # check for regional resolution
+    # 
+    if [ $kernelres -eq  1 ];then
+	# make kernel type spaced files
+	region_parameters  $region_code 14 | \
+	    gawk 'BEGIN{f=57.29577951;}{
+                   t1=$1;t2=$2;tr=t2-t1;tm=(t2+t1)/2;
+                   p1=$3;p2=$4;pr=p2-p1;pm=(p1+p2)/2;
+                   dt=dx/6371;n0 = tr/dt + 1;
+                   dp=dt/sin(tm);m0 = pr/dp+1;
+                   i=0;
+                   for(t=tm-n0/2*dt;i<=n0;t+=dt){
+                      dp=dt/sin(t);
+                      j=0;
+                      for(p=pm-m0/2*dp;j<=m0;p+=dp){
+                         print(p*f,90-t*f);
+                         j++;
+                      }
+                      i++;
+                      }
+                   }' dx=$kspace > region.$region_name.lonlat
+	psxy -Sc.02 -G0 region.$region_name.lonlat -R239.5/244.5/31.5/36.5 -Ba.5f.1 -P -JM7 > tmp.ps
+	echo $0: produced `lc region.$region_name.lonlat` lateral points for kernel spaced computation
+    else
+
+	region_inc=`region_parameters $region_code 5` #  use original
+
+	region_reg=`region_parameters $region_code 3`
+	# make lonlat file
+	echo $0: region reg $region_reg region inc $region_inc
+	grdmath $region_reg -I$region_inc X = tmp.grd
+	grd2xyz tmp.grd | gawk '{print($1,$2)}' > region.$region_name.lonlat; rm tmp.grd
+	ntracer=`lc region.$region_name.lonlat` # per layer
+    fi
+    region_file_name=region
+elif [ $regional -eq 2 ];then
+    if [  $kernelres -eq 1 ];then
+	echo $0: cannot use kernelres and spotted
+	exit
+    fi
+    #
+    # spotted observations, use region code 
+    #
+    ifile=$datadir/splitting/splitting.$region_code.table
+    if [ ! -s $ifile ];then
+	echo $0: $ifile not found for spotted mode
+	exit
+    fi
+    # make sure to not use stations twice
+    gawk '{printf("%7.2f %7.2f\n",$3,$2)}' $ifile | sort -n | uniq > \
+	region.s.$region_name.lonlat
+    cp region.s.$region_name.lonlat results/spotted.$region_name.locations.dat
+    region_file_name=region.s
+fi
+#
+# flags that are set depending on directory name:
+#
+#
+# should we use velocity history?
+#
+if [ `pwd | gawk '{if(match($1,"history")||match($1,"phist_"))print(1);else print(0)}'` -eq 1 ];then
+    extra_opts="$extra_opts -th"
+    echo $0: using plate history
+fi
+
+#
+# should we use olivine only?
+# 
+if [ `pwd | gawk '{if(match($1,"_ol_only"))print(1);else print(0)}'` -eq 1 ];then
+    extra_opts="$extra_opts -xol 100"
+    echo $0: using only olivine
+fi
+#
+# should we use -er_diff
+#
+if [ `pwd | gawk '{if(match($1,"_er"))print(1);else print(0)}'` -eq 1 ];then
+    extra_opts="$extra_opts -er_diff"
+    echo $0: using  -er_diff
+fi
+#
+# should we use -type 6 swithc of texture mode
+#
+if [ `pwd | gawk '{if(match($1,"_sstp_"))print(1);else print(0)}'` -eq 1 ];then
+    sstp=`pwd | gawk '{n=match($1,"_sstp_");print(substr($1,n+6))}'`
+    extra_opts="$extra_opts -type 6 -sstp $sstp"
+    echo $0: using  -type 6 -sstp $sstp
+fi
+
+#
+# should we use -sav_newTp
+#
+if [ `pwd | gawk '{if(match($1,"_newTp"))print(1);else print(0)}'` -eq 1 ];then
+    extra_opts="$extra_opts -sav_newTp"
+    echo $0: using  sav_newTp
+fi
+
+#
+# general options for fstrack w or w/0 texture
+#
+if [ $wtexture -eq 0 ];then	# no texture
+    fstrackoptions="-sws $swskf -bstime $bstime $extra_opts"
+else				# also compute texture
+#    fstrackoptions="-bstime $bstime -tm 1  -drex_eps 1e20 $extra_opts"
+    if [[ $regional -eq 1 || $regional -eq 2 ]];then
+	# regional options
+	fstrackoptions="-sws $swskf -bstime $bstime -tm 1 -drex_eps -0.005 $extra_opts -sav_out"
+    else
+	# global options
+	fstrackoptions="-sws $swskf -bstime $bstime -tm 1 -drex_eps -0.01  $extra_opts -sav_out"
+    fi
+
+fi
+#
+# assemble the modes string
+#
+modes=""
+if [ $wstrain -eq 1 ];then modes="$modes s";fi
+if [ $wtime -eq 1 ];then modes="$modes t";fi
+if [ $wstrain_no_shallow -eq 1 ];then modes="$modes sns";fi
+if [ $wisa -eq 1 ];then modes="$modes isa";fi
+if [ $wbdepth -eq 1 ];then modes="$modes bd";fi
+#
+# number of depth layers
+#
+tnd=`echo $depths | gawk '{print(NF)}'`
+
+
+if [ $spawn -ne 0 ];then
+
+    if [[ $ppn -gt 0 && $spawn -gt $tnd ]];then
+	echo $0: reducing the \#CPUs from $ppn to $tnd because we only have $tnd layers
+	ppn=$tnd
+	spawn=$tnd
+    fi
+    echo $0: attempting to run $tnd layers on $spawn processors ppn $ppn
+    nmodes=`echo $modes | gawk '{print(NF)}'`
+    if [ $nmodes -gt 1 ];then
+	echo $0: error: spawning only works for a single mode, modes: $modes
+	exit
+    fi
+
+fi
+echo $0: working modes are: $modes
+for mode in $modes;do		# loop through modes
+    #
+    # write the depth layers to a file
+    #
+    echo $depths | gawk '{for(i=1;i<=NF;i++)print($i)}' \
+	> tdepth.$$.dat
+    #
+    # select modes
+    #
+    # 1: times
+    # 2: strain
+    # 3: sns
+    # 4: isa
+    # 5: backward depth bd
+    mode_code=`echo $mode | gawk '{if($1=="t")print(1);else if($1=="s")print(2);\
+               else if($1=="sns")print(3);else if($1=="isa")print(4);else if($1=="bd")print(5); else print(0)}'`
+    if [ $mode_code -eq 0 ];then
+	echo $0: error, mode $mode undefined
+	exit
+    fi
+    echo $0: determined mode code $mode_code for $mode
+    if [ $mode_code -eq 1 ];then # times
+	variable="-time";pars=$times;options="-bt"
+    elif [ $mode_code -eq 2 ];then # strains 
+	variable="-strain";pars=$strains;options="-bs"
+    elif [ $mode_code -eq 3 ];then # strains no shallow, using a specific strain
+	variable="-strain";pars=$strains;options="-bs -remove_symm_strain"
+    elif [ $mode_code -eq 4 ];then # ISA
+	variable="-time";pars="1";options="-isa" # isa doesn't need advection
+    elif [ $mode_code -eq 5 ];then # backward depth                                                                  
+        variable="-depth";pars="410";options="-bd"
+    else
+	echo $0: mode_code $mode_code undefined
+	exit
+    fi
+    npars=`echo $pars | gawk '{print(NF)}'`
+    if [[ $spawn -ne 0 && $npars -ne 1 ]];then
+	echo $0: error: spawning only works for a single parameter, pars: $pars
+	echo $0: strains $strains times $times
+	exit
+    fi
+    for par in $pars;do
+	#
+	# naming convention
+	#
+	if [ $regional -eq 1 ];then # regional
+	    prefix=$region_name.$mode
+	    tracer_options="-tim 2 -td"
+	    rlabel=$region_name
+	elif [ $regional -eq 2 ];then
+	    prefix=splitting.$region_code.$mode
+	    tracer_options="-tim 2 -td"
+	    rlabel=splitting.$region_code
+	else			# global
+	    prefix=$mode
+	    tracer_options="-nt $ntracer -td"
+	    rlabel=""
+	fi
+	if [[ $mode_code -le 3 || $mode_code -eq 5 ]];then
+	    suffix=$prefix.$par.dat
+	else
+	    suffix=$prefix.dat	# for ISA
+	fi
+	if [ $spawn -eq 0 ];then
+	    #1 4 2 7 6 8 11 12 13 14 15
+	    #
+	    # NON-SPAWNING BRANCH
+	    #
+	    #
+	    if [[ $regional -eq 1 || $regional -eq 2 ]];then
+		tracer_options="-tim 2 -td"
+		if [ $execute -eq 1 ];then
+		    cp $region_file_name.$region_name.lonlat tracer.lonlat.$suffix
+		fi
+	    else
+            # total number
+		((nt=tnd*ntracer))		# total number of tracers, roughly
+		tracer_options="-nt $nt -td"
+	    fi
+	    #
+	    # single processor run for all tracers
+	    #
+	    #
+	    echo $0: running single host computation for parameter $variable at setting $par
+	    echo $0: options:  $variable $par $options $tracer_options $fstrackoptions -os $suffix
+	    echo $0: $tnd depth layers $depths with $nt tracers total $ntracer each
+	    echo $0: suffix for filenames will be $suffix, execute: $execute
+	    if [ $execute -eq 1 ];then
+		ps aux | grep fstrack | grep -v run_fstrack | grep -v grep | wc -l
+		while [ `ps aux | grep fstrack | grep -v run_fstrack | grep -v grep | wc -l` -ge $maxnum_fstrack_proc ];do
+		    echo $0: waiting for other job to terminate
+		    sleep 360
+		done
+		rm def*dat tracer*dat hist.*.dat pole*dat* strain.*.dat seval.*.dat 2> /dev/null
+		
+		if [ $regional -ne 0 ];then
+		    cp $region_file_name.$region_name.lonlat tracer.lonlat.$suffix
+		    mkdir results/$rlabel 2> /dev/null
+		    odir=results/$rlabel
+		else
+		    odir=results/
+		fi
+		cp tdepth.$$.dat tdepth.$suffix
+		echo $0: writing to current_run.log
+		fstrack $variable $par $options $tracer_options $fstrackoptions \
+		    -os $suffix > current_run.log  2>> current_run.log 
+
+		for depth in $depths; do
+		    for tname in tracer tracer.er;do
+			if [ -s $tname.f.s.$depth.$suffix ];then
+			    mv $tname.f.s.$depth.$suffix  $odir/
+			    gzip -f $odir/$tname.f.s.$depth.$suffix
+			fi
+			for extra in ti tid  sav savd;do # if we produced texture information
+			    if [ -s $tname.$extra.$depth.$suffix ];then
+				mv $tname.$extra.$depth.$suffix $odir/
+				gzip -f $odir/$tname.$extra.$depth.$suffix
+			    fi
+			done
+
+			for extra in rphi rphid;do
+			    if [ -s $tname.$extra.$depth.$suffix ];then
+				mv $tname.$extra.$depth.$suffix $odir/tracer.$extra.$kernel.$depth.$suffix 
+				gzip -f $odir/$tname.$extra.$kernel.$depth.$suffix
+			    fi
+			done
+			rm $tnamef.f.$depth.$suffix $tnamef.l.$depth.$suffix \
+			    $tnamei.l.$depth.$suffix 2> /dev/null
+		    done
+		done
+		rm tdepth.$suffix tracer.lonlat.$suffix 2> /dev/null
+		
+	    else
+		if [ $regional -ne 0 ];then
+		    cp $region_file_name.$region_name.lonlat tracer.lonlat.$suffix
+		fi
+		cp tdepth.$$.dat tdepth.$suffix
+		echo $0: exec string would read
+		echo fstrack $variable $par $options $tracer_options $fstrackoptions \
+		    -os $suffix 
+
+	    fi
+	else
+            #
+            # running on several CPUs, have several processors work on different depth levels
+            #
+	    cwd=`pwd`
+	    #
+	    # option string
+	    eopadd=`echo orig $extra_opts | gawk '{gsub(" ","",$0);print($0)}'`
+	    #
+	    # subdivision of depth levels?
+	    #
+	    if [ $tnd -ge $spawn ];then
+		echo $0: subdividing depth levels
+		subdivide_depth=1
+	    else
+		echo $0: no subdivision
+		subdivide_depth=0
+	    fi
+	    # batch file name
+	    main_name=pbs_batch_files/pbs.$type.$par.$$.`date +"%m%d%y"`.$eopadd.batch
+	    echo $main_name
+	    
+	    jobcount=1		# counter for job number
+	    while [ $jobcount -le $spawn ];do # loop through all submissions
+
+		#
+		# PBS brach
+		#
+		((cpu=jobcount-1)) # runs from 0....ncore-1
+		#
+		# suffix filename
+		#
+		unique_suffix=ps.$type.$eopadd.$prefix.$par.$kernel.$jobcount.$$.dat 
+		#
+		# depth levels
+		#
+		if [ $subdivide_depth -eq 1 ];then
+		    tracer_dep_options="-td"
+		    echo $depths | gawk '{step=int(NF/n+.5);i1=(j-1)*step+1;i2=i1+step-1;if(j==n)i2=NF;for(i=i1;i<=i2;i++)print($i);}' \
+			n=$spawn j=$jobcount > tdepth.$unique_suffix
+		    locald=`gawk '{printf("%g ",$1)}'  tdepth.$unique_suffix`
+		    lnd=`lc tdepth.$unique_suffix`
+		else		# no subdivision
+		    d=`echo $depths | gawk '{printf("%g",$i)}' i=$jobcount`
+		    tracer_dep_options="-tdd $d"
+		    locald=$d
+		    lnd=1
+		fi
+
+		echo $0: job: $jobcount locald: $locald pbs: $pbs  spawn: $spawn
+		if [ $regional -ne 0 ];then
+		    # regional model, lateral spacing comes from lon lat file
+		    if [ $subdivide_depth -eq 1 ];then
+			tracer_options="-tim 2 $tracer_dep_options"
+		    else
+			tracer_options="-tim 2 $tracer_dep_options"
+		    fi
+		    if [ ! -s $region_file_name.$region_name.lonlat  ];then
+			echo $0: error: $region_file_name.$region_name.lonlat  not found
+			exit
+		    fi
+		    cp $region_file_name.$region_name.lonlat tracer.lonlat.$unique_suffix
+		    mkdir results/$rlabel 2> /dev/null
+		    odir=results/$rlabel/
+		else
+		    ((nt=lnd*ntracer))		# total number of tracers, roughly
+		    # global model
+		    tracer_options="-nt $nt $tracer_dep_options"
+		    odir=results/
+		fi
+		if [ $jobcount -ne $spawn ];then
+		    #
+		    # begin script
+		    #
+		    echo "#!/bin/bash" > $main_name.$cpu
+		fi
+		# general log file
+		pbs_log=pbs_log_files/pbs.$mode_code.$type.$spawn.pbs.$$.log
+
+		if [ $ppn -eq 1 ];then 
+		    if [ $use_slurm -eq 0 ];then
+			echo "#PBS -l walltime=$walltime,nodes=1:ppn=$ppn" >> $main_name.$cpu
+		    else
+			echo "#SBATCH -t $walltime" >> $main_name.$cpu
+			echo "#SBATCH -N 1" >> $main_name.$cpu
+			echo "#SBATCH -D $cwd" >> $main_name.$cpu
+			echo "#SBATCH -o $pbs_log" >> $main_name.$cpu
+			echo "#SBATCH --export=ALL" >> $main_name.$cpu
+			echo "#SBATCH -n $ppn" >> $main_name.$cpu
+			echo "#SBATCH -p normal" >> $main_name.$cpu
+		    fi
+		else	# more than one cpu per node
+		    if [ $jobcount -eq $spawn ];then
+			echo 
+			echo writing master script $main_name
+			echo 
+			echo "#!/bin/bash" > $main_name
+			chmod +x $main_name
+
+			if [ $use_slurm -eq 1 ];then
+			    echo "#SBATCH -t $walltime" >> $main_name
+			    echo "#SBATCH -N 1" >> $main_name
+			    echo "#SBATCH -n $ppn" >> $main_name
+			    echo "#SBATCH -D $cwd" >> $main_name
+			    echo "#SBATCH -o $pbs_log" >> $main_name
+			    echo "#SBATCH -p normal" >> $main_name
+			    echo "#SBATCH --export=ALL" >> $main_name
+			    echo "srun -n $ppn "`pwd`"/$main_name.caller" >> $main_name
+			else
+			    echo "#PBS -l walltime=$walltime,nodes=1:ppn=$ppn" >> $main_name
+			    echo "pbsdsh -v "`pwd`"/$main_name.caller" >> $main_name
+			fi
+			#
+			echo "#!/bin/bash" > $main_name.caller
+			chmod +x $main_name.caller
+			if [ $use_slurm -eq 1 ];then
+			    echo `pwd`/"$main_name.\$SLURM_PROCID" >> $main_name.caller
+			else
+			    echo `pwd`/"$main_name.\$PBS_VNODENUM" >> $main_name.caller
+			fi
+			#cat $main_name
+			echo
+			#cat $main_name.caller
+		    fi
+		fi
+		if [ $jobcount -ne $spawn ];then
+		    if [[ `echo $locald | gawk '{print(NF)}'` -lt 1 || `echo $locald | gawk '{print($1)}'` -eq 0 ]];then
+			echo error with depth $locald
+			exit
+		    fi
+		    echo "cd $cwd"  >> $main_name.$cpu
+		    if [ ! -s fstrack_log_files ];then
+			mkdir fstrack_log_files 
+		    fi
+		    if [ $use_slurm -eq 0 ];then
+			echo "fstrack $variable $par $options $tracer_options $fstrackoptions -os $unique_suffix > fstrack_log_files/pbs.$prefix.$par.$mode_code.$kernel.$jobcount.\$PBS_JOBID.log 2>> fstrack_log_files/pbs.$prefix.$par.$mode_code.$kernel.$jobcount.\$PBS_JOBID.log" >> $main_name.$cpu
+		    else
+			echo "fstrack $variable $par $options $tracer_options $fstrackoptions -os $unique_suffix > fstrack_log_files/pbs.$prefix.$par.$mode_code.$kernel.$jobcount.\$SBATCH_JOBID.log 2>> fstrack_log_files/pbs.$prefix.$par.$mode_code.$kernel.$jobcount.\$SBATCH_JOBID.log" >> $main_name.$cpu
+		    fi
+		    echo "" >> $main_name.$cpu
+		    echo "for d in $locald;do" >> $main_name.$cpu
+		    echo "for tname in tracer tracer.er;do" >> $main_name.$cpu
+		    echo " if [ -s \$tname.f.s.\$d.$unique_suffix ];then" >> $main_name.$cpu
+		    
+		    echo "  mv \$tname.f.s.\$d.$unique_suffix $odir/\$tname.f.s.\$d.$suffix" >> $main_name.$cpu
+		    echo "  gzip -f $odir/\$tname.f.s.\$d.$suffix 2> /dev/null" >> $main_name.$cpu
+		    echo " fi" >> $main_name.$cpu
+		    if [ $mode_code -ne 4 ];then
+			echo "  for extra in ti tid sav savd;do" >> $main_name.$cpu
+			echo "   if [ -s \$tname.\$extra.\$d.$unique_suffix ];then" >> $main_name.$cpu
+			echo "     mv \$tname.\$extra.\$d.$unique_suffix $odir/\$tname.\$extra.\$d.$suffix" >> $main_name.$cpu
+			echo "     gzip -f $odir/\$tname.\$extra.\$d.$suffix" >> $main_name.$cpu
+			echo "   fi" >> $main_name.$cpu
+			echo "  done" >> $main_name.$cpu
+			echo "  for extra in  rphi rphid;do" >> $main_name.$cpu
+			echo "   if [ -s \$tname.\$extra.\$d.$unique_suffix ];then" >> $main_name.$cpu
+			echo "     mv \$tname.\$extra.\$d.$unique_suffix $odir/\$tname.\$extra.$kernel.\$d.$suffix" >> $main_name.$cpu
+			echo "     gzip -f $odir/\$tname.\$extra.$kernel.\$d.$suffix" >> $main_name.$cpu
+			echo "   fi" >> $main_name.$cpu
+		    fi
+		    echo "  done" >> $main_name.$cpu
+		    echo " done" >> $main_name.$cpu
+		    echo "done" >> $main_name.$cpu
+		    echo "rm  *.$unique_suffix " >> $main_name.$cpu
+		    echo "" >> $main_name.$cpu
+		    
+
+		    echo $0: written script to $main_name.$cpu jobcount $jobcount out of $spawn
+		    #
+		    # end script
+		    chmod +x $main_name.$cpu
+		else
+		    chmod +x $main_name
+		fi
+		
+		if [[ $ppn -eq 1 || $jobcount -eq $spawn ]];then
+
+
+		    if [ $ppn -eq 1 ];then
+			pbs_string="$cwd/$main_name.$cpu"
+		    else
+			pbs_string="$cwd/$main_name"
+		    fi
+		    if [ $use_slurm -eq 0 ];then
+			pbs_string="-o $pbs_log -e $pbs_log -V -d $cwd $pbs_string $qstring"
+		    fi
+		    
+		    # time to submit the main script for ppn>1 or each individual script
+		    if [ $execute -eq 2 ];then
+			echo $0: overriding PBS or SLURM, running local
+			i=0
+			while [ -s $cwd/$main_name.$i ];do
+			    echo $0: starting  $cwd/$main_name.$i
+			    $cwd/$main_name.$i &
+			    #cat $cwd/$main_name.$i
+			    ((i=i+1))
+			    ((jobc_local=jobc_local+1))
+			    if [ $jobc_local -ge $maxnum_fstrack_proc ];then
+				jobc_local=0
+				echo waiting
+				wait
+			    fi
+			done
+			wait
+		    else
+			if [ $use_slurm -eq 1 ];then
+			    sstring="sbatch $pbs_string"
+			else
+			    sstring="qsub $pbs_string"
+			#> qsub.$jobcount.log 2>> qsub.$jobcount.log
+			#cat qsub.$jobcount.log
+			fi
+			if [ $execute -eq 1 ];then
+			    while [ `mqstat | lc` -ge 50 ];do
+				echo $0: too many jobs in queue \(`mqstat | lc`\), waiting 
+				sleep 120
+
+			    done
+
+			    echo $0: submitting now $pbs_log
+			    $sstring
+			else
+			    echo $0: would submit like
+			    echo $sstring
+			    echo
+			fi
+		    fi
+		fi
+		((jobcount=jobcount+1))
+	    done
+	fi			# end spawning loop
+    done			# end par loop
+done				# end mode loop
+
+
+
+
+rm tmp.m 2>/dev/null

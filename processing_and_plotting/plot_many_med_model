@@ -1,0 +1,73 @@
+#!/bin/bash
+merge=${1-1}
+
+
+
+# global
+for m in medp1 med1 medp2 med2 medp3 med3;do
+    for i in 32 31 30 28 27 25 ;do
+	plot_med_model $m $i 2
+	if [ $merge -eq 0 ];then
+	    convert $m/vel.$i.ps $m/vel.$i.jpg
+	fi
+    done
+    if [ $merge -eq 1 ];then
+	epsmerge -x 3 -y 2 -par --orientation Landscape --print --postscript \
+	    $m/vel.32.ps $m/vel.31.ps $m/vel.30.ps $m/vel.28.ps $m/vel.27.ps  $m/vel.25.ps \
+	    > med_plots/$m.vel.ps
+	rm $m/vel.*.ps
+    fi
+done
+
+
+for m in med_bs med_bstp med_bssf medp_bs medp_bstp medp_bssf med_bssf_s medp_bssf_s med_bssf_ss medp2_bssf med_bssf_nd;do
+    for i in 30 27 25 20 15 10 ;do
+	plot_med_model $m $i 2
+	if [ $merge -eq 0 ];then
+	    convert $m/vel.$i.ps $m/vel.$i.jpg
+	fi
+    done
+    if [ $merge -eq 1 ];then
+	epsmerge -x 3 -y 2 -par --orientation Landscape --print --postscript \
+	    $m/vel.30.ps $m/vel.27.ps $m/vel.25.ps $m/vel.20.ps $m/vel.15.ps  $m/vel.10.ps \
+	    > med_plots/$m.vel.ps
+	rm $m/vel.*.ps
+    fi
+done
+
+
+m=pmDnngrand_nt_med
+
+for i in 32 29 26 20 18 16 ;do
+    plot_med_model $m $i 2 1
+	if [ $merge -eq 0 ];then
+	    convert $m/vel.$i.ps $m/vel.$i.jpg
+	fi
+done
+if [ $merge -eq 1 ];then
+    epsmerge -x 3 -y 2 -par --orientation Landscape --print --postscript \
+	$m/vel.32.ps $m/vel.29.ps $m/vel.26.ps $m/vel.20.ps $m/vel.18.ps $m/vel.16.ps  \
+	> med_plots/$m.vel.ps
+    rm $m/vel.*.ps
+fi
+
+m=pmDpmean_m01_med
+for i in 33 31 30 27 24 21 ;do
+    plot_med_model $m $i 2 1
+	if [ $merge -eq 0 ];then
+	    convert $m/vel.$i.ps $m/vel.$i.jpg
+	fi
+done
+if [ $merge -eq 1 ];then
+    epsmerge -x 3 -y 2 -par --orientation Landscape --print --postscript \
+	$m/vel.33.ps $m/vel.31.ps $m/vel.30.ps $m/vel.27.ps $m/vel.24.ps $m/vel.21.ps  \
+	> med_plots/$m.vel.ps
+    rm $m/vel.*.ps
+fi
+
+
+
+#for m in med_bs med_bstp med_bssf medp_bs medp_bstp medp_bssf pmDnngrand_nt_med;do
+#    ps2pdf med_plots/$m.vel.ps med_plots/$m.vel.pdf
+#    rm med_plots/$m.vel.ps
+#done

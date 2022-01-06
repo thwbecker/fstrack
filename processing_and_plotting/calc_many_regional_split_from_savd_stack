@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# compute simple splitting for region for many models
+rcode=4				# NAM
+#rcode=89				# IND
+dx=2
+
+strain=0.75
+
+
+idir=/home/scec-00/twb/tmp
+rname=`region_parameters $rcode 7`
+
+
+all_models=`ls $idir/*/results/$rname/tracer.savd.125.$rname.s.$strain.dat.gz | gawk 'BEGIN{FS="/"}{printf("%s ",$6)}'`
+models=${1-"$all_models"}
+
+
+use_pbs=0
+n_concurrent=2	# if pbs, will submit. if not, will run n_current jobs
+
+walltime=300:00:00;ppn=8	# for PBS
+
+
+
+
+
+
+echo $0: determined all models as $all_models
+
+#exit
+
+jc=0
+owd=`pwd`
+for model in $models;do
+
+    # clean and redo
+    #rm /home/scec-00/twb/tmp/$model/results/$rname/split_stack/splits.$strain.$dx.dat 
+    
+    
+    bfile=$owd/cmrsfs_batch/$model.$strain.$dx.pbs
+    lfile=$owd/cmrsfs_batch/$model.$strain.$dx.log
+    
+    cat <<EOF > $bfile
+#!/bin/bash
+#PBS -l walltime=$walltime,nodes=1:ppn=$ppn
+cd $owd
+date > $lfile
+calc_regional_split_from_savd_stack $model $rcode $strain $dx $ppn >> $lfile
+date >> $lfile
+EOF
+    chmod +x $bfile
+    if [ $use_pbs -eq 1 ];then
+	qsub -o $lfile -e $lfile -V -d $owd $bfile $qstring
+    else
+	echo
+	echo running $bfile
+	echo 
+	($bfile ;cat $lfile) &
+    fi
+    ((jc=jc+1))
+    if [[ $use_pbs -eq 0 && $jc -ge $n_concurrent ]];then
+	wait
+    fi
+done
+wait
+

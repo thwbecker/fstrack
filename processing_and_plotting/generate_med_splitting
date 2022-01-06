@@ -1,0 +1,116 @@
+#!/bin/bash
+compute=${1-0}			# compute regional and spotted anisotropy
+predict=${2-0}
+plot=${3-0}
+
+models1=`ls -d /home/scec-00/twb/tmp/carib.*/ | gawk 'BEGIN{FS="/"}{printf("%s\n",$(NF-1))}'`
+models2=`ls -d /home/scec-00/twb/tmp/global.*/ | gawk 'BEGIN{FS="/"}{printf("%s\n",$(NF-1))}'`
+
+dmodels="8 19  21 7 14 16 9 15  22 23 24"
+vmodels="1 4 14 15 2 7 6 16 8 11 12 13"
+models3=""
+for d in $dmodels;do
+    for v in $vmodels;do
+	models3="$models3 carib.$v.$d"
+    done
+done
+models=${4-"$models3"}
+
+# finite strains
+#strains=${5-"0.75 0.5 1 1.5"}
+strains=${5-"0.75 1.5"}
+#strains=${5-"0.75"}
+#strains=${5-"0.5"}
+
+modes=${6-"0 1 2"}
+
+queue=${7-"nbns"}
+walltime=${8-48:00:00}
+
+times=""
+opts=""
+rcode=56			# ME3
+
+if [ $compute -eq 1 ];then
+    for m in $models;do
+	if [ ! -s $m ];then
+	    link_from_hpcc $m
+	fi
+	if [ ! -s $m ];then
+	    echo $0: directory not found
+	    exit
+	fi
+	cd $m
+	
+	for d in log_files results  pbs_batch_files pbs_log_files fstrack_log_files;do
+	    mkdir -p $d
+	done
+
+	for strain in $strains;do
+
+	    if [ $queue = "becker" ];then
+		npn=2
+	    else
+		npn=8
+	    fi
+
+
+# compute strain and texture for region
+#	    ../run_fstrack 1 0 0 0 "$strain" "$times" 3 1 -7 0 60 "$opts"  $rcode dynamic 0
+
+
+	    # at Julia's depths
+#	    ../run_fstrack 1 0 0 0 "$strain" "$times" 8 1 -1 0 60 "$opts"  $rcode dynamic 0
+	    
+# compute for splitting observations
+#	    ../run_fstrack 1 0 0 0 "$strain" "$times" 6 1 -1 0 60 "$opts"  $rcode dynamic 0
+	    
+	# compute for splitting observations
+	    ../run_fstrack 1 0 0 0 "$strain" "$times" 6 1 -$npn 0 60 "$opts"  $rcode $queue 0
+	    
+    
+	done
+	
+	cd ..
+    done
+fi
+
+if [ $predict -eq 1 ];then
+    for s in $strains;do	# compute splitting
+	for mode in $modes;do			# depth mode
+	    for model in $models;do
+		if [ $HPCC -eq 1 ];then		# on HPCC
+		    main_out_dir=/home/scec-00/twb/tmp/$model/
+		else
+		    main_out_dir=$datadir/flow_field/finite_strain/$model/
+		fi
+		if [ -s $main_out_dir/results/splitting.$rcode/tracer.savd.40.splitting.$rcode.s.$s.dat.gz ];then
+
+		    if [ $mode -eq 0 ];then
+			file=$main_out_dir/results/simple_split/splitting.$rcode/split.s.$s.0.15.sstat
+		    else
+			file=$main_out_dir/results/simple_split/splitting.$rcode/$mode/split.s.$s.$mode.15.sstat
+		    fi
+		    if [ ! -s $file ];then
+
+			./run_many_split_from_flow_model "$model" "splitting.$rcode" s.$s "0 1" $mode $queue $walltime
+
+		    else
+			echo $0: WARNING: existing $file, not running
+		    fi
+		else
+		    echo $0: tensors $main_out_dir/results/splitting.$rcode/tracer.savd.40.splitting.$rcode.s.$s.dat.gz do not exist
+		fi
+	    done
+	done
+    done
+
+fi
+
+if [ $plot -eq 1 ];then
+    for s in $strains;do	# compute splitting
+	for mode in $modes;do
+	    plot_simple_split  "$models" "s.$s" $mode $rcode
+	done
+    done
+fi

@@ -1,0 +1,207 @@
+#!/bin/bash
+compute=${1-1}			# compute anisotropy
+predict=${2-0}
+
+# models 
+sks_strain=0			# 1: SKS 0: global
+
+# wait if CitcomS still running
+njobs=`mqstat | gawk '{if($2!="C")print($0)}' | grep fulltest | lc `
+while [ $njobs -gt 0 ];do
+    date
+    echo $0: detected $njobs running citcoms jobs, waiting 5m
+    sleep 5m
+    njobs=`mqstat | grep fulltest | lc `
+done
+
+if [[ $TACC_SYSTEM ]];then
+    spawn=24			# use SLURM and distribute on 24 proceses
+    amodels=`ls -d $HOME/CITCOM/fulltest/scratch/globalh.*  | gawk 'BEGIN{FS="/"}{print($(NF))}' | sort  | gawk -f torow.awk`
+    echo $0: detected TACC
+    on_tacc=1
+    dir_code=3			# for linking velocities
+else
+    spawn=$NR_CPUS		# local machine, will still use several CPUs
+    amodels=`ls -d global.6.7.150.1.150.0.01.* | gawk 'BEGIN{FS="/"}{print($(NF-1))}' | sort  | gawk -f torow.awk`
+    on_tacc=0
+    dir_code=4			# UTIG link
+fi
+
+
+# finite strains, if negative, will use times
+strains=${3-"0.75 1.5"}
+
+models=${4-"$amodels"}
+
+modes=${5-"0 1"}		# for SKS 
+
+queue=${6-"xx"}
+walltime=${7-48:00:00}
+
+blank=""
+
+owd=`pwd`
+# 
+opts=""				# options for the finite strain tracker
+
+#
+# region code
+#
+rcode=0			# World
+
+echo $models
+
+echo $models | gawk '{print(NF)}'
+
+
+error_log=`pwd`/wld_submit.$compute.$predict.log
+
+if [ $compute -eq 1 ];then
+    only_make_dir=0 		# only make directories, and check vel?
+    if [ $only_make_dir -eq 1 ];then
+	rm wld_check.log
+    fi
+    
+
+    for m in $models;do
+	#
+	#
+	if [[ ! -s $m/vel.rms.dat ]];then	# don't link existing
+	    # 
+	    link_from_hpcc $m $dir_code	# use my model from TACC
+	fi
+
+	cd $m			# change to model dir
+	
+	for d in log_files results  pbs_batch_files pbs_log_files fstrack_log_files;do
+	    mkdir -p $d
+	done
+	pwd
+	if [ ! -s vel.rms.dat ];then
+	# re-test if velocities work
+	    echo $0: testing velocities
+	    rm vel.rms.dat 2> /dev/null
+	    fstrack -v $opts 2> test.log
+	fi
+	if [ `lc vel.rms.dat` -gt 5 ];then
+	    nlayer=`lc vel.rms.dat`
+	    echo $0: velocities ok: $m $nlayer layers >> $error_log
+	    tail -1 $error_log
+	    if [ $only_make_dir -eq 1 ];then
+		echo $0: velocities ok: $m $nlayer layers >> $error_log
+	    fi
+	    #cat vel.rms.dat
+	    submit=1
+	else
+	    echo >> $error_log
+	    echo $0: error with model $m >> $error_log
+	    cat test.log >> $error_log
+	    echo >> $error_log
+	    tail -20 $error_log
+
+	    submit=0
+	fi
+	
+	if [[ $only_make_dir -eq 0 && $submit -eq 1 ]];then
+	    #
+	    # clean up previous log files
+	    #
+	    ../clean
+	    for strain in $strains;do
+		if [ $sks_strain -eq 1 ];then
+		    if [ ! -s results/splitting.$rcode/tracer.savd.100.splitting.$rcode.s.$strain.dat.gz ];then
+	# compute for splitting observations
+			echo submitting >> $error_log
+			tail -1 $error_log
+			if [ `echo $strain | gawk '{if($1<0)print(1);else print(0)}'` -eq 1 ];then
+			    # time
+			    use_time=`echo $strain | gawk '{print(-$1)}'`
+			    ../run_fstrack 0 1 0 0 "$blank" "$use_time" 6 1 $spawn 0 60 "$opts"  $rcode $queue 0
+			else
+			    ../run_fstrack 1 0 0 0 "$strain" "$blank" 6 1 $spawn 0 60 "$opts"  $rcode $queue 0
+			fi
+		    else
+			echo results/splitting.$rcode/tracer.savd.100.splitting.$rcode.s.$strain.dat.gz >> $error_log
+			echo exists for $m >> $error_log
+			tail -2  $error_log
+		    fi
+		else
+		    if [ ! -s results/tracer.savd.100.s.$strain.dat.gz ];then
+			if [ `echo $strain | gawk '{if($1<0)print(1);else print(0)}'` -eq 1 ];then
+			    # time
+			    use_time=`echo $strain | gawk '{print(-$1)}'`
+		    # global strain
+			    echo ../run_fstrack 1 0 0 0 "$blank" "$use_time" 1 1 $spawn 0 60 "$opts"  0 $queue 0
+			    ../run_fstrack 0 1 0 0 "$blank" "$use_time" 1 1 $spawn 0 60 "$opts"  0 $queue 0
+			else
+			    ../run_fstrack 1 0 0 0 "$strain" "$blank" 1 1 $spawn 0 60 "$opts"  0 $queue 0
+			fi
+		    else
+			echo results/tracer.savd.100.s.$strain.dat.gz >> $error_log
+			echo exists for $m >> $error_log 
+			tail -2 $error_log
+		    fi
+		fi
+	    done
+	fi
+	cd ..
+
+
+    done			# end model loop
+fi
+
+if [ $predict -eq 1 ];then
+    echo predict $models
+
+    #
+    # exclude currently running
+    #
+    
+    mqstat | grep sff | gawk '{print($1)}' | gawk 'BEGIN{FS="."}{print($2)}' | sort | uniq > tmp.cr.0.1.dat
+
+    for s in $strains;do	# compute splitting
+	for mode in $modes;do			# depth mode
+	    for model in $models;do
+
+
+		if [ `grep $model tmp.cr.0.1.dat | lc` -eq 0 ];then
+		    echo attempting to run $model >> $error_log
+		    tail -1 $error_log
+		    
+		    main_out_dir=$datadir/flow_field/finite_strain/$model/
+		    
+		    if [ `ls $main_out_dir/results/splitting.$rcode/tracer.savd.*.splitting.$rcode.s.$s.dat.gz  2> /dev/null | lc` -eq 35 ];then
+			
+			if [ $mode -eq 0 ];then
+			    file=$main_out_dir/results/simple_split/splitting.$rcode/split.s.$s.0.15.sstat
+			else
+			    file=$main_out_dir/results/simple_split/splitting.$rcode/$mode/split.s.$s.$mode.15.sstat
+			fi
+			if [ -s $file ];then
+			    nlines=`lc $file`
+			    echo $0: WARNING: existing file  $file at $nlines length >> $error_log
+			    echo for mode $mode rcode $rcode strain $s >> $error_log
+			    echo not running again >> $error_log
+			    echo >> $error_log
+			    tail -4  $error_log
+			else
+			    echo running anew for $model strain $s mode $mode  >> $error_log
+			    tail -1 $error_log
+			    ./run_many_split_from_flow_model "$model" "splitting.$rcode" s.$s "0 1" $mode $queue $walltime 
+			fi
+		    else
+			echo $0: found only `ls $main_out_dir/results/splitting.$rcode/tracer.savd.*.splitting.$rcode.s.$s.dat.gz 2> /dev/null | lc` \
+			    depth files for savd rcode $rcode strain $s >> $error_log
+			tail -1 $error_log
+		    fi
+		else
+		    echo $0: model $model is currently on PBS  >> $error_log
+		    tail -1  $error_log
+		    mqstat | grep $model
+		fi
+	    done
+	done
+    done
+    rm tmp.cr.0.1.dat
+fi
+

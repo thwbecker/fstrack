@@ -1,0 +1,173 @@
+#!/bin/bash
+#
+#
+# plot splitting data as used for a certain (spotted)
+
+rcode=8				# region code
+#
+
+pstation=1
+gv=0
+# for labels
+wdir=pmDsmean_nt/results/spotted/splitting.$rcode.s.2.savd.0/
+
+ofile=splitting.data.$rcode.ps
+
+tmpn=/tmp/$USER.$HOST.$$.sspotted;trap "rm -f $tmpn.* ; exit" 0 1 2  15
+tmpn_string=\\/tmp\\/$USER.$HOST.$$.sspotted
+#
+# splitting data file
+#
+data=$datadir/splitting/splitting.$rcode.table 
+dsdir=$datadir/splitting/splitting.$rcode.sorted/
+
+#
+# plotting parameters
+#
+preg=`region_parameters $rcode 3`
+#preg=-R235/245.5/32/43
+rname=`region_parameters $rcode 7`
+proj=`region_parameters $rcode 4`
+#ann=`region_parameters $rcode 6`
+ann=-Ba5f1WeSn
+pscr=`region_parameters $rcode 13`
+topo=1;				# plot topo on overview map
+# vector scales and length
+scale=0.5
+# for label
+px2=0.15;py=0.1
+piecol=-G128
+#piecol=""
+# data used
+svecdata="-SVB0.09/0.0/0.0 -G255 -W0.25/0" 
+# other data
+svecother="-SVB0.07/0.0/0.0 -G0" 
+cwd=`pwd`
+
+
+
+
+psbasemap $preg $proj $ann -P -K > $ofile
+if [ $topo -eq 0 ];then
+    pscoast -O -K $preg $proj $pscr -G200 >> $ofile
+else
+#    makecpt -Ctopo  > dem.cpt
+    makecpt -Cgray -T-4700/2200/100 > dem.cpt
+
+    dem_file=$datadir/etopo2/etopo2.grd 
+    #dem_file=$datadir/dems/gtopo30.$rcode.grd
+    grdgradient  -Ne -A270 $dem_file -G$tmpn.i.grd 
+    #grdimage -I$tmpn.i.grd $dem_file $preg $proj -Cdem.cpt -O -K >> $ofile
+    grdimage  $dem_file $preg $proj -Cdem.cpt -O -K >> $ofile
+
+
+	pscoast -O -K $preg $proj $pscr -W1 >> $ofile
+fi
+psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+    $preg  $proj  -O -K   -W5/50  >> $ofile
+
+
+# other data
+gawk -v s=$scale '{amp=$6*s;print($3,$2,$4,amp)}' \
+    $datadir/splitting/asu.table | \
+    psxy $preg $proj   -O -K $svecother   >> $ofile
+
+
+# data used
+use_sorted=1
+if [ $use_sorted -eq 1 ];then
+    i=1
+    while [ -s $dfile ];do
+	dfile=$dsdir/splits.$i
+	if [ -s $dsdir/splits.$i.mean_fazi ];then # don't use stations twice
+#	echo $0: plotting $dfile
+# Nulls
+	    # back-azimuth
+	    gawk -v s=$scale '{if($5==0)print($1,$2,$7,.3)}' $dfile | \
+		psxy $preg $proj -SV0.05/0/0 -W0.5 -O -G200 -K   >> $ofile
+	    gawk -v s=$scale '{if($5==0)print($1,$2)}' $dfile | \
+		psxy $preg $proj -Sc0.2 -O -K -G200 -W0.5  >> $ofile
+	    
+
+# non Nulls
+#	    echo $dfile
+	    gawk '{if($5!=0){print($0)}}' $dfile > $tmpn.nn
+	    if [ `lc $tmpn.nn` -ne 0 ];then
+# mean azimuth error plotted with mean azimuth orientation
+		mean_fazi=`gawk '{print($1)}' $dsdir/splits.$i.mean_fazi`
+		gawk '{ma+=$4;mt+=$6;n++;}END{print($1,$2,ma/n,mt/n)}' $tmpn.nn > $tmpn.dat
+		read lon lat mean_sazi mean_sdt < $tmpn.dat
+		echo $lon $lat $mean_sazi $mean_sdt $mean_fazi  
+		echo $lon $lat $mean_sazi $mean_sdt $mean_fazi  | \
+		    gawk -v s=$scale '{dx=$3;print($1,$2,2*s,$5-dx,$5+dx);\
+               print($1,$2,2*s,180+$5-dx,180+$5+dx);}' | \
+		    psxy -SW -G128 -W0.5  $preg $proj  -O -K >> $ofile
+# non null
+		gawk -v s=$scale '{amp=$5*s;print($1,$2,$3,amp)}' $tmpn.nn | \
+		    psxy $preg $proj   -O -K $svecdata   >> $ofile
+	    else
+		echo $0: split $i is only nulls
+	    fi
+	fi
+	((i=i+1))
+    done
+else
+# Nulls
+    gawk -v s=$scale '{if($6==0)print($3,$2)}' $data | \
+	psxy $preg $proj -Sc0.2 -O -K   >> $ofile
+# non null
+    gawk -v s=$scale '{if($6!=0){amp=$6*s;print($3,$2,$4,amp)}}' $data | \
+	psxy $preg $proj   -O -K $svecdata   >> $ofile
+fi
+if [ $pstation -eq 1 ];then
+#
+# plot station labels
+#
+    gawk '{print($2,$3,$1)}' $wdir/stationlist.dat | sort -n | uniq > $tmpn.stations
+    gawk 'BEGIN{a=0;d=1;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;a+=75;
+      print($1,$2);print($1+x,$2+y);print(">");}' $tmpn.stations | \
+	  psxy $preg $proj -N -O -K -W3/0 -M >> $ofile
+    gawk 'BEGIN{a=0;d=1;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;
+      printf("%g %g %i %g %i MC %s\n",$1+x,$2+y,14,0,3,$3);a+=75;}' $tmpn.stations | \
+	  pstext $preg $proj -N -O -K -G0  >> $ofile
+    
+#    gawk '{printf("> %g %g %i %g %i CM 0.2 0.3 c\n%s\n",$1,$2,14,0,0,$3)}'  | \
+#    pstext $preg $proj -N128 -G0 -O -M -K -D.2/.2 -W128O>> $ofile
+fi
+
+
+
+# scale
+scaledelt=1.5
+echo $px2 $py $scaledelt 90 | gawk '{amp=$3*scl;\
+		if(amp!=0){print($1,$2,$4,amp);}}' scl=$scale | \
+    psxy -R0/1/0/1 -JX7   -O -K $svecdata -N  >> $ofile
+pyp=`echo $py | gawk '{print($1-0.02)}'`
+echo $px2 $pyp 20 0 0 TC "@~d@~t@-SKS@- = $scaledelt s" |\
+    pstext -R0/1/0/1 -JX7 -O -K  -N -G255  >> $ofile
+pyp=`echo $pyp | gawk '{print($1-0.05)}'`
+
+# small map with bay area
+#p2=-JM1.5;r2=-R237.5/238.7/36.5/38 
+#pscoast -Df -G255 -S128 $p2 $r2 \
+#    -X0.1 -Y.8 -O -K  >> $ofile
+#psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+#    $p2 $r2  -O -K   -W5/50  >> $ofile
+#gawk -v s=0.1 '{if($6!=0){amp=$6*s;print($3,$2,$4,amp)}}' $data | \
+#	psxy $p2 $r2   -O -K -SV-0.01/0/0 -G0   >> $ofile
+#if [ $pstation -eq 1 ];then
+#    gawk '{printf("%g %g %i %g %i MC %s\n",$1,$2,10,0,0,$3);}' $tmpn.stations | \
+#	  pstext $p2 $r2  -O -K -G0  >> $ofile
+#fi
+
+echo 100 1000 | psxy $preg $proj -O >> $ofile
+
+modifybb $ofile 
+echo $0: output in $ofile
+if [ $gv -eq 1 ];then
+    gv $ofile &
+fi
+
+
+
+

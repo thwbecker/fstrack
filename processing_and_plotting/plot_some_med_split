@@ -1,0 +1,39 @@
+#!/bin/bash
+mtypes=${1-"1.1 12.1 13.1 1.7 12.7 13.7 1.9 12.9 13.9"}
+mode=${2-0}
+strain=${3-0.75}
+main_model=${2-carib}
+
+
+
+
+
+rcode=56;rname=ME3;rname_o=ME3
+
+topo=0
+avg=0
+
+fs="";mc=0;fs2=""
+for mtype in $mtypes;do
+    m=$main_model.$mtype
+
+    plot_simple_split $m s.$strain $topo $rcode $mode "-R20/64/15/43" $avg
+    ofile=$HOME/tmp/$m.$rname.s.$strain.$mode.ssmap.ps
+    
+    fs="$fs $ofile"
+    fs2="$fs2 /home/scec-00/twb/tmp/med_plots/$m.d.ps"
+    ((mc=mc+1))
+done
+
+if [ $mc -eq 9 ];then
+    epsmerge -x 3 -y 3 -par --print --postscript $fs > med_comp.ps
+    ps2pdf med_comp.ps
+    echo $0: written to med_comp*
+
+    epsmerge -x 3 -y 3 -par --print --postscript $fs2 > med_comp.vel.ps
+    ps2pdf med_comp.vel.ps
+    echo $0: written to med_comp.vel*
+
+elif [ $mc -eq 1 ];then
+    gv $ofile &
+fi

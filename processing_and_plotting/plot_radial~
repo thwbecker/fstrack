@@ -1,0 +1,377 @@
+#!/bin/bash
+#
+# plot radial anisotropy factors, use chi
+# 
+models=${1-"safs417nc3_er"}
+strain=${2-0.75}
+depths=${3-"50 150 250"}
+#depths=${3-"50 150 250 350"}
+gv=${4-1}
+three_seis=${5--1}		# 0: two models 1 : three models -1: one model -2: one model plus difference
+title=${6-"model"}
+remove_mean=${7-1}
+bw=${8-0}
+cmodels=${9-"s362wmani s20a_ne07 saw16an saw642an"}
+
+rcode=0				# region code
+#rcode=55
+
+#lmax=20				# smoothing
+lmax=31				# smoothing
+
+
+tfhw=10				# exp half width for model damping
+
+
+tmpn=/tmp/$USER.$HOST.nnr.$$.tnr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+region_parameters $rcode 8 > tmp.dat
+read xmin xmax ymin ymax < tmp.dat; rm tmp.dat
+
+
+reg=`region_parameters $rcode 3`
+
+
+if [ $remove_mean -eq 1 ];then
+    if [ $bw -eq 1 ];then
+	makecpt -T-.09/.09/0.0125 -Clighter_gray -D  -I > chi.cpt
+    else
+# used for paper	
+	makecpt -T-.09/.09/0.0025 -Chaxby  -I -D > chi.cpt
+# used for proposal
+#	makecpt -T-.05/.05/0.0025 -Chaxby  -I -D > chi.cpt
+    fi
+    cp chi.cpt chim.cpt
+    pssl="@~dx@~"
+else
+    if [ $bw -eq 1 ];then
+	makecpt -T.95/1.1/0.025 -Clighter_gray  -I -D > chi.cpt
+    else
+	makecpt -T.875/1.125/0.0025 -Chaxby  -I -D > chi.cpt
+    fi
+    cp chi.cpt chim.cpt
+    makecpt -T-.15/.15/0.0025 -Chaxby  -I -D > dchi.cpt
+    pssl="@~x@~"
+fi
+if [ $bw -eq 1 ];then
+    ncol=5/0
+    gshade="" 
+else
+    ncol=5/0/200/0
+#    gshade="-Isocean.grd" 
+    gshade="" 
+fi
+
+gmtset BASEMAP_TYPE plain
+
+for model in $models;do
+
+
+    if [ $three_seis -eq -2 ];then # different output file name for the difference plots
+	nstring=`echo $cmodels | gawk '{print($1)}'`.xi
+    else
+	nstring=xi
+    fi
+
+    if [ $rcode -eq 1 ];then
+	dx=1
+    else
+	dx=0.5
+    fi
+    inc=-I$dx
+	
+    for depth in $depths;do
+
+	echo model $model depth $depth strain $strain
+	file=$model/results/tracer.rphid.0.$depth.s.$strain.dat.gz
+	if [ ! -s $file ];then
+	    file=$model/results/tracer.er.rphid.0.$depth.s.$strain.dat.gz
+	    if [ ! -s $file ];then
+		
+		echo $0: file $model/results/tracer.er.rphid.0.$depth.s.$strain.dat.gz
+		echo $0: $model/results/tracer.rphid.0.$depth.s.$strain.dat.gz and not found
+		ls $model/results/tracer.*rphid.0.*.s.$strain.dat.gz
+		exit
+	    fi
+	fi
+	
+	#
+	# model
+	#
+	rm model.$depth.grd 2> /dev/null
+    # alpha = log10(vsh/vsv) * 100, chi = N/L = (v_{SH}/v_{SH})^2
+	zcat $file | gawk '{print($1,$2,$5/$4)}' | surface -fg -Rg $inc -Gtmp.grd 
+	#zcat $file | gawk '{print($1,$2,$5/$4)}' | ssrf_surface $reg $inc -Gtmp.grd
+	if [ $remove_mean -eq 1 ];then
+            shana $lmax tmp  2> /dev/null | abconvert 0 1 2> /dev/null | \
+		abconvert 0 8  2> /dev/null | shsyn $dx 0 model.$depth $xmin $xmax $ymin $ymax 2> /dev/null
+	    sync
+	else
+
+	    shana $lmax tmp  2> /dev/null | abconvert 0 1  2> /dev/null | \
+		shsyn $dx 0 model.$depth $xmin $xmax $ymin $ymax 2> /dev/null
+	    sync
+	fi
+	rm tmp.*
+	grdinfo model.$depth.grd
+
+	# 
+	# tomography
+	#
+	t=1
+	for cmodel in $cmodels ;do
+	    rm tomo.$t.$depth 2> /dev/null
+    # chi = 10^(a/50)
+	    extract_layer $datadir/tomography/$cmodel/d.xi.31.ab $depth 2> /dev/null | \
+		shsyn $dx 0 tmp 2> /dev/null
+#	    grdmath 10 $datadir/tomography/$cmodel/alpha.$depth.grd 50 DIV POW = chi.grd
+	    if [ $remove_mean -eq 1 ];then
+		shana $lmax tmp 2> /dev/null 2> /dev/null | abconvert 0 1 2> /dev/null | \
+		    abconvert 0 8 2> /dev/null | shsyn $dx 0 tomo.$t.$depth $xmin $xmax $ymin $ymax 2> /dev/null
+		sync
+	    else
+		shana $lmax tmp 2> /dev/null 2> /dev/null | abconvert 0 1 2> /dev/null | \
+		    shsyn $dx 0 tomo.$t.$depth $xmin $xmax $ymin $ymax 2> /dev/null
+		sync
+	    fi
+#	    grdinfo tomo.$t.$depth.grd
+	    sync
+	    rm tmp.grd 2> /dev/null
+	    ((t=t+1))
+	done
+
+    done
+
+#
+# second map
+#
+    reg=`region_parameters $rcode 3`
+    pscr=`region_parameters $rcode 12` # pscoast
+    ann=`region_parameters $rcode 6` # annotation
+    proj=`region_parameters $rcode 4` # projection
+    
+    ofile1=$HOME/tmp/$model.$nstring.s.$strain.$bw.$rcode.eps
+    ofile2=$HOME/tmp/$model.$nstring.s.$strain.$bw.$rcode.ps
+	
+    width=4.5;off=4.75;y1=0.85;x1=-0.05
+
+    dc=1
+    nd=`echo $depths | gawk '{print(NF)}'`
+
+    for d in $depths;do
+	#
+	# geodyn
+	#
+	echo $d geodyn
+	cp model.$d.grd ~/Dropbox/tmp/
+	if [ $dc -eq 1 ];then
+	    grdinfo -C  model.$d.grd
+
+	    echo grdimage  $gshade model.$d.grd -Cchim.cpt $reg $proj -Y16 $ann -P -K -V 
+	    grdimage  $gshade model.$d.grd -Cchim.cpt $reg $proj -Y16 $ann -P -K -V > $ofile1
+	else
+	    grdimage  $gshade model.$d.grd -Cchim.cpt $reg $proj -Y-3 \
+		-X`echo $off | gawk '{if(ts==1)x=3;else if((ts==0) || (ts== -2))x=2;else x=1;print(-$1*x)}' ts=$three_seis` \
+		$ann -O -K >> $ofile1
+	fi
+	echo ok 0
+	if [ $remove_mean -eq 0 ];then
+	    means=`grd2geo_mean model.$d.grd | gawk '{printf("%.2f",$1)}'`
+	    echo 0 0.05 14 0 0 ML "@~\341x\361 = @~$means" | \
+		pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	fi
+	echo ok 1
+	echo $x1 $y1 28 0 0 ML "$d km" | \
+	    pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	if [ $dc -eq 1 ];then
+	    echo 0.5  $y1 28 0 3 MC "$title" | \
+		pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	fi
+	pscoast $pscr -W2,128 $reg $proj -O -K >> $ofile1
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+	    $reg  $proj  -O -K   -W$ncol  >> $ofile1
+	#
+	# tomo 1
+	#
+	grdimage $gshade tomo.1.$d.grd -Cchi.cpt -X$off $reg $proj $ann -O -K >> $ofile1
+	if [ $remove_mean -eq 0 ];then
+	    means=`grd2geo_mean tomo.1.$d.grd | gawk '{printf("%.2f",$1)}'`
+	    echo 0 0.05 14 0 0 ML "@~\341x\361 = @~$means" | \
+		pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	fi
+
+	if [ $dc -eq 1 ];then
+	    if [ $three_seis -eq -1 ];then
+		echo 0.5 $y1 28 0 3 MC tomography | \
+		    pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	    else
+		echo 0.5 $y1 28 0 3 MC `echo $cmodels | gawk '{if($1=="s20a_ne07")m="ne07";else m=$1;print(toupper(m))}'` | \
+		    pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	    fi
+	fi
+	echo ok
+	pscoast $pscr -W2,128 $reg $proj -O -K >> $ofile1
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+	    $reg  $proj  -O -K   -W$ncol  >> $ofile1
+	if [ $dc -eq $nd ];then
+	    if [ $three_seis -eq 1 ];then
+		psscale -D5/-.5/3/.2h -B.05/:$pssl: -O -E -K -Cchi.cpt >> $ofile1
+	    elif [ $three_seis -eq -1 ];then # only one seismological model
+		psscale -D-.5/-.5/3/.2h -B.05/:$pssl: -O -E -K -Cchi.cpt >> $ofile1
+	    elif [ $three_seis -eq -2 ];then # differences
+		psscale -D-.1/-.5/3/.2h -B.05/:$pssl: -O -E -K -Cchi.cpt >> $ofile1
+		psscale -D7.2/-.5/3/.2h -B.05/:"@~Dx@~": -O -E -K -Cdchi.cpt >> $ofile1
+
+	    else
+		psscale -D2.25/-.5/3/.2h -B.05/:$pssl: -O -E -K -Cchi.cpt >> $ofile1
+	    fi
+	fi
+	echo ok2
+	if [ $three_seis -eq 1 ];then
+	    #
+	    # tomo 2?
+	    #
+	    grdimage $gshade tomo.2.$d.grd -Cchi.cpt -X$off  $reg $proj $ann -O -K >> $ofile1
+	    if [ $dc -eq 1 ];then
+		echo 0.5 $y1 28 0 3 MC `echo $cmodels | gawk '{if($2=="s20a_ne07")m="ne07";else m=$2;print(toupper(m))}'` | \
+		    pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	    fi
+	    pscoast $pscr -W2,128 $reg $proj -O -K >> $ofile1
+	    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+		$reg  $proj  -O -K   -W$ncol  >> $ofile1
+	fi
+	if [[ $three_seis -eq 0 || $three_seis -eq 1 ]];then
+	#
+	# tomo 4
+	#
+	    grdimage -fg $gshade tomo.4.$d.grd -Cchi.cpt -X$off  $reg $proj $ann -O -K >> $ofile1
+	    if [ $dc -eq 1 ];then
+		echo 0.5 $y1 28 0 3 MC `echo $cmodels | gawk '{print(toupper($4))}'` | \
+		    pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	    fi
+	    pscoast $pscr -W2,128 $reg $proj -O -K >> $ofile1
+	    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+		$reg  $proj  -O -K   -W$ncol  >> $ofile1
+	#
+	#
+	#
+	fi
+	if [ $three_seis -eq -2 ];then # difference with tomo1
+	    if [ $rcode -ne 0 ];then   # global
+
+		echo regional not implemented for three_seis -2
+		exit
+	    fi
+	#
+	# tomo 4
+	#
+	    dlmax=$lmax
+
+
+	    # compute RMS in oceans and scale to tomography
+	    grd2geo_mean_cont_ocean tomo.1.$d 1 > $tmpn.1
+	    read rmst crmst ormst < $tmpn.1; rm $tmpn.1
+
+	    grd2geo_mean_cont_ocean  model.$d  1 > $tmpn.1
+	    read rmsm crmsm ormsm < $tmpn.1; rm $tmpn.1
+
+	    # use oceanic for scaling
+	    ofac=`echo $ormst $ormsm | gawk '{print($1/$2)}'`
+	    # use total for scaling
+	    tfac=`echo $rmst $rmsm | gawk '{print($1/$2)}'`
+	    #fac=1.1
+
+	    # calc correlation and best-fit slope
+	    grdgrd2correlation model.$d.grd tomo.1.$d.grd  500 1 1 > $tmpn.dat 2> /dev/null
+	    read corr offset slope < $tmpn.dat ; rm $tmpn.dat
+	    echo $0: z: $d orms tomo: $ormst model: $ormsm 
+	    echo $0: total scale: $tfac oceanic scale: $ofac best fit slope: $slope corr: $corr
+
+#	    use_scale=$ofac
+	    use_scale=1
+#	    use_scale=$tfac 
+	    
+	    echo $0: using $use_scale 
+
+	    if [ $remove_mean -eq 1 ];then
+		shana $dlmax model.$d  2> /dev/null | abconvert 0 8 $use_scale 2> /dev/null > $tmpn.1
+		shana $dlmax tomo.1.$d     2> /dev/null | abconvert 0 8  2> /dev/null > $tmpn.2
+	    else
+		shana $dlmax model.$d  2> /dev/null | abconvert 0 0 $use_scale 2> /dev/null > $tmpn.1
+		shana $dlmax tomo.1.$d     2> /dev/null | abconvert 0 0  2> /dev/null > $tmpn.2
+	    fi
+	    
+
+	   
+	    cat $tmpn.1 | shsyn $dx 0 $tmpn.1 $xmin $xmax $ymin $ymax 2> /dev/null # model
+	    cat $tmpn.2 | shsyn $dx 0 $tmpn.2 $xmin $xmax $ymin $ymax 2> /dev/null # tomo
+
+	    # tomo - model
+	    grdmath $tmpn.2.grd $tmpn.1.grd SUB = $tmpn.3.grd
+	    
+	    # expand for comparisons 
+	    shana $lmax $tmpn.3 2> /dev/null   > $tmpn.diff
+
+	    rc1=`cat $tmpn.diff random_radial/xi.avg.$lmax.ab | abconvert   6 0 1 0 8 2> /dev/null`
+	    rc2=`cat $tmpn.diff random_radial/xi.avg.$lmax.t.ab | abconvert 6 0 1 0 8 2> /dev/null`
+
+	    echo $0: correlation of difference with random cont ani:  $rc1 $rc2
+
+
+	    #
+	    # compare with random continental structure 
+	    #
+	    
+
+
+
+#	    grdinfo $tmpn.3.grd
+	    if [ $remove_mean -eq 1 ];then
+		grdimage -fg $gshade $tmpn.3.grd -Cchi.cpt -X$off  $reg $proj $ann -O -K >> $ofile1
+	    else
+		grdimage -fg $gshade $tmpn.3.grd -Cdchi.cpt -X$off  $reg $proj $ann -O -K >> $ofile1
+	    fi
+
+	    rm $tmpn.? $tmpn.?.grd
+
+	    if [ $dc -eq 1 ];then
+		echo 0.5 $y1 28 0 3 MC "difference" | \
+		    pstext -R0/1/0/1 -JX$width/`echo $width |gawk '{print($1/1.5)}'`  -O -N -K >> $ofile1
+	    fi
+	    pscoast $pscr -W2,128 $reg $proj -O -K >> $ofile1
+	    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+		$reg  $proj  -O -K   -W$ncol  >> $ofile1
+	#
+	#
+	#
+	fi
+        ((dc=dc+1))
+
+    done
+    echo 1000 1000 | psxy $reg $proj -O >> $ofile1
+
+    echo $0: output in $ofile1
+    if [ $nd -eq 6 ];then 
+	lowerb=0
+    elif [ $nd -eq 5 ];then 
+	lowerb=200
+   elif [ $nd -eq 4 ];then 
+	lowerb=420
+    else
+	lowerb=640
+    fi
+    modifybb $ofile1
+    # convert to PS, to PDF
+    epsmerge -par -x 1 -y 1 --orientation Portrait --print --postscript $ofile1  > $ofile2 2> /dev/null
+    cd radial_plots
+    ps2pdf $ofile2
+    cd ..
+
+#    \epsmerge -par -lmar 0.2 -rmar 0.2 -tmar 0.2 -bmar 0.2 --orientation Landscape  $ofile1 > tmp.ps;mv tmp.ps $ofile1
+    if [ $gv -eq 1 ];then
+	gv $ofile1 &
+    fi
+
+    rm tmp* model.grd tomo.*.grd 2> /dev/null
+done

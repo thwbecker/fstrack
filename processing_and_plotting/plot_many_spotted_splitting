@@ -1,0 +1,62 @@
+#!/bin/bash
+models=${1-"lisa_rum_oc_crat_w2 lisa_rum_oc_crat_w lisa_rum_oc"}
+#models=${1-"pmDsmean_nt pmDnngrand_nt pmDsmean_nt_ol_only pmDstein pmFsmean_nt"}
+#types=${2-"s.0.5 s.3"}
+types=${2-"s.1"}
+
+vars="0 1 2"			# cutoff modes
+
+#rcode=1
+rcode=8
+
+eval_data=1			# analyze back-azimuth
+
+slabels=1
+
+for m in $models;do
+    for t in $types;do
+	for v in $vars;do
+	    plot_spotted_splitting $m $t $v $rcode $eval_data $slabels
+	    if [ $slabels -eq 1 ];then 
+		slabels=0
+	    fi
+	done
+    done
+done
+
+
+
+exit
+
+cd $HOME/tmp
+
+epsmerge -par --print --postscript --orientation Landscape \
+    pmDsmean_nt.savd.s.0.5.spotted.1.ps pmDsmean_nt.sav.s.0.5.spotted.1.ps \
+    > $HOME/plates/western_us/pmDsmean_nt.compare_sav.s.0.5.spotted.1.ps
+
+epsmerge -par --print --postscript --orientation Landscape \
+    pmDsmean_nt.savd.s.0.5.spotted.1.ps pmDsmean_nt.savd.s.3.spotted.1.ps \
+    > $HOME/plates/western_us/pmDsmean_nt.savd.compare_s.spotted.1.ps
+
+epsmerge -par --print --postscript --orientation Landscape \
+    pmDsmean_nt.savd.s.0.5.spotted.1.ps  pmDsmean_nt_ol_only.savd.s.0.5.spotted.1.ps \
+    > $HOME/plates/western_us/pmDsmean_nt.savd.compare_comp.s.0.5.spotted.1.ps
+
+epsmerge -par --print --postscript --orientation Landscape \
+    pmDsmean_nt.savd.s.0.5.spotted.1.ps  pmFsmean_nt.savd.s.0.5.spotted.1.ps   \
+    > $HOME/plates/western_us/pmsmean_nt.savd.compare_visc.s.0.5.spotted.1.ps
+
+epsmerge -par --print --postscript --orientation Landscape \
+    pmDstein.savd.s.0.5.spotted.1.ps  pmFsmean_nt.savd.s.0.5.spotted.1.ps   \
+    > $HOME/plates/western_us/pmD.savd.compare_dens.s.0.5.spotted.1.ps
+
+cd -
+
+
+for m in pmDstein pmFsmean_nt;do
+    sdir=$HOME/plates/western_us/$m.splitting.1.savd.s.0.5/ 
+    mkdir $sdir 2> /dev/null
+    cp $m/results/spotted/splitting.1.s.0.5.savd/*ps  $sdir
+done
+
+

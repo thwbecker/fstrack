@@ -1,0 +1,17 @@
+#!/bin/bash
+#
+# combine regional and global med models
+#
+combine_models weak_mix_ns     mix_ns        med # reference
+combine_models weak_mix_ndns   mix_ndns      med # no density
+combine_models mix             mix_noweak    med # no weak zones at all
+combine_models weak_mix_nsc    mix_nsc       med # arabia coupled
+combine_models weak_mix        mix           med # southern weak zone
+combine_models weak_mix_nsg    mix_nsg       med # no claudia model
+combine_models weak_mix_slns   mix_slns      med # slabs
+
+combine_models weak_mix_nsw    mix_nsw       med # slabs
+combine_models weak_mix_nsa    mix_nsa       med # no alpine
+combine_models weak_mix_nsa2   mix_nsa2       med # all of alps
+combine_models weak_mix_nsa2p    mix_nsa2p       med # all of alps and pelep
+combine_models weak_mix_nsa2_vc    mix_nsa2_vc       med # all of alps, simple visc

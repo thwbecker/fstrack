@@ -1,0 +1,176 @@
+#!/bin/bash
+#
+# evaluate the output of evaluate_spotted_splitting
+#
+smethod=1		 # split method code: -1: no particular 
+                                #                        mention (Menke)
+                                #                     0: Vera  SKS
+                                #                     1: Menke SKS
+                                #                     2: Menke SK2
+                                #                     3: Vera  SK2
+
+ztc=1
+for ztype in 0 1 2;do				# 0: all 1: top missing 2: bottom missing
+
+    file=res.spotted.1.$smethod.$ztype.dat
+
+    reg=-R0/50/0/15;proj=-JX6/3;width=-W3
+
+    #sort_by=2			# weighted azimuth misfit
+    #sort_by=5			# abs of mean dt misfit (overall match of  amplitudes)
+    sort_by=7			# unweighted azimuth misfit
+    #sort_by=8			# unweighted L2 norm of dt misfit
+    
+    gawk '{for(i=1;i<=NF;i++){
+           if($i == "model:")model=$(i+1);
+           if($i == "strain:")strain=$(i+1);
+           if($i == "synth_type:")stype=$(i+1);
+           if($i == "diff_azi:")diff_azi=$(i+1);
+           if($i == "diff_dt:")diff_dt=$(i+1);
+           if($i == "diff_mean_azi:")diff_mazi=$(i+1);
+           if($i == "dt_rchi:")dtchi2=$(i+1);
+           if($i == "diff_azi_d:")diff_azi_d=$(i+1);
+           if($i == "diff_dt_L2d:")dtl2=$(i+1);
+           }
+           adiff_dt = (diff_dt>0)?(diff_dt):(-diff_dt);
+           print(strain,stype,diff_azi,diff_mazi,diff_dt,adiff_dt,dtchi2,diff_azi_d,dtl2,model)}' $file | \
+	       sort -n +$sort_by | grep -v pmDsmean_nt_high | grep -v pmDsmean_nt_ol_only > tmp.$smethod.$ztype.dat
+#    echo $0: smethod: $smethod ztype $ztype best models using key $sort_by
+#    head -15 tmp.$smethod.$ztype.dat 
+
+    reg=-R-1/2/0/45;proj=-JX5
+    for method in a r;do
+	# sort by method
+	gawk '{if($2==t)print($0)}' t=$method tmp.$smethod.$ztype.dat > tmp.$smethod.$ztype.$method.dat 
+	#
+	# sort by strain
+	ofile=$file.$method.map.ps
+	if [ $ztc -ne 3 ];then
+	    gawk '{if($1==0.5){print($5,$3)}}' tmp.$smethod.$ztype.$method.dat | \
+		psxy $reg $proj -Sc0.2 -G255 -W0.5 -P \
+		-Ba1f.2g1:"@~\341Dd\361@~ [s]":/a10f2g10:"@~\341Da\361@~ [deg]":Wesn \
+		-K > $ofile
+	else
+	    gawk '{if($1==0.5){print($5,$3)}}' tmp.$smethod.$ztype.$method.dat | \
+		psxy $reg $proj -Sc0.2 -G255 -W0.5 -P \
+		-Ba1f.2g1:"@~\341Dd\361@~ [s]":/a10f2g10:"@~\341Da\361@~ [deg]":WeSn \
+		-K > $ofile
+	    # labels
+	    py=-0.12;py2=-0.07;r=-R0/1/0/1;p=-JX6
+	    echo 0.07  $py 18 0 0 MR "@~x@~@-c@- = 0.5" | pstext -N $r $p -O -K >> $ofile
+	    echo 0.05  $py2 | psxy -Sc0.2 $r $p -G255 -W0.5 -O -K -N  >> $ofile
+	    echo 0.15  $py 18 0 0 CM "1" | pstext -N  $r $p -O -K >> $ofile
+	    echo 0.15  $py2 | psxy -Sc0.2 $r $p -G128 -W0.5 -O -K -N  >> $ofile
+	    echo 0.25  $py 18 0 0 CM "2" | pstext -N $r $p -O -K >> $ofile
+	    echo 0.25  $py2 | psxy -Sc0.2 $r $p -G0 -O -K -N  >> $ofile
+
+	fi
+	if [ $ztype -eq 1 ];then
+	    grep pgDstein tmp.$smethod.$ztype.$method.dat | gawk '{if($1==0.5)print($5,$3)}' | \
+		psxy -O -K $reg $proj -Sc0.4 -W6/128to >> $ofile
+	    grep pmDvox3p tmp.$smethod.$ztype.$method.dat |  gawk '{if($1==0.5)print($5,$3)}' | \
+		psxy -O -K $reg $proj -Sc0.4 -W6/0ta >> $ofile
+	fi
+
+	gawk '{if($1==1){print($5,$3)}}' tmp.$smethod.$ztype.$method.dat | \
+	    psxy $reg $proj -Sc0.2  -G128 -W0.5 -K -O >> $ofile
+	gawk '{if($1==2){print($5,$3)}}' tmp.$smethod.$ztype.$method.dat | \
+	    psxy $reg $proj -Sc0.2  -O -G0 -W0.5 >> $ofile
+	#echo $0: written to $ofile
+    done
+    cp tmp.$smethod.$ztype.r.dat   bestres.spotted.1.$smethod.$ztype.dat
+    echo $0: method: $smethod ztype: $ztype best models using r
+    head -10 bestres.spotted.1.$smethod.$ztype.dat
+    #
+    # histograms
+    #
+    psbasemap $reg  -K -P -Ba10f5:"@~Da@~ [deg] multi-layer":/a10f2:"N":WeSn $proj -Y5 > $file.ps
+    i=1
+    for method in r a ;do
+# diff
+	if [ $i -eq 2 ];then
+	    off=-Y-5
+	    psbasemap $reg  -K -O -Ba10f5:"@~Da@~ [deg] single layer":/a10f2:"N":WeSn $proj -Y-4 >> $file.ps
+	fi
+	gawk '{print($3)}' tmp.$smethod.$ztype.$method.dat > tmp.1
+	pshistogram tmp.1 $reg $width -L6  -K -O  $proj  >> $file.ps
+	echo `gawk -f mean.awk tmp.1` 0 | psxy -Sc.2 -G0  -K -O $proj $reg -N >> $file.ps
+
+#  mean diff
+	gawk '{print($4)}' tmp.$smethod.$ztype.$method.dat > tmp.2
+	pshistogram tmp.2 $reg $width -L6to -K -O $proj >> $file.ps
+	echo `gawk -f mean.awk tmp.2` 0 | psxy -Sc.2  -K -O $proj $reg -N >> $file.ps
+	((i=i+1))
+    done
+
+    
+    echo 1000 1000 | psxy -Sa.01 $reg $proj -O >> $file.ps
+#    echo $0: written to $file.ps
+    
+    ((ztc=ztc+1))
+done
+
+epsmerge -x 3 -y 2 -par --orientation Landscape \
+    res.spotted.1.$smethod.0.dat.r.map.ps \
+    res.spotted.1.$smethod.1.dat.r.map.ps \
+    res.spotted.1.$smethod.2.dat.r.map.ps \
+    res.spotted.1.$smethod.0.dat.a.map.ps \
+    res.spotted.1.$smethod.1.dat.a.map.ps \
+    res.spotted.1.$smethod.2.dat.a.map.ps > res.spotted.1.$smethod.map.ps 2> /dev/null
+
+cp res.spotted.1.?.?.dat.?.map.ps $HOME/dokumente/manuscripts/western_us/
+
+epsmerge -x 3 -y 1 -par --orientation Landscape \
+    res.spotted.1.$smethod.0.dat.r.map.ps \
+    res.spotted.1.$smethod.1.dat.r.map.ps \
+    res.spotted.1.$smethod.2.dat.r.map.ps > res.spotted.1.$smethod.strain.ps 2> /dev/null
+
+echo $0: written to res.spotted.1.$smethod.map.ps res.spotted.1.$smethod.strain.ps 
+
+#
+# plot 
+#
+method=r
+for ztype in 0 1 2;do
+    ofile=res.spotted.1.types.$smethod.$ztype.ps
+# plate motion only
+    psbasemap $reg $proj -P -Ba1f.2g1:"@~\341Dd\361 @~ [s]":/a10f2g10:"@~\341Da\361 @~ [deg]":WeSn \
+	-K > $ofile
+    gawk '{if((($10=="pmDd")||($10=="pmFd")||($10=="pmCd"))){print($5,$3,$10,$1)}}' tmp.$smethod.$ztype.$method.dat > tmp.p
+    gawk '{if((match($10,"stein")||match($10,"lrr"))){print($5,$3,$10,$1)}}' tmp.$smethod.$ztype.$method.dat > tmp.s
+    gawk '{if((match($10,"smean")||match($10,"ngrand")||match($10,"vox"))){print($5,$3,$10,$1)}}' tmp.$smethod.$ztype.$method.dat > tmp.t
+    col=255
+    for t in p s t;do
+	if [ $ztype -eq 1 ];then
+	    echo $0: ztype $ztype t: $t
+	    sort -n +1 tmp.$t | head -10
+	fi
+	gawk '{if(substr($3,3,1)=="C")print($1,$2)}' tmp.$t | \
+	    psxy $reg $proj -N -Ss0.2 -G$col -W0.5 -O -K >> $ofile
+	gawk '{if(substr($3,3,1)=="D")print($1,$2)}' tmp.$t | \
+	    psxy $reg $proj -N -Sd0.2 -G$col -W0.5 -O -K >> $ofile
+	gawk '{if(substr($3,3,1)=="F")print($1,$2)}' tmp.$t | \
+	    psxy $reg $proj -N -Sc0.2 -G$col -W0.5 -O -K >> $ofile
+	
+	((col=col-127))
+    done
+    if [ $ztype -eq 1 ];then
+	grep pgDstein tmp.s | gawk '{if($4==0.5)print($1,$2)}' | \
+	    psxy -O -K $reg $proj -Sc0.4 -W6/128to >> $ofile
+	grep pmDvox3p tmp.t |  gawk '{if($4==0.5)print($1,$2)}' | \
+	    psxy -O -K $reg $proj -Sc0.4 -W6/0ta >> $ofile
+    fi
+
+    py=-0.075;r=-R0/1/0/1;p=-JX6
+    echo 0.  $py 18 0 0 MR "@~h@~@-C@-" | pstext -N $r $p -O -K >> $ofile
+    echo 0.02 $py | psxy -Ss0.2 $r $p -G0 -O -K -N  >> $ofile
+    echo 0.1  $py 18 0 0 MR "@~h@~@-D@-" | pstext -N  $r $p -O -K >> $ofile
+    echo 0.12 $py | psxy -Sd0.2 $r $p -G0 -O -K -N  >> $ofile
+    echo 0.2  $py 18 0 0 MR "@~h@~@-F@-" | pstext -N $r $p -O -K >> $ofile
+    echo 0.22 $py | psxy -Sc0.2 $r $p -G0 -O -K -N  >> $ofile
+
+    echo 1000 1000 | psxy $reg $proj -Sc0.2 -G0 -W0.5 -O >> $ofile
+    modifybb $ofile 10 10 440 440
+    cp $ofile $HOME/dokumente/manuscripts/western_us/
+
+done

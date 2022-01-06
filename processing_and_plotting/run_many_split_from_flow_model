@@ -1,0 +1,200 @@
+#!/bin/bash
+#
+# carib
+#
+#models=${1-"cig_rum_smean_pb.01_E10_vis100k300_150_0.3_1_60_n65_selfg pl_rs_100_.1_100_10 tib_weak_new_s4 tib_pvel_s4 safs417nc_er safs417nc safs417 safn17h safn1h  tib_weak_new_s2  tib_weak_new_s tib_weak_mix_new_s2ns lisa_rum_oc_crat_w2 lisa_rum_oc_crat_w lisa_rum_oc lisa_tomo_crat_w lisa_rum_oc_crat"}
+#types=${2-splitting.8}
+#strains=${3-"s.0.5 s.1 s.2"}
+#
+# alboran
+#
+# all models:
+# ls */results/splitting.48//tracer.savd.10.splitting.48.s.1.da* | gawk 'BEGIN{FS="/"}{printf("%s ",$1)}'
+# have to run:
+#
+#
+models=${1-"globalh.6.7.150.1.150.0.01.0.1.500.50.plate.nodens globalh.6.7.150.1.150.0.01.0.1.500.50.plate globalh.6reg.7.150.1.150.0.01.0.1.500.50.plate"}
+
+#models=${1-"cig_rum_smean_pb.01_E10_vis100k300_150_0.3_1_60_n65_selfg gl_ab1_1000_.1_1000_30 gl_ab2_1000_.1_1000_30 gl_ab2_100_.1_100_30 gl_ab3_100_.1_100_30 gl_ab3_100_1_100_30 gl_ab3_10_1_10_30 gl_ab4_1000_.1_1000_30 gl_ab4_100_.1_100_30 gl_ab5_1000_.1_1000_30 lisa_rum_oc_crat lisa_rum_oc_crat_w2 lisa_rum_oc_crat_w lisa_rum_oc lisa_tomo_crat_w pl_ab1_1000_.1_1000_30 pl_ab1_100_1_100_30_hs3_nsb pl_ab1k_100_1_100_30 pl_ab2_1000_.1_1000_30 pl_ab2_100_1_100_30_hs3_nsb pl_ab2_100_.1_100_30 pl_ab2k_100_1_100_30 pl_ab3_100_.1_100_30 pl_ab3_100_1_100_30 pl_ab3_10_1_10_30 pl_ab3k_100_1_100_30 pl_ab4_100_1_100_30_hs3_nsb pl_ab4_100_.1_100_30 pl_ab4k_100_1_100_30 pl_ab5_1000_.1_1000_30 pl_ab5_100_1_100_30_hs3_nsb pl_ab5k_100_1_100_30 pl_ab6_100_1_100_100 pl_ab6_100_1_100_30 pl_ab6k_100_1_100_30 pl_ab7_100_1_100_100 pl_rs_100_.1_100_10 safn17h safn1h safs417nc safs417 tib_pvel_s4 tib_weak_mix_new_s2ns tib_weak_new_s2 tib_weak_new_s4 tib_weak_new_s med_weak_mix_nsmit med_weak_mix_ns2 med_weak_mix_ns3 med_weak_mix_ns2e2 med_weak_mix_ns2e  med_weak_mix_ns2e3  med_weak_mix_ns2e3k med_weak_mix_ns2e2k"}
+types=${2-splitting.12}
+strains=${3-"s.0.5 s.1 s.1.0 s.2"}
+#strains=${3-"s.1"}
+avgs=${4-"0 1"}			# averaging mode
+modes=${5-"0 1"}				# depth modes
+q1=${6-becker}
+#q1=${6-nbns}
+
+walltime=${7-24:00:00}
+
+if [[ $TACC_SYSTEM ]];then
+    ncpu=24
+    use_slurm=1			# use multi CPU and slurm
+elif [ $HPCC -eq 1 ];then
+    ncpu=8			# use multi CPU and qsub
+    use_slurm=0
+else
+    ncpu=$NR_CPUS			# regular job
+    use_slurm=-1
+fi
+
+njobs=`ps -u | grep calc_split_from_flow_model | grep -v grep | lc`
+#
+if [ $njobs -ne 0 ];then
+    echo $0: INFO: detected $njobs already
+fi
+#
+idisp=15  # way to compute splitting
+
+q2=$q1
+
+save_bascan=2			# 1: save the backazimuthal scan 2: also save avg tensor from stacking 
+
+
+mkdir pbs_files 2> /dev/null
+mkdir log_files 2> /dev/null
+
+
+owd=`pwd`
+
+qc=0
+for model in $models;do
+    for t in $types;do
+	if [ $t = "splitting.48" ];then
+	    oomodel=alboran/$model/
+	else
+	    oomodel=$model/
+	fi
+	if [[ $HPCC -eq 1 ]];then		# on HPCC
+	    main_out_dir=/home/scec-00/twb/tmp/$oomodel/
+	else
+	    main_out_dir=$datadir/flow_field/finite_strain/$oomodel/
+	fi
+	odir=$main_out_dir/results/simple_split/$t/
+
+	echo $0: main_out_dir: $main_out_dir 
+
+	cwd=`pwd`
+	for s in $strains;do
+	    for avg in $avgs;do
+		for mode in $modes;do
+		    pre=sff.$model.$t.$s.$avg.$mode
+		    mkdir -p $main_out_dir/pbs_files/
+		    pfile=$main_out_dir/pbs_files/$pre.batch
+		    lfile=$main_out_dir/log_files/$pre.log 
+
+		    if [ $use_slurm -eq -1  ];then # single host run
+			cat <<EOF > $pfile
+#!/bin/bash
+cd $cwd
+calc_split_from_flow_model $model $t $s $avg $mode 0 $save_bascan 0 1 > $lfile
+EOF
+			chmod +x $pfile
+		    else
+#
+# need to clear files
+#
+		
+			llfile=split.$s.$mode.$idisp
+			if [ $avg -eq 0 ];then		# output files for average splitting parametes
+			    rm $odir/$llfile.sstat 2> /dev/null
+			else
+			    rm $odir/$llfile.avg.sstat 2> /dev/null
+			fi
+			rm $odir/*/*/split.dat.gz 2> /dev/null # remove old split files
+			# main script 
+			if [ $use_slurm -eq 1 ];then
+			    cat <<EOF > $pfile
+#!/bin/bash
+#SBATCH -t $walltime
+#SBATCH -N 1 
+#SBATCH -n $ncpu
+#SBATCH -D $cwd
+#SBATCH -o $lfile.o
+#SBATCH -p normal
+#SBATCH --export=ALL
+srun -n $ncpu $pfile.sub
+EOF
+
+			else
+			    cat <<EOF > $pfile
+#!/bin/bash
+#PBS -V
+pbsdsh -v $pfile.sub
+EOF
+			fi
+			chmod +x $pfile
+			# this file will be called from each core
+			if [ $use_slurm -eq 1 ];then
+			    cat <<EOF > $pfile.sub
+#!/bin/bash
+cd $cwd
+calc_split_from_flow_model $model $t $s $avg $mode 0 $save_bascan $ncpu \$SLURM_PROCID > $lfile.\$SLURM_PROCID
+EOF
+    
+			else
+			    cat <<EOF > $pfile.sub
+#!/bin/bash
+#PBS -V
+cd \$PBS_O_WORKDIR
+calc_split_from_flow_model $model $t $s $avg $mode 0 $save_bascan $ncpu \$PBS_VNODENUM > $lfile.\$PBS_VNODENUM
+EOF
+			fi
+			chmod +x $pfile.sub
+			
+
+		    fi		# end SLURM/PBS
+		    #
+		    echo $0: driver: $pfile 
+		    echo $0: core script: $pfile.sub
+
+		    if [ $use_slurm -eq 1 ];then
+			while [ `showq | grep $USER | lc` -ge 50 ];do
+			    echo $0: determined `showq | grep $USER | lc`  jobs in queue, waiting 10 min
+			    sleep 600
+			    
+			done
+			sbatch $pfile
+		    elif [ $use_slurm -eq -1 ];then
+
+
+			((njobs=njobs+1))
+			if [ $njobs -ge $ncpu ];then
+			    wait
+			    njobs=`ps -u | grep calc_split_from_flow_model | grep -v grep | lc`
+			    if [ $njobs -ne 0 ];then
+				echo $0: detected $njobs even after wait
+			    fi
+			fi
+			echo $0: running $pfile at njobs $njobs/$ncpu
+			$pfile &			    
+		    else
+			if [ $qc -eq 1 ];then
+			    if [ $q1 = "xxx" ];then
+				queue_string=""
+			    else
+				queue_string="-q $q1"
+			    fi
+			else
+			    if [ $q2 = "xxx" ];then
+				queue_string=""
+			    else
+				queue_string="-q $q2"
+			    fi
+			    qc=0
+			fi
+			qsub -V $queue_string  -e $lfile.e -o $lfile.o -lwalltime=$walltime,nodes=1:ppn=$ncpu   $pfile
+		    fi
+		    echo $0: submitted $pfile
+		    if [ $use_slurm -eq 1 ];then
+			echo $0: log output in $lfile.\$SLURM_PROCID
+		    elif [ $use_slurm -eq -1 ];then
+			echo $0: log output in $lfile
+		    else
+			echo $0: log output in $lfile.\$PBS_VNODENUM
+		    fi
+		    ((qc=qc+1))
+		done
+	    done
+	done
+    done
+done

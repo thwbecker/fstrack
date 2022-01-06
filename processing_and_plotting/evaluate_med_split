@@ -1,0 +1,368 @@
+#!/bin/bash
+strains=${1-"0.75 1.5"}
+modes=${2-"0 1 2"}
+main_names=${3-"carib carib2"}
+avgs=${4-"0 1"}			# 0: full split 1: averages
+
+adjust_scale=1			# 1: automatic, 0: fixed
+
+simple_labels=1			# 0: actual model labels, better for evaluation
+                                # 1: simplified labels
+
+show_few=0			# 0: show many misfits, 1: show only two vel and one dalpha
+
+# colormaps
+#azi_cmp=polar
+azi_cmp=haxby
+dt_cmp=seis
+g_cmp=polar			# geoid
+#v_cmp=polar # velocities
+v_cmp=haxby			
+
+#
+# used for the middle east paper
+#
+#dmodels="8 19  21 7 14 16 9 15  22 23"
+#vmodels="1 4 14 2 7 6 20 12 13"
+
+dmodels="8 19  21 7 14 16 9 15  22 23 26 28 29"
+vmodels="1 4 14 2 7  6 20 12 13 21 4 22"
+
+
+vmodels=`echo $vmodels | gawk -f reversecol.awk`
+if [ $adjust_scale -eq 0 ];then
+# fixed colorscale ranges
+    geoid_range=-T0.5/0.8/0.0125	# geoid correlation
+    azi_range=-T25/50/1		# azimuth misfit
+    dt_range=-T-.75/.75/.05		# dt misfit
+    pvel_range=-T0.5/1/0.025	# plate velocity corr
+    psc_ends="-E"
+else
+    psc_ends=""
+fi
+
+
+for main_name in $main_names;do
+
+    if [ $main_name = "carib" ];then
+	rname=ME3
+    elif [ $main_name = "carib2" ];then
+	rname=ME32
+    else
+	echo $0: main name $main_name error
+	exit
+    fi
+
+
+
+
+    rm tmp.*
+    for avg in $avgs;do
+	for strain in $strains;do
+	    for mode in $modes;do
+		echo $strain $mode $avg
+		
+		fs=""
+#		for t in g r1 r2;do
+		tc=1
+		for t in r1 r2 g;do
+		    if [ $avg -eq 0 ];then
+			pre_name=split.$rname/split.$rname.misfits.$mode.$strain
+		    else
+			pre_name=split.$rname/split.avg.$rname.misfits.$mode.$strain
+		    fi
+
+		    if [ $t = "g" ];then # minimum data values
+			mind=300
+		    elif [ $t = "r1" ];then
+			mind=74
+		    elif [ $t = "r2" ];then
+			mind=63
+		    fi
+		    rm $pre_name.$t.*.grd 2> /dev/null
+		    if [ -s $pre_name.$t.dat ];then
+			echo $0: working on $pre_name.$t.dat 
+			rm tmp.$$*table  2> /dev/null
+
+
+			v=1;
+			for vuse in $vmodels;do
+			    d=1
+			    for duse in $dmodels;do
+				
+				
+				rm tmp.$$ 2> /dev/null 
+				gawk -v name=$main_name.$vuse.$duse '{if($1==name)print($0)}' $pre_name.$t.dat > tmp.$$
+				grep $main_name.$vuse.$duse  $pre_name.$t.dat
+
+				if [ -s tmp.$$ ];then
+				    if [ `lc tmp.$$` -ne 1 ];then
+					echo $0: error, too many entries 
+					cat tmp.$$
+					exit
+				    fi
+				    echo $d $v `gawk -v mind=$mind '{if($2>=mind)print($3);else print("NaN")}' tmp.$$` >> tmp.$$.table # angle
+				    echo $d $v `gawk -v mind=$mind '{if($2>=mind)print($4);else print("NaN")}' tmp.$$` >> tmp.$$.dt.table # delay time
+				else
+				    echo $d $v NaN >> tmp.$$.table 
+				    echo $d $v NaN >> tmp.$$.dt.table 
+				fi
+				rm tmp.$$  2> /dev/null 
+
+				if [ $tc -eq 1  ];then
+				    in_file=/home/scec-00/twb/tmp/$main_name.$vuse.$duse/fitstat.0.dat
+				    if [ -s $in_file  ];then
+			# global geoid
+					echo $d $v `gawk '{print($4)}' $in_file` >> tmp.$$.geoid.table
+			    # gloval vel correlation
+					echo $d $v `gawk '{print($12)}' $in_file` >> tmp.$$.vcorr.table
+			    # global vel misfit
+					echo $d $v `gawk '{print($14)}' $in_file` >> tmp.$$.vdrms.table
+					
+				    else
+					echo $d $v NaN >> tmp.$$.geoid.table
+					echo $d $v NaN >> tmp.$$.vcorr.table
+					echo $d $v NaN >> tmp.$$.vdrms.table
+				    fi
+
+				    in_file=/home/scec-00/twb/tmp/$main_name.$vuse.$duse/0/velmisfit.ne.dat
+				    if [ -s $in_file ];then
+					echo $d $v `gawk '{print($1)}' $in_file` >> tmp.$$.rvcorr.table
+					echo $d $v `gawk '{print($2)}' $in_file` >> tmp.$$.rvxi.table
+				    else
+					echo $d $v NaN >> tmp.$$.rvcorr.table
+					echo $d $v NaN >> tmp.$$.rvxi.table
+				    fi
+				fi
+				((d=d+1))
+	 		    done
+			    ((v=v+1))
+			done
+			((dmax=d-1))
+			((vmax=v-1))
+
+			preg=-R0.5/$dmax.5/0.5/$vmax.5
+			reg=-R1/$dmax/1/$vmax
+			#
+			# grid
+			#
+		#cat tmp.$$.table
+			xyz2grd tmp.$$.table $reg     -I1/1 -G$pre_name.$t.azi.grd 
+			xyz2grd tmp.$$.dt.table $reg  -I1/1 -G$pre_name.$t.dt.grd 
+			if [ $t = "r1" ];then
+			    for tp in geoid vcorr vdrms rvcorr rvxi;do
+				xyz2grd tmp.$$.$tp.table $reg  -I1/1 -G$pre_name.$t.$tp.grd 
+			    done
+			fi
+			rm tmp.$$*table 2> /dev/null
+
+			for tp in azi dt;do
+			    echo $0: written to $pre_name.$t.$tp.grd 
+			    grdinfo -C  $pre_name.$t.$tp.grd 
+			done
+
+		#
+		# plot
+		#
+			if [ $tc -eq 1 ];then
+		    #mfs="azi dt geoid vcorr vdrms"
+#			    mfs="geoid vcorr azi dt"
+#			    mfs="rvcorr rvxi azi dt"
+			    mfs="vcorr rvcorr azi dt"
+			else
+			    mfs="azi dt"
+			fi
+
+			for mf in $mfs;do
+			    if [ $show_few -eq 1 ];then
+				if [[ $mf = azi && $t = r1 ]];then
+				    show_dens_labels=1
+				elif [[ $mf = vcorr && $t = r1 ]];then
+				    show_dens_labels=2
+				else
+				    show_dens_labels=0
+				fi
+			    else
+				show_dens_labels=1
+			    fi
+			    if [ ! -s $pre_name.$t.$mf.grd ];then
+				echo $0: $pre_name.$t.$mf.grd not found
+				exit
+			    fi
+			    if [ $mf = azi ];then
+				label="@~\341Da\361@~ [@+o@+]"
+				if [ $adjust_scale -eq 1 ];then
+				    grd2cpt $pre_name.$t.$mf.grd   -D -E17  -C$azi_cmp > tmp.$$.cpt
+				else
+				    makecpt $azi_range -D -C$azi_cmp > tmp.$$.cpt
+				fi
+
+			    elif [ $mf = dt ];then
+				label="@~\341d@~t@~\361@~ [@+o@+]"
+				if [ $adjust_scale -eq 1 ];then
+				    grd2cpt $pre_name.$t.$mf.grd   -D -E17  -C$dt_cmp -I -T= > tmp.$$.cpt
+				else
+				    makecpt $dt_range -D -C$dt_cmp > tmp.$$.cpt
+				fi
+			    elif [ $mf = geoid ];then
+				label="r@-geoid@-"
+				if [ $adjust_scale -eq 1 ];then
+				    grd2cpt $pre_name.$t.$mf.grd   -D -E17 -I  -C$g_cmp  > tmp.$$.cpt
+				else
+				    makecpt $geoid_range -D -C$g_cmp -I > tmp.$$.cpt
+				fi
+			    elif [ $mf = vcorr ];then
+				label="r@-vel@-"
+				if [ $adjust_scale -eq 1 ];then
+				    grd2cpt $pre_name.$t.$mf.grd  -I -D -E17  -C$v_cmp  > tmp.$$.cpt
+				else
+				    makecpt $pvel_range  -D -C$v_cmp -I > tmp.$$.cpt
+				fi
+
+			    elif [ $mf = rvcorr ];then
+				label="r@-vel reg@-"
+				if [ $adjust_scale -eq 1 ];then
+				    grd2cpt $pre_name.$t.$mf.grd  -I -D -E17  -C$v_cmp  > tmp.$$.cpt
+				else
+				    makecpt $pvel_range  -D -C$v_cmp -I > tmp.$$.cpt
+				fi
+
+			    elif [ $mf = rvxi ];then
+				label="@~c@~@+2@+@-vel reg@-"
+				if [ $adjust_scale -eq 1 ];then
+				    grd2cpt $pre_name.$t.$mf.grd   -D -E17  -C$v_cmp  > tmp.$$.cpt
+				else
+				    makecpt $pvel_range  -D -C$v_cmp  > tmp.$$.cpt
+				fi
+
+			    elif [ $mf = vdrms ];then
+				grd2cpt $pre_name.$t.$mf.grd   -D -E17  -C$v_cmp   > tmp.$$.cpt
+			    fi
+			    if [[ $mf = azi || $mf = dt ]];then
+				if [ $t = "g" ];then
+				    title="whole Med (ME2)"
+				elif [ $t = "r1" ];then
+				    title="Middle East"
+				elif [ $t = "r2" ];then
+				    title="North Anatolia"
+				fi
+			    fi
+			    proj=-Jx.6
+			    wtype=$pre_name.$t.$mf
+			    if [ $avg -eq 1 ];then
+				ofile=split.$rname/split.$rname.misfits.$mode.$strain.$t.$mf.avg.ps
+			    else
+				ofile=split.$rname/split.$rname.misfits.$mode.$strain.$t.$mf.ps
+			    fi
+
+			    if [ ! -s $wtype.grd ];then
+				echo $0: $wtype.grd not found
+				exit
+			    fi
+			    if [ $show_few -eq 1 ];then
+				grdimage $wtype.grd $proj $preg -X3 -Y-1 -Ctmp.$$.cpt -Bf1:."": -K  > $ofile
+			    else
+				grdimage $wtype.grd $proj $preg -X3 -Y-1 -Ctmp.$$.cpt -Bf1:."$title": -K  > $ofile
+			    fi
+			    gawk -v dmax=$dmax -v vmax=$vmax 'BEGIN{for(d=1.5;d<=dmax+0.5;d+=1){print(d,0.5);print(d,vmax+0.5);print(">")}}' | \
+				psxy -W0.5 -R -J -O -K -m >> $ofile
+			    gawk -v dmax=$dmax -v vmax=$vmax 'BEGIN{for(v=1.5;v<=vmax+0.5;v+=1){print(0.5,v);print(dmax+0.5,v);print(">")}}' | \
+				psxy -W0.5 -R -J -O -K -m >> $ofile
+		# dens labels
+			    d=1
+			    for duse in $dmodels;do
+				model=$main_name.1.$duse
+				. carib_title
+				if [ $simple_labels -eq 0 ];then
+				    echo $duse $dens  | gawk -v dplot=$d '{printf("%g %g %i %g %i MR %s (#%i)\n",dplot,0.25,18,45,0,$2,$1)}' | pstext -R -J -O -K -N >> $ofile
+				else
+				    if [ $show_dens_labels -eq 1 ];then # bottom
+					echo $duse $sdens  | gawk -v dplot=$d '{printf("%g %g %i %g %i MR %s (#%i)\n",dplot,0.25,18,45,0,$2,$1)}' | pstext -R -J -O -K -N >> $ofile
+				    elif [ $show_dens_labels -eq 2 ];then # top
+					echo $duse $sdens  | \
+					    gawk -v dplot=$d -v vmax=$vmax \
+					    '{printf("%g %g %i %g %i ML %s\n",dplot,vmax+1.25,18,45,0,$2)}' | pstext -R -J -O -K -N >> $ofile
+				    fi
+				fi
+                        # calculate the average over this column
+				loc_avg=`gawk -v d=$d -v vmax=$vmax 'BEGIN{for(v=1;v<=vmax;v++)print(d,v);}' | grdtrack -Qn -S -G$wtype.grd -Z  | gawk -f mean.awk | gawk '{printf("%.1f",$1)}'`
+				echo d: $duse avg value for all v: $loc_avg
+				echo $d $vmax $loc_avg | gawk '{printf("%g %g 18 0 0 BC %s\n",$1,$2+0.6,$3)}' | pstext -R -J -O -K -N >> $ofile
+
+				((d=d+1))
+			    done
+         	# visc labels and averages
+			    v=1;
+			    for vuse in $vmodels;do
+				model=$main_name.$vuse.1
+				. carib_title
+				if [ $simple_labels -eq 0 ];then
+				    echo $vuse $weak | gawk -v vplot=$v '{printf("%g %g %i %g %i MR %s (#%i)\n",0.4,vplot,18,0,0,$2,$1)}' | pstext -R -J -O -K -N >> $ofile
+				else
+				    echo $vuse $sweak | gawk -v vplot=$v '{printf("%g %g %i %g %i MR %s (#%i)\n",0.4,vplot,18,0,0,$2,$1)}' | pstext -R -J -O -K -N >> $ofile
+				fi
+			# calculate the average over this row
+				loc_avg=`gawk -v v=$v -v dmax=$dmax 'BEGIN{for(d=1;d<=dmax;d++)print(d,v);}' | grdtrack -Qn -S -G$wtype.grd -Z  | gawk -f mean.awk | gawk '{printf("%.1f",$1)}'`
+				echo v: $vuse avg value for all d: $loc_avg
+				echo $v $dmax $loc_avg | gawk '{printf("%g %g 18 0 0 MR %s\n",$2+1.7,$1,$3)}' | pstext -R -J -O -K -N >> $ofile
+				((v=v+1))
+			    done
+			    #psc_loc=-D-.1/5.2/3.2/.2h
+			    #psc_loc=-D13/3.25/3/.2
+			    #psc_loc=-D6.5/3/3/.2
+			    #psc_loc=-D8/3/3/.2
+			    psc_loc=-D9/3/3/.2
+
+			    if [ $mf = azi ];then
+				psscale -Ctmp.$$.cpt -O $psc_ends $psc_loc -N -B5:"$label": >> $ofile
+			    elif [ $mf = dt ];then # delay time
+				psscale -Ctmp.$$.cpt -O $psc_ends $psc_loc -N -B.3:"$label": >> $ofile
+			    elif [ $mf = geoid ];then
+				psscale -Ctmp.$$.cpt -O $psc_ends $psc_loc -N -B.1:"$label": >> $ofile
+			    elif [ $mf = vcorr ];then # velocity corr
+				psscale -Ctmp.$$.cpt -O $psc_ends $psc_loc -N -B.1:"$label": >> $ofile
+			    elif [ $mf = rvcorr ];then
+				psscale -Ctmp.$$.cpt -O $psc_ends $psc_loc -N -B.1:"$label": >> $ofile
+			    elif [ $mf = rvxi ];then
+				psscale -Ctmp.$$.cpt -O $psc_ends $psc_loc -N -B.2:"$label": >> $ofile
+			    elif [ $mf = vdrms ];then
+				psscale -Ctmp.$$.cpt -O $psc_ends $psc_loc -N -B1/:"|@~D@~v| [cm/yr]": >> $ofile
+			    fi
+			    modifybb $ofile 2> /dev/null
+			    rm tmp.$$.cpt
+			    fs="$fs $ofile"
+#			    gv $ofile ; exit
+			done
+		    fi
+		    ((tc=tc+1))
+		done			# type loop
+		echo $fs
+		if [ $show_few -eq 1 ];then
+		    epsmerge \
+			split.$rname/split.$rname.misfits.$mode.$strain.r1.vcorr.ps \
+			split.$rname/split.$rname.misfits.$mode.$strain.r1.rvcorr.ps \
+			split.$rname/split.$rname.misfits.$mode.$strain.r1.azi.ps \
+			-x 1 -y 3 --orientation Portrait   > $pre_name.ps 2> /dev/null
+		else
+		    \epsmerge -lmar 0.1 -rmar 0.1 -tmar 0.1 -bmar 0.1 -xcs 0.1 -ycs 0.1 \
+			-x 2 -y 4 --orientation Portrait --paper letter \
+			 --print --postscript \
+			$fs > $pre_name.ps 2> /dev/null
+
+		fi
+		echo $pre_name.ps
+		ps2pdf $pre_name.ps
+		if [ $avg -eq 0 ];then
+		    mv split.$rname.misfits.$mode.$strain.pdf $pre_name.pdf
+		else
+		    mv split.avg.$rname.misfits.$mode.$strain.pdf $pre_name.pdf
+		fi
+		
+		echo $0: written to $pre_name.pdf
+		cp  $pre_name.pdf $HOME/tmp/
+
+	    done			# mode loop
+	done				# strain loop
+
+    done				# end avg loop
+done

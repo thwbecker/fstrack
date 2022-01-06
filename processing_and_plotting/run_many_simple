@@ -1,0 +1,255 @@
+#!/bin/bash
+#models=${1-"pmDsmean_nt sf1d.pmDsmean_nt sf1p.pmDsmean_nt sf1dt.pmDsmean_nt sf1dtp.pmDsmean_nt tfflow1 tfflow1t tfflow1p tfflow1tp"}
+#models=${1-"pmDnngrand_nt pmDsmean_nt pmDstein  pmDnngrand_nt pmFsmean_nt pmDsmean_nt_ol_only saf1h saf2h saf3h"}
+#
+#models=${1-"safs217nc_er_sstp_10 safs217nc_er_sstp_8 safs217nc_sstp_10 safs217nc_sstp_8"}
+
+models=${1-"safs517nc safs517nc_er safs517nc_C_er"}
+#models=${1-"safs1gj1 safs1gj3 safs1gj6 safs1hs3"}
+
+#models=${1-"safs1 safs2 safs3 safs17 safs17_er safn1h safn2h safn3h safn17h safn18h safn17h_er safn18h_er safs217 safs217_er safs317nc safs317nc_er"}
+#models=${1-"safs17  safs17_er safn1h safn2h safn3h safn17h safn18h safn17h_er safn18h_er   "}
+
+#models=${1-"pmDnngrand_nt pmDsmean_nt safs1 safs1nr0.5 safs1nr safs1nr2 safs1nr4 safs17h pmDstein  pmDnngrand_nt pmFsmean_nt pmDsmean_nt_ol_only saf1h saf2h saf3h safs17  safs17_er safn1h safn2h safn3h safn17h safn18h safn17h_er safn18h_er "}
+
+#models=${1-"safs1 safs1nr0.5 safs1nr safs1nr2 safs1nr4"}
+
+#models=${1-"pmDsmean_nt safn1h safn2h safn3h"}
+
+global_sav=1		        # main loop for sav structure global
+global_and_reg_sav=0		# main loop for sav structure globally and regionally
+splitting=0			# spotted
+regional=0			# regional
+
+#reg_code=1			# regional code
+reg_code=24
+#reg_code=33			# regional code
+#reg=1				# spotted splitting table number
+reg=24
+execute=1
+
+#qu1="becker64";qu2="scec"
+qu1="xxx";qu2="xxx"
+#qu1="scec";q2="scec"
+#qu1="becker64";qu2="becker64"
+
+
+
+
+
+if [ $global_sav -eq 1 ];then
+    type=0			# 0: low spacing, 1: high spacing
+#    spawn=-16
+#    type=0
+    spawn=-8
+#    spawn=2
+
+    if [ `echo $myhostname | gawk '{if(($1=="dynamic")||($1=="geosys-amd")||(match($1,"amdnode")))print(1);else print(0)}'` -eq 1 ];then
+	spawn=8
+    fi
+
+    tmaxa=60
+
+    qc=1
+    for m in $models;do
+	cd $m
+	if [ `echo $m | gawk '{if(match($1,"ol_only"))print(1);else print(0);}'` -eq 1 ];then
+	    addopt="-xol 100"
+	else
+	    addopt=""
+	fi
+	if [ `echo $m | gawk '{if(substr($1,1,2)=="gh")print(1);else print(0);}'` -eq 1 ];then
+	    addopt="$addopt -th" # time history
+	    tmaxa=`head -1  times.dat | gawk '{print(-$1)}'`
+	    echo $m $tmaxa
+	fi
+
+	if [ $qc -eq 1 ];then
+	    queue=$qu1
+	    qc=0
+	else
+	    queue=$qu2
+	    qc=1
+	fi
+	    # 
+	    # global models with texture (er mode gets activated automatically depending on name of directory)
+	    # 
+	rm job.$$ 2> /dev/null
+
+
+
+	use_text=1
+	#
+	# three different job submissions
+	# xi = 0.01
+#	echo ../run_fstrack 1 0 0 0 0.05 1 $type $use_text $spawn 0 $tmaxa \"$addopt \" $reg_code $queue >> job.$$
+    # global , xi = 0.5
+#	echo ../run_fstrack 1 0 0 0 0.5 1 $type $use_text $spawn 0 $tmaxa \"$addopt \" $reg_code $queue >> job.$$
+	# 0.75
+#	echo ../run_fstrack 1 0 0 0 0.75 1 $type $use_text $spawn 0 $tmaxa \"$addopt \" $reg_code $queue >> job.$$
+    # global , xi = 1
+#	echo ../run_fstrack 1 0 0 0   1 1 $type  $use_text $spawn 0 $tmaxa \"$addopt \" $reg_code $queue >> job.$$
+   # global , xi = 2
+	echo ../run_fstrack 1 0 0 0   2 1 $type  $use_text $spawn 0 $tmaxa \"$addopt \" $reg_code $queue >> job.$$
+
+	
+	if [ $execute -eq 1 ];then
+	    sh -e job.$$
+	else
+	    echo $m $pass
+	    cat job.$$
+	fi
+	rm job.$$
+	cd ..
+    done			# end model loop
+fi
+
+
+
+
+
+
+
+if [ $splitting -eq 1 ];then
+    queue=$qu1
+    spawn=-1
+
+    for m in $models;do
+	cd $m
+	cwd=`pwd`
+
+	if [ `echo $m | gawk '{if($1=="pmDsmean_nt_ol_only")print(1);else print(0);}'` -eq 1 ];then
+	    addopt="-xol 100"
+	else
+	    addopt=""
+	fi
+	mkdir pbs_log_files 2> /dev/null
+	mkdir batch_files 2> /dev/null
+	echo "#!/bin/bash" > batch_files/splitting.batch
+	echo "#PBS -l walltime=300:00:00,nodes=1:ppn=1" >> batch_files/splitting.batch
+	if [ $spawn -eq -1 ];then
+	    echo "cd \$PBS_O_WORKDIR"  >> batch_files/splitting.batch
+	fi
+	echo ../run_fstrack 1 0 0 0 \"0.5 1 2\" 1 6 1 0 0 60 \"$addopt\" $reg >> \
+	    batch_files/splitting.batch
+#	echo ../run_fstrack 1 0 0 0 \"0.5 3\" 1 4 1 0 0 60 \"$addopt -sav_noTp\" $reg >> \
+#	    batch_files/splitting.batch
+if [ $execute -eq 1 ];then
+    if [ $spawn -eq -1 ];then
+	qsub -o  pbs_log_files/splitting.pbs.o \
+	    -e pbs_log_files/splitting.pbs.e_log -V \
+	    -d $cwd batch_files/splitting.batch -q $queue
+    else
+	chmod +x batch_files/splitting.batch
+	batch_files/splitting.batch
+    fi
+else
+    cat batch_files/splitting.batch
+fi
+cd ..
+    done
+
+fi
+if [ $regional -eq 1 ];then
+    spawn=-7
+    qc=1
+    for m in $models;do
+	cd $m
+	if [ `echo $m | gawk '{if($1=="pmDsmean_nt_ol_only")print(1);else print(0);}'` -eq 1 ];then
+	    addopt="-xol 100 $extra_opt"
+	else
+	    addopt="$extra_opt"
+	fi
+	if [ $qc -eq 1 ];then
+	    queue=$qu1
+	    qc=0
+	else
+	    queue=$qu2
+	    qc=1
+	fi
+	    # 
+	    # regional models
+	    # 
+    # regional, low spacing s=0.5 strain, texture
+	echo ../run_fstrack 1 0 0 0 0.5 1 3 1 $spawn 0 60 \"$addopt\" $reg_code $queue > job.$$
+
+# regional, ISA
+	echo ../run_fstrack 0 0 0 1 0.5 1 3 0 $spawn 0 60 \"$addopt\" $reg_code $queue >> job.$$
+# regional, low spacing s=0.5 strain, no textture 
+#	echo ../run_fstrack 1 0 0 0 0.5 1 3 0 $spawn 0 60 \"$addopt\" $reg_code $queue > job.$$
+    # large strain
+	echo ../run_fstrack 1 0 0 0   1 1 3 1 $spawn 0 60 \"$addopt\" $reg_code $queue >> job.$$
+
+      #  echo ../run_fstrack 1 0 0 0   2 1 3 1 $spawn 0 60 \"$addopt\" $reg_code $queue >> job.$$
+
+	if [ $execute -eq 1 ];then
+	    sh -e job.$$
+	else
+	    echo $m $pass
+	    cat job.$$
+	fi
+	rm job.$$
+	cd ..
+    done			# end model loop
+
+
+fi
+
+
+if [ $global_and_reg_sav -eq 1 ];then
+    spawn=-8
+
+    passes="1 2"
+    for pass in $passes;do		# loop through passes 1,2 : 1: regional : 2 hlobal
+	qc=1
+	for m in $models;do
+	    cd $m
+	    if [ `echo $m | gawk '{if($1=="pmDsmean_nt_ol_only")print(1);else print(0);}'` -eq 1 ];then
+		addopt="-xol 100"
+	    else
+		addopt=""
+	    fi
+	    if [ $qc -eq 1 ];then
+		queue=$qu1
+		qc=0
+	    else
+		queue=$qu2
+		qc=1
+	    fi
+	    if [ $pass -eq 1 ];then
+	    # 
+	    # regional models
+	    # 
+    # regional, low spacing s=0.5 strain, texture
+		echo ../run_fstrack 1 0 0 0 0.5 1 3 1 $spawn 0 60 \"$addopt -sav_noTp\" $reg_code $queue > job.$$
+    # depth dep properties
+		echo ../run_fstrack 1 0 0 0 0.5 1 3 1 $spawn 0 60 \"$addopt \" $reg_code $queue >> job.$$
+    # large strain
+		echo ../run_fstrack 1 0 0 0   3 1 3 1 $spawn 0 60 \"$addopt \" $reg_code $queue >> job.$$
+	    else 			# pass two
+	    # 
+	    # global models
+	    # 
+    # global , xi = 0.5
+		echo ../run_fstrack 1 0 0 0 0.5 1 0 1 $spawn 0 60 \"$addopt \" $reg_code $queue > job.$$
+    # global , xi = 1.0
+		echo ../run_fstrack 1 0 0 0   1 1 0 1 $spawn 0 60 \"$addopt \" $reg_code $queue >> job.$$
+    # global , xi = 2.0
+                echo ../run_fstrack 1 0 0 0   2 1 0 1 $spawn 0 60 \"$addopt \" $reg_code $queue >> job.$$
+
+    # global, xi = 3
+		echo ../run_fstrack 1 0 0 0   3 1 0 1 $spawn 0 60 \"$addopt \" $reg_code $queue >> job.$$
+	    fi
+	    if [ $execute -eq 1 ];then
+		sh -e job.$$
+	    else
+		echo $m $pass
+		cat job.$$
+	    fi
+	    rm job.$$
+	    cd ..
+  	done			# end model loop
+    done				# end pass loop
+
+fi
+

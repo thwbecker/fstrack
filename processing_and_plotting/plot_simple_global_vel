@@ -1,0 +1,210 @@
+#!/bin/bash
+mset1="pl_e0_10_01_10_1
+        pl_e0_10_01_10_100
+     
+        pl_e0_10_1_10_100 
+        pl_e0_10_1_10_100_hs3_nsb 
+
+        pl_e0_10_.1_10_100 
+        pl_e0_10_.1_10_100_hs3_nsb 
+
+        pl_e0_10_01_10_100 
+        pl_e0_10_01_10_100_hs3_nsb 
+
+
+        pl_e0_100_1_100_100     
+        pl_e0_100_1_100_100_hs3_nsb 
+
+        pl_e0_100_.1_100_100  
+        pl_e0_100_.1_100_100_hs3_nsb 
+
+        pl_e0_100_01_100_100  
+        pl_e0_100_01_100_100_hs3_nsb  
+
+
+        pl_e0_1000_1_1000_100 
+        pl_e0_1000_1_1000_100_hs3_nsb 
+
+        pl_e0_1000_.1_1000_100 
+        pl_e0_1000_.1_1000_100_hs3_nsb 
+
+        pl_e0_1000_01_1000_100  
+
+        pl_e0_1000_01_1000_1   
+        pl_e0_1000_01_1000_100_keels 
+"
+mset2="pl_e0_10_1_10_100 
+        pl_e0_10_.1_10_100 
+        pl_e0_10_01_10_100 
+
+        pl_e0_100_1_100_100     
+        pl_e0_100_.1_100_100  
+        pl_e0_100_01_100_100  
+
+        pl_e0_1000_1_1000_100 
+        pl_e0_1000_.1_1000_100 
+        pl_e0_1000_01_1000_100  
+
+        pl_e0_10_1_10_100_hs3_nsb 
+        pl_e0_10_.1_10_100_hs3_nsb 
+        pl_e0_10_01_10_100_hs3_nsb 
+
+        pl_e0_100_1_100_100_hs3_nsb 
+        pl_e0_100_.1_100_100_hs3_nsb 
+        pl_e0_100_01_100_100_hs3_nsb  
+
+        pl_e0_1000_1_1000_100_hs3_nsb 
+        pl_e0_1000_.1_1000_100_hs3_nsb 
+"
+ms=$mset2
+
+# this one just for testing
+#pl_e0_1000_01_1000_100_nnr_nsb pl_e0_1000_01_1000_100_hs3
+# bad model
+#pl_e0_1000_01_1000_100_hs3_nsb
+
+#depths="33 135 236 338"
+depths="50 150 250 350"
+
+pmode=2				# 1: abs hor velocity 2: horizontal vectors
+
+tmpn=/tmp/$USER.$HOST.$$.torque_tmp
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+#reg=-Rg;proj=-JN180/7
+reg=-R85/313/-55/65
+proj=-JH`echo $reg | gawk -f reg2midlon.awk`/7
+ann=-Ba45f10/a30f10WesN 
+
+add_split=1			# add Maureen's sub slabs splits
+
+odir=gflow_plots
+
+
+#for mmnnr_by_volume in 0 1;do	# correction loop
+for mmnnr_by_volume in 0;do	# correction loop
+
+    mfs=""
+    time=0
+    for m in $ms;do		# model loop
+	mstring="`echo $m | gawk -f lisa_rename.awk`"
+	rm vt.nr.grd  vp.nr.grd 2> /dev/null
+
+	go=1
+	if [ -s /home/scec-00/twb/tmp/$m/$time/ ];then
+	    idir=/home/scec-00/twb/tmp/$m/
+	elif [ -s /home/scec-02/laalpert/scratch/$m/$time/ ];then
+	    idir=/home/scec-02/laalpert/scratch/$m/
+	elif [ -s /home/scec-02/attreyeg/tmp/scratch/$m/$time/ ];then
+	    idir=/home/scec-02/attreyeg/tmp/scratch/$m/
+	else
+	    echo $0: no directory found for $m
+	    go=0
+	fi
+	if [ $go -eq 1 ];then
+	    nl=`ls $idir/vt.$time.*grd | lc`
+	    if [[ ! -s vt.nr.grd || ! -s vp.nr.grd ]];then
+		calc_hpcc_model_mm_nnr $idir $mmnnr_by_volume
+	    else
+		echo $0: WARNING: reusing v?.nr.grd
+	    fi
+	    if [ ! -s  vt.nr.grd ];then
+		echo $0: error
+		exit
+	    fi
+	    fs=""
+	    for d in $depths;do
+	    # interpolate
+		cat $idir/$m.depths | gawk -v depth=$d -f interpolate_vel.awk  > $tmpn.par
+		read i j f1 f2 < $tmpn.par
+		for t in vp vr vt t;do
+		    grdmath $idir/$time/$t.$time.$i.grd $f1 MUL $idir/$time/$t.$time.$j.grd  $f2 MUL ADD = $tmpn.$t.grd 
+		    if [[ $t = "vp" || $t = "vt" ]];then
+			grdmath $tmpn.$t.grd $t.nr.grd SUB = $tmpn.2.grd; mv $tmpn.2.grd $tmpn.$t.grd
+		    fi
+		done
+		grdmath $tmpn.vp.grd $tmpn.vt.grd R2 SQRT = $tmpn.abs
+		max=`grd2max $tmpn.abs`
+		rms=`grd2wrms $tmpn.abs`
+		rmss=`echo $rms | gawk '{printf("%.1f",$1)}'`
+		grdmath $tmpn.vt.grd NEG = $tmpn.vy.grd
+		
+		grd2cpt $tmpn.vr.grd -D -E20 -T= -Cgray > $tmpn.vr.cpt
+#	    grd2cpt $tmpn.abs -D -E15 -Chaxby > $tmpn.cpt
+	    #grd2cpt $tmpn.abs -D -E15 -Chot > $tmpn.cpt
+
+		makecpt -D -Chot -T0/`echo $max | gawk '{print($1*0.7)}'`/0.1 > $tmpn.cpt
+#	    makecpt -D -Cpolar -T0/`echo $max | gawk '{print($1*0.7)}'`/0.1 > $tmpn.cpt
+		grd2cpt $tmpn.t.grd -D -E21 -Chot > $tmpn.t.cpt
+		lsp=`echo $max | gawk '{if($1>20)print(5);else print(1)}'`
+
+	    # plot
+		ofile=$odir/$m.$d.ps
+		if [ $pmode -eq 1 ];then
+		    grdimage $tmpn.abs $reg $proj -P -C$tmpn.cpt -K $ann > $ofile
+		    psxy ~becker/data/plate_boundaries/nuvel_without_greenwich_crossing.yx -m -: \
+			-R -J  -O -K   -W1,darkgreen  >> $ofile
+		    
+		    pscoast -R -J -Dc -A500000 -W1 -O -K >> $ofile
+		    psscale -C$tmpn.cpt -B$lsp/:"|v@-h@-| [cm/yr]": -O -K -D3.5/-.15/3/.2h >> $ofile
+		elif [ $pmode -eq 2 ];then
+		# slab in background
+		    grdimage $tmpn.vr.grd $reg $proj -P -C$tmpn.vr.cpt -K $ann > $ofile
+		    pscoast -R -J -Dc -A500000 -W1 -O -K >> $ofile
+		#pscoast $reg $proj  -Dc -A500000 -S128 -G180 -K -P $ann > $ofile
+		    psxy ~becker/data/plate_boundaries/nuvel_without_greenwich_crossing.yx -m -: \
+			-R -J  -O -K   -W1,darkgreen  >> $ofile
+		    grdcontour -C0.6 -W2,blue -S5 -R -J $tmpn.t.grd $reg $proj -O -K >> $ofile
+		# remove small vectors/?
+		    remove=0
+		    if [ $remove -eq 1 ];then
+			c=1
+			for t in vp vy;do
+			    grdmath $tmpn.$t.grd  $tmpn.abs $max 0.01 MUL GE MUL = $tmpn.$c;((c=c+1))
+			done
+		    else
+			cp $tmpn.vp.grd $tmpn.1;cp $tmpn.vy.grd $tmpn.2
+		    fi
+		    grdvector -T $tmpn.1 $tmpn.2 -T -Sl0.1 -Q0.02/0.02/0.023 \
+			-O -K -I5  -R -J -C$tmpn.cpt >> $ofile
+		    psscale -Ef -C$tmpn.cpt -B$lsp/:"|v@-h@-| [cm/yr]": -O -K -D3.5/-.15/3/.2h >> $ofile
+		fi
+		if [ $add_split -eq 1 ];then
+		    ;
+		    
+		fi
+		echo 0 1.25 18 0 0 ML "$mstring " | pstext -N -R0/1/0/1 -N -JX7/3.5 -O -K >> $ofile
+		echo 1 1.25 18 0 0 MR "$d km" | pstext -N -R0/1/0/1 -N -JX7/3.5 -O -K >> $ofile
+		echo 0 -.1 12 0 0 ML "RMS(v@-h@-) = $rmss cm/yr" | \
+		    pstext -N -R0/1/0/1 -N -JX7/3.5 -O -K >> $ofile
+
+		echo 1000 1000 | psxy -R -J -O >> $ofile
+		modifybb $ofile 2> /dev/null
+#		echo $0: written to $ofile
+		fs="$fs $ofile"
+	    done			# end depth loop
+
+	    epsmerge -par -lmar 0.1 -rmar 0.1 -tmar 0.1 -bmar 0.1 -xcs 0.1 -ycs 0.1 \
+		-x 2 -y 2 --orientation Landscape --print --postscript $fs > $odir/$m.ps 2> /dev/null
+	    rm $fs
+	    echo $0: output in  $odir/$m.ps
+	    mfs="$mfs $odir/$m.ps"
+	fi
+    done
+    epsmerge -x 1 -y 1 -par  -xcs 0.1 -ycs 0.1 \
+	--orientation Landscape --print --postscript $mfs > $odir/all.ps 2> /dev/null
+    echo $mfs
+#rm $mfs
+    epstopdf $odir/all.ps
+    echo $0: output in $odir/all.pdf
+
+#    if [ $mmnnr_by_volume -eq 1 ];then
+#	mv $odir/all.pdf $odir/all.volume.pdf
+#	echo $0: output in $odir/all.volume.pdf
+#    else
+#	mv $odir/all.pdf $odir/all.linear.pdf
+#	echo $0: output in $odir/all.linear.pdf
+#    fi
+    rm $odir/all.ps
+
+done

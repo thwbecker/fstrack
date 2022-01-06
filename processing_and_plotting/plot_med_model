@@ -1,0 +1,72 @@
+#!/bin/bash
+#
+#
+models=${1-"med_weak med_mix med_weak_mix med_mix_nd med_weak_mix_nd med_weak_mix_ns med_weak_mix_sl med_weak_mix_t med_weak_mix_slns med_weak_mix_g med_weak_mix_gt med_weak_mix_nsop med_weak_mix_ndns "}
+#models=${1-"m_smean_f_z m_smean_f_zw m_smean_f_zt m_smean_f_zc m_smean_z"}
+#models=${1-"m_smean_f_z m_smean_f_z1 m_smean_f_zc m_smean_f_zl m_smean_f_znr m_smean_f_znrc m_smean_f_znrnw m_smean_f_znrnwt m_smean_f_znrt m_smean_f_zrestart m_smean_f_zs m_smean_f_zt m_smean_f_zts m_smean_f_zw m_smean_z m_smean_znr m_smean_zt"}
+depths=${2-0}
+frame=${3-"-NUB"}		# reference frame, AFR or EUR, or NNR, or -EUR, or -NUB
+mode=${4-2}
+
+
+pname=`echo $frame | gawk '{if(substr($1,1,1)=="-")print(substr($1,2));else print($1)}'`
+
+if [ $mode -eq 1 ];then
+
+# profile 1
+    echo 15 46 22 33 > prof.dat	# start and end points for velocity profiles
+# profile 2
+#echo 26 46 24 33 >> prof.dat
+    echo 40 45 22 32  >> prof.dat
+    use_prof=1
+
+    for model in $models;do
+	for depth in $depths;do
+	    plot_global_model_vel $model $depth xxx 1 1 0 0.5 "" 1 0 "$frame" 2 0 1 $use_prof
+	# combine profiles
+	    epsmerge -par -x 1 -y 3 $model/vel.$depth.$pname.g.ps  \
+		prof.1.ps prof.2.ps  > $HOME/tmp/$model.$depth.ps
+	    epstopdf  $HOME/tmp/$model.$depth.ps
+	done
+    # combine
+	
+    done
+    
+    rm prof.dat
+elif [ $mode -eq 2 ];then
+    #
+    # simple regional plot, *do not correct for net rotation*
+    #
+    rnr=0
+    for model in $models;do
+	for depth in $depths;do
+	    plot_global_model_vel  $model $depth xxx 1 1 0 0.5 "" $rnr 0 "$frame" 2 0 7 0
+	    cp  $model/vel.$depth.$pname.g.ps $HOME/tmp/$model.ps
+	    cd $HOME/tmp/
+	    gv $model.ps &
+	    convert $model.ps $model.png
+	    cd -
+	done
+    done
+
+else
+#    global plot
+    for model in $models;do
+
+	plot_global_model_vel $model 0 xxx 1 1 0
+	cp  $model/vel.0.g.ps $HOME/tmp/$model.ps
+	epstopdf $HOME/tmp/$model.ps
+	gv  $HOME/tmp/$model.pdf &
+	rm $HOME/tmp/$model.ps
+    done
+
+
+fi
+
+
+#cd $HOME/tmp/
+\epsmerge  -x 1 -y 3 -par --print --postscript \
+    med_weak.ps med_mix.ps med_weak_mix_nd.ps \
+    med_weak_mix.ps med_weak_mix_ns.ps med_weak_mix_sl.ps \
+    med_weak_mix_slns.ps med_weak_mix_t.ps > med.comp.ps
+#cd -

@@ -1,0 +1,832 @@
+#!/bin/bash
+#
+#
+# plot splitting predictions for a certain (spotted)
+# region and compare with observations
+#
+# $Id: plot_spotted_splitting,v 1.1 2005/05/11 21:39:38 becker Exp becker $
+#
+model=${1-lisa_rum_oc}		# model
+type=${2-s.1}			# type of flow model
+cfmode=${3-1}			# depth cutoff mode:  0: none 1: top 2: bottom 
+                                #                    -1: old none
+rcode=${4-8}			# region code, 1 for SAF 8 for CAR
+analyze_stations=${5-1}		# run code to anaylyze the backazimuth dependence
+pstation=${6-0}			# plot station and model labels
+sortnew=${7-1}			# sort the observations anew (only run if new data)
+                                #
+plot=${8-1}			# actually plot, else only misfit evaluation, 
+                                # which will also append to res.... files
+                                # 2: plot, but be quiet about it and write to res.files
+                                #
+smethod=${9-1}			# split method code: -1: no particular 
+                                #                        mention (Menke)
+                                #                     0: Vera  SKS
+                                #                     1: Menke SKS
+                                #                     2: Menke SK2
+                                #                     3: Vera  SK2
+     
+dtcoff=0.2			# predicted splitting times need to be > dtcoff for consideration
+                                # in mean weighted misfits
+mlabel=0			# add a label for model
+topo=1;				# plot topo on overview map
+var=1			# look for p, T variable tensors?
+
+gv=0			        #  display plots in ghotview
+verbose=0			# progress messages?
+
+eps_dist=3			# distance around station coordinate to check
+#eps_dist=0.0001
+
+bw=0				# black and white?
+
+nexpect=34			# expect nexpect distinct stations 
+
+
+#
+# excludes for Basin and Range
+#
+exclude_stations="BMN,BMNn RTS WCP GAR PH2,PHR NWC"
+
+#
+# file with misfits to append to
+#
+score_file=res.spotted.$rcode.$smethod.$cfmode.dat
+
+if [ $var -eq 1 ];then 
+    sav="savd"
+else 
+    sav="sav"
+fi
+tmpn=/tmp/$USER.$HOST.$$.sspotted;trap "rm -f $tmpn.* ; exit" 0 1 2  15
+tmpn_string=\\/tmp\\/$USER.$HOST.$$.sspotted
+#
+# splitting data file
+#
+data=$datadir/splitting/splitting.$rcode.table
+
+# sub-region to select for analysis
+select_reg=`region_parameters $rcode 3`
+#
+# plotting parameters
+#
+preg=`region_parameters $rcode 3`
+#preg=-R235/245.5/32/43
+rname=`region_parameters $rcode 7`
+proj=`region_parameters $rcode 4`
+#ann=`region_parameters $rcode 6`
+ann=-Ba5f1WeSn
+pscr=`region_parameters $rcode 13`
+
+# vector scales and length
+scale=0.25
+# for label
+px2=0.15;py=0.1
+
+if [ $bw -eq 0 ];then
+    piecol=-G0/0/200
+    veccol=0/200/200
+    svectele="-SV-0.04/0.0/0.0 -G254/102/0 -W0.25/0" # teleseismic splitting
+else
+    piecol=-G128
+    veccol=50
+    svectele="-SV-0.04/0.0/0.0 -G255 -W0.25/0" 
+fi
+vecsize=-0.035
+cwd=`pwd`
+#
+# counters
+#
+nn_splits=0
+splits_total=0
+#
+# find the backazimuth dependence for each datapoint
+#
+if [ ! -s $data ];then 
+    echo $0: $data not found
+    exit 
+fi
+if [ $analyze_stations -eq 1 ];then
+    #
+    # output directory for station sorted splitting
+    #
+    split_data_dir=$datadir/splitting/splitting.$rcode.sorted/
+    sdd_string=`echo $split_data_dir | gawk '{gsub("/","\\\\/");print($0);}'`
+    #
+    if [ $sortnew -eq 1 ];then
+	mkdir $split_data_dir 2> /dev/null
+	#
+        # all the unique stations DON'T CHANGE THIS, IT WILL CORRESPOND TO THE SORTING FROM FSTRACK
+	#
+	gawk '{print($3,$2)}' $data | sort -n | uniq > $split_data_dir/lonlat
+#
+# extract splitting observations in format: lon lat fast_azi d_fast_azi dt d_dt back_azi
+#
+	gawk '{bazi=$14;if(bazi<0)bazi+=360;azi=$4;if(azi<0)azi+=360;if(azi>180)azi-=180;
+                print($3,$2,azi,$5,$6,$7,bazi,$1)}' $data > $split_data_dir/dat
+	# delete the old sorted splitting files
+	rm $split_data_dir/splits.* $split_data_dir/bazi.*  $split_data_dir/d.* \
+	    $split_data_dir/only_nulls 2> /dev/null
+    fi
+    #
+    # number of data 
+    #
+    np=`lc $split_data_dir/lonlat`	
+    if [ $verbose -eq 1 ];then
+	echo $0: determined $np expected stations 
+    fi
+    #
+    # working directory
+    #
+    if [ $smethod -eq -1 ];then #  old version, no method distinction
+	sstring=$cfmode
+    else
+	sstring=$cfmode.$smethod
+    fi
+    if [ -s $model/results/spotted/ ];then
+	sdir=$model/results/spotted/
+    else
+	sdir=$model/results/splitting.$rcode/spotted/
+    fi
+    if [ $cfmode -eq -1 ];then	# old, no distincition between top and bottom
+	if [ $smethod -ne -1 ];then
+	    echo $0: error: old files only work with smethod -1
+	    exit
+	fi
+	wdir=$sdir/splitting.$rcode.$type.$sav/
+    else			# new, different cutoff levels for anisotropy with depth 
+	wdir=$sdir/splitting.$rcode.$type.$sav.$sstring/
+    fi
+    if [ $plot -eq 1 ];then
+	echo $wdir/
+    fi
+    wdir_string=`echo $wdir | gawk '{gsub("/","\\\\/");print($0);}'`
+    rm $wdir/splits.*.ps  $wdir/station_misfits.?.dat $wdir/stationlist.dat 2> /dev/null
+    #
+    # loop through splitting synthetics
+    #
+    rm $wdir/azi.corr.? $wdir/dt.corr.? \
+	$wdir/azi.corr.s.? $wdir/dt.corr.s.? \
+	$wdir/mean.fazi.comp.? 2> /dev/null
+
+    j=1;k=1;i=1
+    while [ -s $wdir/split.$j.$k ];do
+	while [ -s $wdir/split.$j.$k ];do
+	    if [ $i -gt $np  ];then
+		echo $0: error, no more splits left
+		exit
+	    fi
+	    oneline $i $split_data_dir/lonlat | gawk '{print($1,$2)}' > $tmpn.loc
+	    read slon slat < $tmpn.loc
+	    if [ ! -s $split_data_dir/splits.$i ];then
+               	    #
+	            # select actual splitting measurements around this point
+	            #
+		reg=`gawk '{f=e/111.195;lm=($3+$4)/2;f2=f*cos(lm/57.295779);printf("-R%.9e/%.9e/%.9e/%.9e",$1-f2,$1+f2,$2-f,$2+f)}' e=$eps_dist $tmpn.loc`
+		llstring=`gawk '{printf("%.1fE\\\\/%.1fN",$1,$2)}' $tmpn.loc`
+		gmtselect $reg $split_data_dir/dat > $split_data_dir/splits.$i
+
+		if [ $plot -eq 1 ];then
+		    echo $0: found split.$j.$k at observation $i $slon $slat
+		fi
+	    fi
+	    #
+	    # name of station(s)
+	    #
+	    stations=`gawk '{print($8)}' $split_data_dir/splits.$i | sort | uniq | gawk '{if(NR==1)printf("%s",$1);else printf(",%s",$1)}'`
+	    #
+	    # total number of splitting observation
+	    #
+	    ns=`lc $split_data_dir/splits.$i`
+	    if [ $ns -eq 0 ];then 
+		echo $0: error: found no splits around $stations
+		exit
+	    fi
+	    if [ -s $tmpn.$stations.r.misfits ];then
+#		#
+#		# we already computed misfits for this station
+#		#
+		read nold old_stations old_split_name old_slon old_slat < $tmpn.$stations.oldn
+		if [ $ns -ne $nold ];then
+		    echo $0: $stations we already dealt with, $old_stations, $old_split_name, $old_slon $old_slat
+		    echo $0: error, before we found $nold splits
+		    echo $0: now: $ns
+		    echo $0: $split_data_dir/splits.$i
+		    exit
+		fi
+		if [ $verbose -eq 1 ];then
+		    echo $0: that one we computed misfits for
+		fi
+	    else 
+		echo $ns $stations splits.$i $slon $slat > $tmpn.$stations.oldn	# save number of splits
+	#
+	# convert synthetic splits for this station
+	#
+		if [ `gawk '{print($3)}' $wdir/split.$j.$k | gawk -f mean.awk | gawk '{if($1==0)print(1);else print(0)}'` -eq 1 ];then
+		    echo $0: all synthetic splitting times are zero in $wdir/split.$j.$k
+		    echo $0: exiting
+		    exit
+		fi
+		#
+		# sort the synthetics by backazimuth
+		#
+		sort -n $wdir/split.$j.$k >   $tmpn.synth.r	# from reflectivity
+		#
+		# use constant misfit of 0.25 for average
+		#
+		sort -n $wdir/split.a.$j.$k | gawk '{print($1,$2,$3,0.25)}' > $tmpn.synth.a	# from tensor average, single layer
+		for tt in r a;do # check if we have four columns
+		    if [ `gawk 'BEGIN{n=0;}{if(NF != 4){n=1;}}END{print(n)}' $tmpn.synth.$tt` -eq 1 ];then
+			if [ $plot -eq 1 ];then
+			    echo $0: error: expecting four columns, back_azi fazi dt misift
+			fi
+			gawk '{if(NF==4)print($0)}' $tmpn.synth.$tt > $tmpn.dat ; mv $tmpn.dat $tmpn.synth.$tt
+			#cat $tmpn.synth.$tt
+		    fi
+		done
+		#
+         	# loop through individual, non-zero observations
+	        #
+		if [ ! -s $split_data_dir/splits.$i.nn ];then
+		    gawk '{if($5!=0)print($0)}' $split_data_dir/splits.$i > $split_data_dir/splits.$i.nn
+		fi
+		nn_splits=`lc  $split_data_dir/splits.$i.nn`
+		# check if inside region
+		nn_inside=`gmtselect $split_data_dir/splits.$i.nn $select_reg | lc`
+		if [[ $nn_splits -eq 0 || $nn_inside -eq 0 ]];then
+		    if [ $verbose -eq 1 ];then
+			if [ $nn_splits -eq 0 ];then
+			    if [ $plot -eq 1 ];then
+				echo $0: no non-null splits at $reg in splitting observations
+				cat $split_data_dir/splits.$i
+			    fi
+			fi
+		    fi
+		    if [[ $nn_inside -eq 0 && $nn_splits -ne 0 ]];then
+			if [ $verbose -eq 1 ];then
+			    echo $0: $nn_splits points in $reg were rejected based on selection reg $select_reg
+			fi
+		    fi
+		    if [[ $nn_splits -eq 0 && $nn_inside -ne 0 ]];then
+			echo $slon $slat >> $split_data_dir/only_nulls
+		    fi
+		else
+		    if [ $verbose -eq 1 ];then
+			echo $0: found $nn_splits non-null out of $ns splits around $stations $reg
+		    fi
+		    ((nn_splits_total=nn_splits_total+nn_splits))
+		    ((splits_total=splits_total+ns))
+		    
+		    #
+		    # extract data
+		    #
+		    if [[ ! -s $split_data_dir/bazi.$i || ! -s $split_data_dir/splits.$i.mean_fazi ]];then
+		    #
+		    # use only the non-null observations
+		    #
+                    # backazimuths
+			if [ ! -s  $split_data_dir/splits.$i.nn  ];then
+			    echo $0: error 1
+			    exit
+			fi
+			sort +6 -n $split_data_dir/splits.$i.nn > $tmpn.splits
+			if [ ! -s $tmpn.splits ];then
+			    echo $0: error 2
+			    exit
+			fi
+			gawk '{print($7)}' $tmpn.splits >  $split_data_dir/bazi.$i 
+			gawk '{azi=$3;if(azi>180)azi-=180;print(azi,$4)}' \
+			    $tmpn.splits >  $split_data_dir/d.$i.azi # fast azi and dazia
+			gawk '{print($5,$6)}' $tmpn.splits > \
+			    $split_data_dir/d.$i.dt # dt and ddt
+			nsplits_loc=`lc $split_data_dir/d.$i.azi`
+			if [ $verbose -eq 1 ];then
+			    echo $0: working on $split_data_dir/splits.$i.mean_fazi
+			fi
+			if [ $nsplits_loc -gt 1 ];then
+	            #
+               	    # find the splitting data mean and variation
+	            # 
+			    gawk '{print($7,$3,$5)}' $tmpn.splits | \
+				fazi2splitstat stdin 0 > $tmpn.tmp 2> /dev/null
+			    #output is: mean_fazi std_fazi mean_dt std_dt
+			    gawk '{print($1,$2)}' $tmpn.tmp > $split_data_dir/splits.$i.mean_fazi
+			    gawk '{print($3,$4)}' $tmpn.tmp > $split_data_dir/splits.$i.mean_dt
+			else	# only one split per station
+			    cp $split_data_dir/d.$i.azi $split_data_dir/splits.$i.mean_fazi
+			    cp $split_data_dir/d.$i.dt $split_data_dir/splits.$i.mean_dt
+			fi
+		    fi		# end new data sorting branch
+		    for s in r a ;do	
+                        # loop through reflectivity and averages
+	    # find the averages for the synthetics
+			rm $tmpn.tmp 2> /dev/null
+			if [ `lc $tmpn.synth.$s` -eq 0 ];then
+			    echo $0: error, mode $s file empty
+			    exit
+			fi
+			cat $tmpn.synth.$s | gawk '{print($1,$2,$3)}' | fazi2splitstat stdin 0 > $tmpn.tmp 2> /dev/null
+			if [ ! -s $tmpn.tmp ];then
+			    
+			    echo $0: error with fazi2splitstat
+			    exit
+
+
+			fi
+			gawk '{print($1,$2)}' $tmpn.tmp > $tmpn.synth.$s.mean_fazi
+			gawk '{print($3,$4)}' $tmpn.tmp > $tmpn.synth.$s.mean_dt
+			echo $slon $slat $stations `gawk '{print($1,$2,$3,$4)}' $tmpn.tmp` \
+			    >> $tmpn.$s.predictions
+	# extract the synthetics for fazi and dt, format: bazk_azi value misfit
+			gawk '{print($1,$2,$4)}' $tmpn.synth.$s > $tmpn.azi.$s
+			gawk '{print($1,$3,$4)}' $tmpn.synth.$s > $tmpn.dt.$s
+	# interpolate 
+			ic=0
+			for t in dt azi;do
+			    if [ ! -s $tmpn.$t.$s  ];then
+				echo $0: error: data for $t $s not generated
+				echo $tmpn.$t.$s
+				cat $tmpn.$t.$s
+				exit
+			    fi
+			    # interpolate value
+			    gawk -v is_angle=$ic -v use_col=2 \
+				-v int_file_name=$tmpn.$t.$s \
+				-f interpolate_from_file.awk \
+				$tmpn.$t.$s $split_data_dir/bazi.$i > $tmpn.int
+			    # interpolate misfit
+			    gawk -v is_angle=$ic -v use_col=3 \
+				-v int_file_name=$tmpn.$t.$s \
+				-f interpolate_from_file.awk \
+				$tmpn.$t.$s $split_data_dir/bazi.$i > $tmpn.misfit
+			#
+               	        # append to correlation plot, format is data sig_data model
+			#
+			    if [ ! -s $split_data_dir/d.$i.$t ];then
+				echo $0: error 3 $i $t
+				exit
+			    fi
+			#
+			# individual splits, deal with azimuth separately
+			# 
+			    # compute misfit
+
+			    paste $split_data_dir/d.$i.$t $tmpn.int $tmpn.misfit $split_data_dir/bazi.$i | \
+				gawk '{if(ic==0){
+                                      dx=$3-$1;
+                                      print($1,$2,$3,$4,dx,$5,station);
+                                    }else{
+                                       a1=$1;sa1=$2;a2=$3;ma2=$4;if(a1>180)a1-=180;if(a2>180)a2-=180;
+                                       if(a2>a1){
+                                         dx=a2-a1;if(dx>90)dx=a1+180-a2;
+                                       }else{
+                                         dx=a1-a2;if(dx>90)dx=a2+180-a1;
+                                       }
+                                       print(a1,sa1,a2,ma2,dx,$5,station);
+                           }
+                           }' ic=$ic station=$stations > $tmpn.$t.$s.add_to_corr
+			    #                   1        2        3           4             5           6        7 
+			    # output format: val_dat sigma_dat val_model misfit_corr diff(model-data) back_azi  station
+			    
+			    cat $tmpn.$t.$s.add_to_corr >> $wdir/$t.corr.$s
+			    if [ `echo $exclude_stations | gawk 'BEGIN{h=0;}{for(i=1;i<=NF;i++)if(!h && match($i,p))h=1;}END{if(h)print(0);else print(1)}' p=$stations` -eq 1 ];then
+       			        # add to selected list only if station not in list
+				cat $tmpn.$t.$s.add_to_corr >> $wdir/$t.corr.s.$s
+			    fi
+			    
+			    ((ic=ic+1))
+			done	# end dt/azi loop
+			#
+		        # misfits
+			#
+			paste $tmpn.azi.$s.add_to_corr $tmpn.dt.$s.add_to_corr | gawk '{print($6,$1,$2,$3,$4,$5,$8,$9,$10,$11,$12)}' >> $tmpn.$stations.$s.misfits
+			# format: 
+			#   1     2        3         4          5              6              7        8        9         10            11          
+			# bazi azi_dat sigma_dat azi_model misfit_corr diff(azi model-data) dt_dat sigma_dat dt_model misfit_corr diff(dt model-data)
+		        #
+		        # mean misfits for this station, output is
+		        #
+		        # n mean_diff_azi mean_diff_dt(<0: underpredicted, >0: overpredicted) mean_observed_splitting
+			#
+			# weighting here uses 1/(sigma_dat * misfit_corr), the uncertainty of the data times the misfit of the splitting measurement
+			#
+                        #
+			# station misfit format: name lon lat nr_obs dalpha ddt dt
+			# 
+			echo $stations $slon $slat `gawk '{n++;wa=1/($3*$5);was+=wa;da+=wa*$6;wd=1/($8*$10);wds+=wd;dt+=wd*$11;t+=wd*$7;}END{print(n,da/was,dt/wds,t/wds)}' \
+			$tmpn.$stations.$s.misfits` >> $wdir/station_misfits.$s.dat
+			# 
+			# output: N mean(dazi) mean(dt) mean(t)
+			#
+			#cat $tmpn.$stations.$s.misfits
+			if [ $verbose -eq 1 ];then
+			    tail -1 $wdir/station_misfits.$s.dat
+			fi
+		        #
+		        # comparison of mean fast axes
+		        #
+			n1=`lc $split_data_dir/splits.$i.mean_fazi`
+			n2=`lc $tmpn.synth.$s.mean_fazi`
+			n3=`lc $tmpn.synth.$s.mean_dt`
+			if [[ $n1 -ne $n2 || $n2 -ne $n3 ]];then
+			    echo $0: length mismatch for mean axes, station $i
+			    echo $0: $n1 $n2 $n3
+			    cat $split_data_dir/splits.$i.mean_fazi
+			    cat $tmpn.synth.$s.mean_fazi
+			    cat $tmpn.synth.$s.mean_dt
+			    exit
+			fi
+			paste  $split_data_dir/splits.$i.mean_fazi \
+			    $tmpn.synth.$s.mean_fazi  $tmpn.synth.$s.mean_dt >> $wdir/mean.fazi.comp.$s
+			# format: mean_fazi_data sigma_fazi_data mean_fazi_model sigma_fazi_model dt_model
+			echo stations: $stations synth_type: $s mean_fazi: `tail -1 $wdir/mean.fazi.comp.$s`
+		    done		# end r / a loop
+
+		    if [ $plot -ge 1 ];then
+	#
+        # plot
+	# 
+			if [ $plot -eq 1 ];then
+			    echo $0: stations: $stations
+			    echo $0: mean data: `cat $split_data_dir/splits.$i.mean_fazi`
+			    echo $0: mean synthetics: `cat $tmpn.synth.r.mean_fazi `
+			fi
+			#cat $tmpn.synth.r
+
+
+			rm $wdir/split.$stations.ps* 2> /dev/null
+			string1="s/__tmp__/$tmpn_string/g";
+			combineplots=0
+			if [[ $combineplots -eq 1 && `echo $stations | gawk '{if($1=="MHC")print(1);else print(0)}'` -eq 1 ]];then 
+			    # copy station MHC 
+			    if [ $plot -eq 1 ];then
+				echo $0: Stations: $stations MHC: i: $i
+			    fi
+			    cp $split_data_dir/splits.$i $split_data_dir/splits.MHC
+			fi
+			if [[ $combineplots -eq 1 && -s $split_data_dir/splits.MHC && `echo $stations | gawk '{if($1=="BKS")print(1);else print(0)}'` -eq 1 ]];then 
+                            # add MHC to BKS
+			    if [ $plot -eq 1 ];then
+				echo $0: combining MHC and BKS
+			    fi
+			    cat $split_data_dir/splits.$i > $split_data_dir/tmp.dat
+			    cat $split_data_dir/splits.MHC >> $split_data_dir/tmp.dat
+			    string2="s/__data__/$sdd_string\/tmp.dat/g";
+			    string23="s/__wdir__/$wdir_string/g";
+			    string22="s/__data2__/$sdd_string\/splits.$i/g"; # use BKS for mean
+			    string3="s/__title__/BKS-MHC/g";
+			    string4="s/__out__/split.$stations/g";
+			    combined=1
+			else
+			    string2="s/__data__/$sdd_string\/splits.$i/g";
+			    string23="s/__wdir__/$wdir_string/g";
+			    string22="s/__data2__/$sdd_string\/splits.$i/g";
+			    string3="s/__title__/$stations/g"; # for means
+			    string4="s/__out__/split.$stations/g";
+			    combined=0
+			fi
+
+			sed $string1 psplit.gpl | sed $string2 | sed $string23 | \
+			    sed $string22 | sed $string3  | sed $string4 > \
+			    $tmpn.gpl;gnuplot $tmpn.gpl
+
+#			gv split.$stations.ps 
+		#gv split.$stations.ps 
+			mv split.$stations.ps $wdir/
+			
+		    fi		# end plot branch
+		# plotted station list
+		    echo $stations $slon $slat $reg >> $wdir/stationlist.dat
+		fi			# end more than zero non-null branch
+	    fi			# end haven't dealt with this one branch
+	    ((i=i+1))
+	    ((k=k+1))
+	done
+	k=1
+	((j=j+1))
+    done			# end station loop
+    ((i=i-1))
+    if [ $i -ne $np ];then
+	if [ $verbose -eq 1 ];then
+	    echo $0: not all splitting data found \($i out of $np\), stations are probably colocated
+	fi
+    fi
+    if [ ! -s $wdir/stationlist.dat ];then
+	echo $0:  $wdir/stationlist.dat not found
+	echo $0: list of splits
+	ls -la $wdir/split.?.?
+	exit
+    fi
+    for s in r a;do
+	sort $wdir/station_misfits.$s.dat > tmp.$$; mv tmp.$$ $wdir/station_misfits.$s.dat
+	if [ `lc  $wdir/station_misfits.$s.dat` -ne $nexpect ];then
+	    echo $0: error, expected $nexpect stations, only found `lc $wdir/station_misfits.$s.dat`
+	    exit
+	fi
+	if [ $verbose -eq 1 ];then
+	    echo $0: station averaged misfits type $s
+	    cat $wdir/station_misfits.$s.dat
+	fi
+    done
+    if [ $plot -ge 1 ];then
+    #
+    # combine plots
+    #
+	cd $wdir
+	nplots=`ls split.*.ps | lc`;nstations=`lc stationlist.dat`
+	if [ $plot -eq 1 ];then
+	    echo $0: combining $nplots plots for $nstations stations to new plots
+	fi
+	ip=1;in=1
+	while [ $ip -le $nplots ];do
+	    nstring="";nc=1
+	    while [[ $ip -le $nplots && $nc -le 4 ]];do
+		stations=`oneline $ip stationlist.dat | gawk '{print($1)}'`
+		nstring="$nstring split.$stations.ps"
+		((nc=nc+1))
+		((ip=ip+1))
+	    done
+	    if [ $plot -eq 2 ];then
+		ofile=splits.$in.ps
+	    else
+		ofile=$HOME/tmp/$model.$rname.$type.$cfmode.$sav.split.$in.ps
+	    fi
+	    epsmerge -par -x 2 -y 2  --orientation Landscape --print --postscript \
+		$nstring > $ofile 2> /dev/null
+	    if [ $plot -eq 2 ];then
+		gzip -f  $ofile 
+		rm split.*.ps 2> /dev/null
+	    fi
+	    if [ $plot -eq 1 ];then
+		echo $0: combined $nstring to $ofile
+	    fi
+	    ((in=in+1))
+	    ((ip=ip+1))
+	done
+	cd -
+    fi
+    #
+    #
+    # evaluate misfits and such for synthetics with dt > dtcoff
+    #
+    # 
+    # the .corr. files are in format:    data sig_data model diff
+    #
+    pc=1
+    for s in r a;do
+	#
+        # fit straight lines, data = a + b * model
+	#
+	# select only those predictions with dt > dtcoff
+	#
+	if [[ ! -s $wdir/azi.corr.$s || ! -s $wdir/dt.corr.$s ]];then
+	    echo $0: error 5
+	    exit
+	fi
+	#
+	# make sure that null data were thrown out
+	#
+	if [ `gawk '{if($1==0){w=1;print(1);}}END{if(!w)print(0)}' $wdir/dt.corr.$s` -eq 1 ];then
+	    echo $0: error, found null split in data 
+	    exit
+	fi
+        #
+	# compute best fit for delay times using synthetics as x 
+	#
+	# x errors from data * corr_misfit
+        # y errors from data
+	#
+	gawk '{if($3>dtcoff)print($3,$1,$2*$4,$2)}'  dtcoff=$dtcoff $wdir/dt.corr.$s | \
+	    fitxyee 2> /dev/null | gawk '{printf("%.2f %.2f %i %.2f",$1,$2,$7,$8)}' > $tmpn.tmp
+	read dta dtb nact dt_rchi2 < $tmpn.tmp
+	#
+	# mean, data and corr misfit weighted deviation
+	# 
+	gawk '{if($3>dtcoff)print(1./($2*$4),$3-$1)}'  dtcoff=$dtcoff $wdir/dt.corr.$s | \
+	    gawk -f wmean.awk | gawk '{printf("%.1f",$1)}' > $tmpn.tmp
+	read dtdiff < $tmpn.tmp
+	# selected stations
+	gawk '{if($3>dtcoff)print(1./($2*$4),$3-$1)}'  dtcoff=$dtcoff $wdir/dt.corr.s.$s | \
+	    gawk -f wmean.awk | gawk '{printf("%.1f",$1)}' > $tmpn.tmp
+	read dtdiff_s < $tmpn.tmp
+
+
+
+	#
+	# L2 norm for dt, no weighting
+	#
+	gawk '{if($3>dtcoff){x=$3-$1;if(x<0)x=-x;print(1.0,x)}}'  \
+	    dtcoff=$dtcoff $wdir/dt.corr.$s | \
+	    gawk -f wmean.awk | gawk '{printf("%.1f",$1)}' > $tmpn.tmp
+	read dtdiff_L2d < $tmpn.tmp
+
+	#
+        # correlation for dt
+	#
+	gawk '{if($3>dtcoff)print($3,$1)}' dtcoff=$dtcoff $wdir/dt.corr.$s | \
+	    gawk -f correlation.awk | gawk '{printf("%.2f",$1)}' > $tmpn.tmp
+	read dtr < $tmpn.tmp
+        #
+	#
+	# weighted mean deviation of azimuths for individual splits
+	# weight = 1/(sigma(obs)*misfit)
+	#
+	paste $wdir/azi.corr.$s $wdir/dt.corr.$s | \
+	    gawk '{if($10>dtcoff){w=1/($2*$4);print(0,0,$1,$3,w)}}'  dtcoff=$dtcoff | \
+	    gawk -f cdirdiff.awk | gawk -f wmean.awk | gawk '{printf("%.1f",$1)}' > $tmpn.tmp
+	read adegdiff < $tmpn.tmp
+	# selected
+	paste $wdir/azi.corr.s.$s $wdir/dt.corr.s.$s | \
+	    gawk '{if($10>dtcoff){w=1/($2*$4);print(0,0,$1,$3,w)}}'  dtcoff=$dtcoff | \
+	    gawk -f cdirdiff.awk | gawk -f wmean.awk | gawk '{printf("%.1f",$1)}' > $tmpn.tmp
+	read adegdiff_s < $tmpn.tmp
+	#
+	# no weighting
+	#
+	paste $wdir/azi.corr.$s $wdir/dt.corr.$s | \
+	    gawk '{if($10>dtcoff){w=1.0;print(0,0,$1,$3,w)}}'  dtcoff=$dtcoff | \
+	    gawk -f cdirdiff.awk | gawk -f wmean.awk | gawk '{printf("%.1f",$1)}' > $tmpn.tmp
+	read adegdiff_d < $tmpn.tmp
+
+
+	#echo $0: weighted mean: $adegdiff
+	#
+	# weighted mean azimuth deviation for means
+	#
+	gawk '{if($5>dtcoff){w=1/($2*$4);print(0,0,$1,$3,w)}}' \
+	    dtcoff=$dtcoff $wdir/mean.fazi.comp.$s | gawk -f cdirdiff.awk > $tmpn.ddd
+	navgct=`lc $tmpn.ddd`
+	gawk -f wmean.awk $tmpn.ddd | gawk '{printf("%.1f",$1)}' > $tmpn.tmp
+	read madegdiff < $tmpn.tmp
+	# 
+	# results string
+	#
+	#       1      2     3                           4                       5    6      7        8    9           10           11           12       13      14     15   16   17    18   19    20   21        22        23     24    25       26      27           28          29        30         31          32           33           34
+	echo model: $model strain: `echo $type | gawk '{print(substr($1,3))}'` dvar: $var synth_type: $s diff_azi: $adegdiff diff_mean_azi: $madegdiff diff_dt: $dtdiff dt_r: $dtr dt_a: $dta dt_b: $dtb dt_rchi: $dt_rchi2  nact: $nact navgact: $navgct diff_azi_s: $adegdiff_s diff_dt_s: $dtdiff_s diff_azi_d: $adegdiff_d diff_dt_L2d: $dtdiff_L2d > $tmpn.score_add
+	cat $tmpn.score_add 
+	if [[ $plot -eq 0 || $plot -eq 2 ]];then
+	    cat $tmpn.score_add >> $score_file
+	fi
+
+	if [ $plot -ge 1 ];then
+	    cd $wdir
+	    if [ $pc -eq 1 ];then
+		type_l2abel="reflectivity"
+	    else
+		type_label="single-layer"
+	    fi
+	    string1=s/__adegdiff__/$adegdiff/g;string2=s/__dtr__/$dtr/g;string3=s/__dtdiff__/$dt_rchi2/g
+	    string4=s/__s__/$s/g;string5=s/__madegdiff__/$madegdiff/g;
+	    string6=s/__dt_coff__/$dtcoff/g;string7=s/__typel__/$type_label/g
+	    echo "dta=$dta; dtb=$dtb" > tmp.dat
+	    sed $string1 $cwd/psplitcor.gpl | sed $string2 | \
+		sed $string3 | sed $string4 | sed $string5 | sed $string6 | \
+		sed $string7 > $tmpn.gpl
+	    gnuplot $tmpn.gpl
+	    if [ $plot -eq 1 ];then
+		echo $0: written to corr.$s.ps
+	    fi
+	    if [ $gv -eq 1 ];then
+		#gv  corr.$s.ps &
+		echo 
+	    fi
+	    cd -
+	fi
+	((pc=pc+1))
+    done
+
+fi
+
+
+#
+# map plot
+#
+if [ $plot -ge 1 ];then
+    if [ $plot -eq 1 ];then
+	echo $0: total splits for misfit: $splits_total non-null: $nn_splits_total
+    fi
+
+    use_general_file=0		# 1: use global file 0: use locally produced predictions file
+
+# filename
+    ofile=$HOME/tmp/$model.$cfmode.$rname.$type.$sav.map.ps 
+    echo $0: $ofile
+
+    psbasemap $preg $proj $ann -P -K > $ofile
+    if [ $topo -eq 0 ];then
+	pscoast -O -K $preg $proj $pscr -G200 >> $ofile
+    else
+#    makecpt -Ctopo  > dem.cpt
+#	makecpt -Clight_gray -T-2500/2500/100 > dem.cpt
+	#grdimage $datadir/etopo2/etopo2.grd $preg $proj -Cdem.cpt -O -K >> $ofile
+	grdimage $datadir/dems/gtopo30.$rcode.grd \
+	    $preg $proj -Cdem.cpt -O -K >> $ofile\
+	    -I$datadir/dems/gtopo30.$rcode.i.grd 
+            pscoast -O -K $preg $proj $pscr -W1 >> $ofile
+    fi
+    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+	$preg  $proj  -O -K   -W5/50  >> $ofile
+    
+    if [ $use_general_file -eq 1 ];then
+    #
+    # average splitting
+    #
+	if [ $plot -eq 1 ];then
+	    echo $0: using general file
+	fi
+	if [ $cfmode -eq -1 ];then 	# old
+	    ifile=$model/results/tracer.spotted.splitting.$rcode.$type.$sav.dat
+	else			# new
+	    ifile=$model/results/tracer.spotted.splitting.$rcode.$type.$sav.$cfmode.dat
+	fi
+	if [ ! -s $ifile ];then
+	    echo $0: $ifile not found
+	    exit
+	fi
+# long or short version?
+	if [ `head -1 $ifile | gawk '{print(NF)}'` -eq 16 ];then 
+	    offset=7
+	    if [ $plot -eq 1 ];then echo $0: detected short version of $ifile;fi
+	else 
+	    offset=11
+	    if [ $plot -eq 1 ];then echo $0: detected long version of $ifile;fi
+	fi
+# length variation
+	gawk -v s=$scale '{if(NF>15)print($1,$2,$o,($(o+2)+$(o+3))*s)}' o=$offset $ifile | \
+	    mypsxy -SV$vecsize/0/0 -G$veccol -W1 $preg $proj  -O -K >> $ofile
+# angular variation
+	gawk -v s=$scale '{if(NF>15){dx=$(o+1);if(dx<5)dx=5;print($1,$2,($(o+2))*s,$(o)-dx,$(o)+dx);\
+          print($1,$2,($(o+2))*s,180+$o-dx,180+$o+dx)}}' o=$offset $ifile | \
+	    mypsxy -SW -W1 $piecol $preg $proj  -O -K >> $ofile
+# length variation
+	gawk -v s=$scale '{if(NF>15){print($1,$2,$o,($(o+2)-$(o+3))*s)}}' o=$offset $ifile | \
+	    mypsxy -SV$vecsize/0/0 -G$veccol -W1 $preg $proj  -O -K >> $ofile
+    else			# use the prediction files
+	if [ $plot -eq 1 ];then echo $0: using individual predictions;fi
+	ifile=$tmpn.r.predictions
+	if [ ! -s $ifile ];then
+	    echo $0: error: $tmpn.r.predictions not found, did you run analyze_stations \?
+	    exit
+	fi
+	#cat $ifile
+	# length
+	gawk -v s=$scale '{print($1,$2,$4,($6+$7)*s)}' o=$offset $ifile | \
+	    mypsxy -SV$vecsize/0/0 -G$veccol -W1 $preg $proj  -O -K >> $ofile
+# angular variation
+	gawk -v s=$scale '{dx=$5;if(dx<5)dx=5;print($1,$2,$6*s,$4-dx,$4+dx);\
+          print($1,$2,$6*s,180+$4-dx,180+$4+dx);}' o=$offset $ifile | \
+	    mypsxy -SW -W1 $piecol $preg $proj  -O -K >> $ofile
+# length variation
+	gawk -v s=$scale '{print($1,$2,$4,($6-$7)*s)}' o=$offset $ifile | \
+	    mypsxy -SV$vecsize/0/0 -G$veccol -W1 $preg $proj  -O -K >> $ofile
+	
+
+    fi
+# data
+    gawk -v s=$scale '{amp=$6*s;print($3,$2,$4,amp)}' $data | \
+	mypsxy $preg $proj   -O -K $svectele   >> $ofile
+    if [ $pstation -eq 1 ];then
+#
+# plot station labels
+#
+	gawk '{print($2,$3,$1)}' $wdir/stationlist.dat | sort -n | uniq > $tmpn.stations
+	gawk 'BEGIN{a=0;d=.7;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;a+=60;
+      print($1,$2);print($1+x,$2+y);print(">");}' $tmpn.stations | \
+	  psxy $preg $proj -N -O -K -W3/0/0/255 -M >> $ofile
+	gawk 'BEGIN{a=0;d=.7;f=57.295779513082320;}{x=sin(a/f)*d;y=cos(a/f)*d;
+      printf("%g %g %i %g %i MC %s\n",$1+x,$2+y,10,0,0,$3);a+=60;}' $tmpn.stations | \
+	  pstext $preg $proj -N -O -K -G0/0/255 >> $ofile
+#    gawk '{printf("> %g %g %i %g %i CM 0.2 0.3 c\n%s\n",$1,$2,14,0,0,$3)}'  | \
+#    pstext $preg $proj -N128 -G0 -O -M -K -D.2/.2 -W128O>> $ofile
+    fi
+    
+# scale
+    scaledelt=1.5
+    echo $px2 $py $scaledelt 90 | gawk '{amp=$3*scl;\
+		if(amp!=0){print($1,$2,$4,amp);}}' scl=$scale | \
+	mypsxy -R0/1/0/1 -JX7   -O -K $svectele -N  >> $ofile
+    pyp=`echo $py | gawk '{print($1-0.02)}'`
+    echo $px2 $pyp 20 0 0 TC "@~d@~t@-SKS@- = $scaledelt s" |\
+	pstext -R0/1/0/1 -JX7 -O -K  -N -G254/102/0 -W128/128/128 >> $ofile
+    pyp=`echo $pyp | gawk '{print($1-0.05)}'`
+    if [ $mlabel -eq 1 ];then	# model string
+	mstring=`echo $model $type | gawk -f rename.awk`
+	if [ $var -eq 0 ];then 
+	mstring="$mstring C = const."
+	fi
+	echo $px2 $pyp 20 0 0 TC "$mstring" |\
+	    pstext -R0/1/0/1 -JX7 -O -K  -N -G1 >> $ofile
+    fi
+    
+    echo 100 1000 | psxy $preg $proj -O >> $ofile
+    modifybb $ofile 35 40 585 610
+
+    if [ $plot -eq 1 ];then echo $0: output in $ofile;fi
+    if [ $gv -eq 1 ];then
+	gv $ofile &
+    fi
+#
+# station misfits
+#
+    plot_spotted_station_misfit $model $type $cfmode 
+fi

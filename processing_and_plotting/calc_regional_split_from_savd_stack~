@@ -1,0 +1,91 @@
+#!/bin/bash
+#
+# compute simple splitting for region
+#
+model=${1-carib.7.12}
+rcode=${2-4}			# 4: NAM 89: IND
+strain=${3-0.75}
+dx=${4-2}
+n_concurrent=${5-8}		# number of jobs run run
+
+
+rname=`region_parameters $rcode 7`
+idir=/home/scec-00/twb/tmp
+
+tmpn=/tmp/$USER.$$.$model.$rcode.$strain
+trap "rm -rf $tmpn* ; exit" 0 1 2 15
+
+
+odir=$idir/$model/results/$rname/split_stack/
+mkdir -p $odir
+
+region_parameters $rcode 8 | \
+    gawk -v dx=$dx \
+	 '{for(x=$1;x<=$2;x+=dx)for(y=$3;y<=$4;y+=dx)print(x,y)}' > $tmpn.loc
+
+n=`lc $tmpn.loc`
+
+
+
+tmpd=$tmpn.$model
+mkdir $tmpd
+
+if [ -s $odir/splits.$strain.$dx.dat  ];then
+    if [ `head -1 $odir/splits.$strain.$dx.dat  | gawk '{print(NF)}'` -ne 22 ];then
+	echo $odir/splits.$strain.$dx.dat exists but does not have 22 columns, redoing
+	rm $odir/splits.$strain.$dx.dat 
+    fi
+fi
+
+if [ ! -s $odir/splits.$strain.$dx.dat ];then
+    rm $tmpnd/tracer.savd*gz 2> /dev/null
+    # make files local 
+    d=25
+    while [ $d -le 350 ];do
+	if [ -s $datadir/flow_field/finite_strain/$model/results/$rname/tracer.savd.$d.$rname.s.$strain.dat.gz ];then
+	    cp $datadir/flow_field/finite_strain/$model/results/$rname/tracer.savd.$d.$rname.s.$strain.dat.gz $tmpd/ 2> /dev/null
+	else
+	    echo $0: $datadir/flow_field/finite_strain/$model/results/$rname/tracer.savd.$d.$rname.s.$strain.dat.gz not found
+	fi
+	#if [ -s /home/scec-00/twb/tmp/$model/results/$rname/tracer.savd.$d.$rname.s.$strain.dat.gz ];then
+	#    cp /home/scec-00/twb/tmp/$model/results/$rname/tracer.savd.$d.$rname.s.$strain.dat.gz $tmpd/ 2> /dev/null
+	#fi
+	((d=d+25))
+    done
+    nf=`ls $tmpd/tracer.savd.*.gz | lc`
+    echo $0: copied $nf files locally
+    if [ $nf -eq 14 ];then
+	echo $0: model $model rname $rname strain $strain n_loc $n
+	nj=1
+	i=1
+	while [ $i -le $n ];do
+	    loc=`oneline $i $tmpn.loc`
+	    calc_split_from_savd_stack $model $loc $strain $rname $tmpn.$i.out $tmpd & # 2> /dev/null > /dev/null & 
+	    ((nj=nj+1))
+	    if [ $nj -ge $n_concurrent ];then
+		wait
+		echo $0: working on $i out of $n
+		nj=1
+	    fi
+	    ((i=i+1))
+	done
+	wait
+	# reassemble
+	rm $odir/splits.$strain.$dx.dat 2> /dev/null
+	i=1;j=0
+	while [ $i -le $n ];do
+	    if [ -s $tmpn.$i.out ];then
+		cat $tmpn.$i.out >> $odir/splits.$strain.$dx.dat
+		((j=j+1))
+	    fi
+	    ((i=i+1))
+	done
+	echo $0: written to $odir/splits.$strain.$dx.dat, found results for $j nodes out of $n
+    else
+	echo $0: only found $nf files, not starting
+    fi
+else
+	echo $0: existing $odir/splits.$strain.$dx.dat, not redoing
+fi
+
+

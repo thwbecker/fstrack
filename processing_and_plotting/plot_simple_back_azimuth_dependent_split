@@ -1,0 +1,129 @@
+#!/bin/bash
+model=${1-carib.6.15}
+stations=${2-"ABPC ARUB BARV BAUV BIRV BLOS BOCO CACO CAPV CARI CCP2 CECV CRP4 CRUNV CUBA CUPV CURA CURV DABV ECPV ELOV FCPC GUIV GUNV GURV HSPV IBAV IMOV JACV JMPC MATU MERV MNPC MNVV MNW MONV MOPC MUPC PAYV PNP7 PPP6 QARV ROPC RPPC RSLV SANV SDV SDVX SHRB SIPC SIQV SMPC SOCV SOMB SRP1 SRPC TERV TEST TRNV TURV ULPC VIGV VIRV ZUPC"}
+strain=${3-0.75}
+
+rcode=2
+dfile=$datadir/splitting/splitting.50.table
+
+#
+tmpn=/tmp/$USER.$HOST.$$.torque_tmp
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+mode=0
+if [ $mode -eq 0 ];then
+    bdir=$model/results/simple_split/splitting.$rcode/
+else
+    bdir=$model/results/simple_split/splitting.$rcode/$mode/
+fi
+	    #
+	    # prefer scec drive
+	    #
+idir=/home/scec-00/twb/tmp/$bdir
+if [ ! -s $idir ];then
+    echo $0: $idir not found, trying $bdir
+    idir=$bdir
+    if [ !  -s $idir ];then
+	echo $0: not found
+	exit
+    fi
+fi
+ls -d $idir/*/*/split.s.$strain.$mode.dat.gz | gawk 'BEGIN{FS="/";}{print($(NF-2),$(NF-1))}'  > $tmpn.mloc
+dist_max=40			# maximum distance for assignment
+
+
+
+for station in $stations;do
+
+    gawk -v s=$station '{if(($1==s)&&($14!=0)&&($8==1))print($3,$2,$4,$5,$6,$7,$14)}' $dfile > $tmpn.data
+    gawk -v s=$station '{if(($1==s)&&($14!=0)&&($8==2))print($3,$2,$4,$5,$6,$7,$14)}' $dfile > $tmpn.skks.data
+    
+
+    ndata_sks=`lc $tmpn.data`
+    ndata_skks=`lc $tmpn.skks.data`
+    ((ndata=ndata_sks+ndata_skks))
+
+    if [ $ndata -gt 2 ];then
+	echo
+	echo $station
+	echo 
+	cat $tmpn.data
+
+	if [ $ndata_sks -ne 0 ];then
+	    head -1 $tmpn.data > $tmpn.dat
+	    read lon lat azi d_azi dt d_dt b_azi < $tmpn.dat
+	else
+	    head -1 $tmpn.skks.data > $tmpn.dat
+	    read lon lat azi d_azi dt d_dt b_azi < $tmpn.dat
+	fi
+
+		    # find location in file
+	echo $lon $lat | gawk '{printf("%.0f %.0f",$1,$2)}' > $tmpn.dat
+	read lon_s lat_s < $tmpn.dat
+	echo $lon_s $lat_s $lon $lat
+	
+	
+	gawk -v km=1 -v lon0=$lon -v lat0=$lat -f dist_on_sphere_in_file.awk $tmpn.mloc > $tmpn.d
+	paste $tmpn.mloc $tmpn.d | sort -n +2 | head -1 > $tmpn.dat
+	read lon_use lat_use dist < $tmpn.dat
+	
+
+	if [ `echo $dist $dist_max | gawk '{if($1<$2)print(1);else print(0)}'` -eq 1 ];then
+	    echo $0: using $lon_use $lat_use at distance $dist
+			#
+			# select the closest back-azimuth that isn't a null or has high misfit
+			#
+	    
+				#echo  $idir/$lon_use/$lat_use/split.$strain.$mode.dat.gz  
+	    zcat $idir/$lon_use/$lat_use/split.s.$strain.$mode.dat.gz  |sort -n > $tmpn.dat
+	    ((mode10=mode+10))
+	    zcat /home/scec-00/twb/tmp/$model/results/simple_split/splitting.$rcode/$mode10/$lon_use/$lat_use/split.s.$strain.$mode10.dat.gz  |sort -n > $tmpn.skks.dat
+
+	    reg=-R0/360/0/180;proj=-JX7/2.5
+	    ofile=$idir/split.s.$strain.$mode.$station.ps
+	    # fast azi
+	    gawk '{print($1,$2)}' $tmpn.dat | psxy $reg $proj -Y9 -K -P -W3,red \
+		-Ba60f20/a60f20:"fast polarization [@+o@+]":."$station ($lon_s@+o@+, $lat_s@+o@+)"::Wesn > $ofile # SKS
+	    gawk '{print($1,$2)}' $tmpn.skks.dat  | psxy $reg $proj -O -K  -W3,red,- >> $ofile # SKKS
+	    # SKS
+	    gawk '{azi=$3;if(azi>180)azi-=180;print($7,azi,$4)}' $tmpn.data | psxy -R -J -K -O -Ey -W5,red >> $ofile
+	    gawk '{azi=$3;if(azi>180)azi-=180;print($7,azi)}' $tmpn.data | psxy -R -J -K -O -Sa0.2 -Gred -W0.5 >> $ofile
+	    # SKKS
+	    gawk '{azi=$3;if(azi>180)azi-=180;print($7,azi,$4)}' $tmpn.skks.data | psxy -R -J -K -O -Ey -W5,red >> $ofile
+	    gawk '{azi=$3;if(azi>180)azi-=180;print($7,azi)}' $tmpn.skks.data | psxy -R -J -K -O -Sc0.2 -Gred -W0.5 >> $ofile
+
+
+	
+	    # delay time
+	    reg=-R0/360/0/2.5;proj=-JX7/2.5
+	    gawk '{print($1,$3)}' $tmpn.dat | psxy $reg $proj -Y-3 -O -K -W3,blue -Ba60f20/a.5f.1:"delay time [s]":Wesn >> $ofile
+	    gawk '{print($1,$3)}' $tmpn.skks.dat | psxy $reg $proj  -O -K -W3,blue,- >> $ofile
+
+	    # SKS
+	    gawk '{print($7,$5,$6)}' $tmpn.data | psxy -R -J -O   -Ey  -W5,blue -K >> $ofile
+	    gawk '{print($7,$5)}' $tmpn.data | psxy -R -J -O  -Sa0.2 -Gblue -W0.5 -K >> $ofile
+	    # SKKS
+	    gawk '{print($7,$5,$6)}' $tmpn.skks.data | psxy -R -J -O   -Ey  -W5,blue -K >> $ofile
+	    gawk '{print($7,$5)}' $tmpn.skks.data | psxy -R -J -O  -Sc0.2 -Gblue -W0.5 -K >> $ofile
+
+	    # error
+	    reg=-R0/360/0/1;proj=-JX7/1.5
+	    gawk '{print($1,$4)}' $tmpn.dat | psxy $reg $proj -Y-2 -O -K -W3,black -Ba60f20:"back azimuth [@+o@+]":/a.25f.1:"error [N]D":WeSn >> $ofile
+	    gawk '{print($1,$4)}' $tmpn.skks.dat | psxy $reg $proj  -O  -W3,black,- >> $ofile
+	  
+
+
+	    modifybb $ofile
+	    echo $0: written to $ofile
+
+
+	    gv $ofile
+	else
+	    echo $0: did not find model split for $lon $lat
+	fi
+
+
+    fi
+
+done

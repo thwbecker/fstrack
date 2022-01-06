@@ -1,0 +1,77 @@
+#!/bin/bash
+#
+# run a bunch of splitting prediction routines for spotted splitting observations
+#
+#models=${1-"pmDsmean_nt pmDnngrand_nt pmDsmean_nt_ol_only pmDstein pmFsmean_nt saf1 saf2 saf3 med1 med2 med3 "}
+#models=${1-"safs2 pmDpmean saf1h saf2h pmDpmean pmCd pmCsmean_nt pmCstein pmDd pmFd pgDsmean_nt pgDstein pgFsmean_nt pmDnngrand_nt pmDsmean_nt_ol_only pmDstein pmFsmean_nt pmDsmean_nt_high saf1 saf2 saf3  pmDsmean_full pmDsmean_na00 pmDsmean_nt pmFsteind pmDsmeand pmDvox3p pmDlrr98d pmFlrr98d "}
+models=${1-"lisa_rum_oc"}
+#types=${2-"splitting.1.s.0.5 splitting.1.s.2 splitting.1.s.3"}
+#types=${2-"splitting.1.s.2 splitting.1.s.1 splitting.1.s.0.5"}
+#types=${2-"splitting.24.s.2 splitting.24.s.1 splitting.24.s.0.5"}
+types=${2-"splitting.8.s.1 splitting.8.s.2 splitting.8.s.0.5"}
+prepare=${3-1}
+mods=${4-"0 1 2"}
+rcode=${5-8}
+
+
+# split method code: -1: no particular 
+                                #                        mention (Menke)
+                                #                     0: Vera  SKS
+                                #                     1: Menke SKS
+                                #                     2: Menke SK2
+                                #                     3: Vera  SK2
+
+#split_code=0			# Vera
+split_code=1			# Menke
+#split_code=2			# Menke SK2
+#split_code=3			# Vera SK2
+
+
+pbs=1
+# PBS queues to use
+#q1="scec";q2="becker64";q3="xxx";
+#q1="scec";q2="scec";q3="becker64";
+#q1="scec";q2="scec";q3="scec";
+#q1="becker64";q2="scec";q3="becker64";
+q1="becker";q2="becker";q3="becker";
+#q1="xxx";q2="xxx";q3="xxx";
+
+walltime=24:00:00
+
+# start submission
+c=1
+for m in $models;do
+    for k in sav savd;do
+	for t in $types ;do
+	    #test_file=$m/results/splitting.$rcode/tracer.$k.100.$t.dat.gz
+	    #echo $0: $test_file
+	    loc_prep=$prepare
+	    #if [ -s $test_file ];then
+		#  loop through cutoffs
+		for mod_ani in $mods;do	# anisotropy modifiers
+		    if [ $c -eq 1 ];then
+			echo $m $t $k $loc_prep $q1 $pbs $walltime $mod_ani
+			predict_splitting_region $m $t $k $loc_prep $q1 $pbs $walltime $mod_ani $split_code $rcode
+
+
+		    elif [ $c -eq 2 ];then
+			echo $m $t $k $loc_prep $q2 $pbs $walltime $mod_ani
+			predict_splitting_region $m $t $k $loc_prep $q2 $pbs $walltime $mod_ani $split_code $rcode
+		    elif [ $c -eq 3 ];then
+			echo $m $t $k $loc_prep $q3 $pbs $walltime $mod_ani
+			predict_splitting_region $m $t $k $loc_prep $q3 $pbs $walltime $mod_ani $split_code $rcode
+			c=0
+		    fi
+		    ((c=c+1))
+		    if [ $c -gt 3 ];then
+			c=1
+		    fi
+		done
+		#else
+#		echo $0: we don\'t have $m $t $k
+#	    fi
+	done
+
+    done
+
+done

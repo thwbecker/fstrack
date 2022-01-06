@@ -1,0 +1,225 @@
+#!/bin/bash
+#main_model=${1-carib2}
+main_model=${1-carib}
+modes=${2-"0 1 2"}
+#modes=${2-"0"}
+#strains=${3-"0.75 1.5"}
+strains=${3-"0.75"}
+#avgs=${4-"0 1"}				# 0: full splitting 1: use simple average
+avgs=${4-"0"}				# 0: full splitting 1: use simple average
+topo=0				# use topo on plots
+
+
+only_check=0
+allmodels=1			# 1: check for all 2: use from log file, best 5
+
+my_idir=/home/scec-00/twb/tmp/
+
+dmodels="1 8 19  21 7 14 16 9 15  22 23 24 25 26 28 29 30 31"
+#vmodels="1 4 14 15 2 7 6 16 8 11 12 13"
+vmodels="1 4 14 15 2 7 6 20 8 11 12 13 21 22"
+
+if [ $allmodels -eq 1 ];then
+    # all models
+
+    models1=""
+    for d in $dmodels;do
+	for v in $vmodels;do
+#    for d in 1;do
+#	for v in 13 ;do
+	    models1="$models1 $main_model.$v.$d"
+	done
+    done
+    models2=`ls -d $my_idir/global.*/ | gawk 'BEGIN{FS="/"}{printf("%s\n",$(NF-1))}'`
+    models="$models1 $models2 tib_weak_new_sr4h "
+
+elif [ $allmodels -eq 2 ];then	# sorted based on prior run, and pick a single one
+    models=`sort +2 -n split.ME3/split.ME3.misfits.0.0.75.g.dat | gawk '{print($1)}' | head -5 | gawk -f torow.awk`
+
+else
+    models2=`ls -d $my_idir/global.*/ | gawk 'BEGIN{FS="/"}{printf("%s\n",$(NF-1))}'`
+    models=$models2
+
+fi
+
+echo $models
+
+
+cd $datadir/flow_field/finite_strain/
+
+if [ $main_model = "carib" ];then
+    rcode=56;rname=ME3;rname_o=ME3
+else
+    rcode=56;rname=ME32;rname_o=ME3
+fi
+
+
+echo $models
+
+mkdir -p split.$rname 
+
+for avg in $avgs;do
+
+    for strain in $strains;do
+
+	for mode in $modes;do
+
+	    
+	    if [ $only_check -eq 0 ];then # attempt plot
+
+
+		if [ $avg -eq 0 ];then
+		    pre_name=split.$rname/split.$rname.misfits.$mode.$strain
+		    plot_name=ps
+		else
+		    pre_name=split.$rname/split.avg.$rname.misfits.$mode.$strain
+		    plot_name=avg.ps
+		fi
+
+		rm $pre_name.*.dat # delete the log files
+		
+		fs="";mc=1
+		rm tmp.*.misfit 2> /dev/null # plotting counters
+	    fi
+	    rm med_log.txt 2> /dev/null
+	    for m in $models;do # model loop
+
+
+	    #
+	    # check
+	    # 
+
+		if [ $mode -eq 0 ];then
+		    bdir=$m/results/simple_split/splitting.$rcode/
+		else
+		    bdir=$m/results/simple_split/splitting.$rcode/$mode/
+		fi
+		idir=$my_idir/$bdir
+		if [ ! -s $idir ];then
+#		    echo $0: $idir not found, trying $bdir
+		    idir=$bdir
+#		    if [ !  -s $idir ];then
+#			echo $0: $idir not found
+#		    fi
+		fi
+		# check for anisotropic tensors
+		if [ -s $my_idir/$m/results/splitting.$rcode/tracer.savd.40.splitting.$rcode.s.$strain.dat.gz ];then
+		    have_anitens=1
+		elif [  -s $m/results/splitting.$rcode/tracer.savd.40.splitting.$rcode.s.$strain.dat.gz ];then
+		    have_anitens=1
+		else
+		    have_anitens=0
+		fi
+
+		if [ $avg -eq 1 ];then
+		    file=$idir/split.s.$strain.$mode.15.avg.sstat
+		else
+		    file=$idir/split.s.$strain.$mode.15.sstat
+		fi
+		if [ ! -s $file ];then
+#		    echo $0: model: $m strain: $strain mode: $mode data file $file not found
+		    have_splits=0
+		else
+	    	    have_splits=1
+#		    echo $0: model: $m strain: $strain mode: $mode data checked OK
+		fi
+		
+		echo $m $strain $mode $have_anitens $have_splits  >> med_log.txt
+		tail -1 med_log.txt
+		
+
+		if [[ $only_check -eq 0 && $have_splits -eq 1 ]];then # attempt plot
+	# ME2 - central region
+		    rm $mc.r?.$plot_name $mc.g.$plot_name 2> /dev/null
+		    nplot=0
+		    rm tmp.*.misfit 2> /dev/null
+		    plot_simple_split $m s.$strain $topo $rcode $mode "-R-12.5/45/29/50" $avg
+		    if [ -s tmp.avg.misfit ];then
+			echo $m `cat tmp.avg.misfit` >> $pre_name.g.dat
+			mv $HOME/tmp/$m.$rname_o.s.$strain.$mode.ssmap.$plot_name $mc.g.$plot_name
+			rm tmp.*.misfit 2> /dev/null
+			((nplot=nplot+1))
+		    fi
+
+	# Middle east - r1 region to use for paper
+		    rm tmp.*.misfit 2> /dev/null
+		    plot_simple_split $m s.$strain $topo $rcode $mode "-R19/65/5/43" $avg 1 3
+		    if [ -s tmp.avg.misfit ];then
+			echo $m `cat tmp.avg.misfit` >> $pre_name.r1.dat
+			mv $HOME/tmp/$m.$rname_o.s.$strain.$mode.ssmap.$plot_name $mc.r1.$plot_name
+			rm tmp.*.misfit 2> /dev/null
+			((nplot=nplot+1))
+		    fi
+		    
+
+		    # Middle east, II. - r2 zoom in arabia/Anatolia 
+		    
+		    rm tmp.*.misfit 2> /dev/null
+		    #plot_simple_split $m s.$strain $topo $rcode $mode "-R32/50/15/43" $avg
+
+		    plot_simple_split $m s.$strain $topo $rcode $mode "-R28.5/44/33/42.5" $avg # Anatolia
+
+		    if [ -s tmp.avg.misfit ];then
+			echo $m `cat tmp.avg.misfit` >> $pre_name.r2.dat
+			mv $HOME/tmp/$m.$rname_o.s.$strain.$mode.ssmap.$plot_name $mc.r2.$plot_name
+			rm tmp.*.misfit 2> /dev/null
+			((nplot=nplot+1))
+		    fi
+
+		    if [[ -s $mc.r1.$plot_name && -s $mc.r2.$plot_name  ]];then
+			#epsmerge --orientation Portrait -x 1 -y 2 -par  $mc.r1.$plot_name $mc.r2.$plot_name > $mc.r.$plot_name 2> /dev/null
+			epsmerge --orientation Landscape -x 2 -y 1 -par  $mc.r1.$plot_name $mc.r2.$plot_name > $mc.r.$plot_name 2> /dev/null
+
+			rm $mc.r1.$plot_name $mc.r2.$plot_name
+			((nplot=nplot+2))
+		    fi
+#		    if [ $nplot -eq 3  ];then
+#			if [ -s $my_idir/med_plots/$m.d.ps ];then
+#			    # flow and middle east
+#			    fs="$fs  $my_idir/med_plots/$m.d.ps $mc.r1.$plot_name"
+#			    rm   $mc.g.$plot_name $mc.r2.$plot_name 
+#			else
+#			    echo 
+#			    echo $0: flow solution map not found for $m.d.ps 
+#			    echo 
+#			    epsmerge --orientation Portrait -x 1 -y 2 -par  $mc.g.$plot_name $mc.r1.$plot_name > $mc.g2.$plot_name 2> /dev/null
+#			    fs="$fs  $mc.g2.$plot_name $mc.r2.$plot_name"
+#			    rm   $mc.g.$plot_name $mc.r1.$plot_name 
+#			fi
+
+		    
+#	            fi
+		    fs="$fs  $mc.g.$plot_name  $mc.r.$plot_name"
+		    #rm   $mc.r1.$plot_name $mc.r2.$plot_name 
+		    ((mc=mc+1))
+
+		fi		# end of have data and not checking branch
+	    done		# end of model loop
+
+	    if [ $only_check -eq 0 ];then
+		#epsmerge --orientation Landscape -x 2 -y 1 -par --print --postscript $fs > $HOME/tmp/m.$rname.$mode.$strain.$plot_name
+		#epsmerge --orientation Landscape -x 1 -y 1 -par --print --postscript $fs > $HOME/tmp/m.$rname.$mode.$strain.$plot_name
+
+		epsmerge --orientation Portrait -x 1 -y 2 -par --print --postscript $fs > $HOME/tmp/m.$rname.$mode.$strain.$plot_name
+
+		owd=`pwd`
+		cd $HOME/tmp/
+		ps2pdf m.$rname.$mode.$strain.$plot_name
+		rm     m.$rname.$mode.$strain.$plot_name
+		pdf_name=`echo m.$rname.$mode.$strain.$plot_name | gawk '{gsub(".ps",".pdf");print($0)}'`
+
+		echo $0: written to $pdf_name
+		cp $pdf_name $owd/
+		cd $owd
+
+		rm *.r?.$plot_name *.g.$plot_name *.r.$plot_name 
+	    fi
+	done			# end of mode
+    done			# end of strain
+    if [[ $allmodels -ne 0 && $only_check -eq 0 ]];then
+	evaluate_med_split "$strains" "$modes" "$main_model" $avg
+    fi
+
+    rm tmp.*
+done				# end avg
+

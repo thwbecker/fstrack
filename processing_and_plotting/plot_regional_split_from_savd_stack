@@ -1,0 +1,351 @@
+#!/bin/bash
+
+# carib.15.1 global.7.7.150.1.61.0.01.0.01.500.50
+#
+# plot simple splitting for region, can be flow models or nnr, sa
+models=${1-"globalh.6.7.150.1.150.0.01.0.1.500.50.plate_high  globalh.6.7.150.1.150.0.01.0.1.500.50.plate.nodens  globalh.6reg.7.150.1.150.0.01.0.1.500.50.plate globalh.8.7.150.1.150.0.01.0.01.500.50.plate globalh.6.7.150.1.150.0.01.0.1.500.50.plate_mid   globalh.6.7.150.1.150.0.01.0.1.500.50.plate        globalh.8.10.150.1.150.0.01.0.01.500.50.plate "}	# can be all, sks, si, nnr, sa, hs3
+rcode=${2-4}			# 4: NAM, 89: IND
+#rcode=${2-89}			#
+strain=${3-0.75}
+
+
+if [ $rcode -eq 4 ];then
+    #obs_modes="sks si"
+    obs_modes="sks"
+    dx=1
+    smoothed=0
+elif [ $rcode -eq 89 ];then
+    smoothed=1
+    obs_modes="sks"
+    dx=2
+fi
+n_obs=`echo $obs_modes | gawk '{print(NF)}'`
+
+dx_obs=$dx			# which spacing to use in observations
+
+tmpn=/tmp/$USER.$$.$model.$rcode.$strain
+trap "rm -rf $tmpn.* ; exit" 0 1 2 15
+
+
+dx_gmt=`echo $dx | gawk '{printf("%gm",$1*60)}'`
+
+pmode=3				# 1: length variations
+                                # 2: fixed length
+                                # 3: fixed, deviation from SKS in background
+
+if [ $pmode -eq 1 ];then	# show variations
+    scale=.2
+    piecol=darkgray
+    veccol=orange
+    vecsize=0.05/0/0
+elif [[ $pmode -eq 2 || $pmode -eq 3 ]];then	# show variations at constant length
+    if [ $rcode -eq 4 ];then
+	scale=.2
+	vecsize=0.05/0/0
+    else
+	scale=0.3
+	vecsize=0.075/0/0
+    fi
+    piecol=darkgray
+
+    dtc=1.3
+fi
+#cmp1=polar;cmp2=haxby
+cmp1=haxby;cmp2=polar
+
+makecpt -C$cmp1 -T0/2/.25 -D > $tmpn.dt.cpt
+makecpt -C$cmp1 -T0/6/.5 -D > $tmpn.amp.cpt
+makecpt -T0/90/10 -C$cmp2 > $tmpn.da.cpt
+
+rname=`region_parameters $rcode 7`
+reg=`region_parameters $rcode 3`
+if [ $rcode -eq 4 ];then
+    preg=-R-130/-70/23/52
+elif [ $rcode -eq 89 ];then
+    preg=$reg
+else
+    preg=$reg
+fi
+
+#proj=`region_parameters $rcode 4`
+if [ $rcode -eq 4 ];then
+    proj=-JH`echo $preg | gawk -f reg2midlon.awk`/12
+else
+    proj=-JM12
+fi
+#proj=-JPoly/`echo $preg | gawk -f reg2midlon.awk`/`echo $preg | gawk -f reg2midlat.awk`/12
+#proj=-JY`echo $preg | gawk -f reg2midlon.awk`/`echo $preg | gawk -f reg2midlat.awk`/12
+ann=`region_parameters $rcode 6`
+
+if [ $rcode -eq 4 ];then
+    psc1=-D6/6.25/3/.08h
+    psc2=-D8/6.25/2/.08h
+    psc3=-D4/6.25/2/.08h
+else
+    psc1=-D6/-.25/3/.2h
+    psc2=-D8/-.25/2/.2h
+    psc3=-D4/-.25/2/.2h
+
+fi
+#idir=/home/scec-00/twb/tmp
+#idir=/backup/twb2/scec-00-twb/tmp/
+idir=.
+
+odir=split_stack/$rname/
+mkdir -p $odir
+
+if [ `echo $models | gawk '{if(NF==1 && $1== "all")print(1);else print(0)}'` -eq 1 ];then
+    models=`ls $idir/*/results/$rname/tracer.savd.125.$rname.s.$strain.dat.gz | gawk 'BEGIN{FS="/"}{printf("%s ",$6)}'`
+
+    # redo the log files
+    rm   $odir/misfit.$dx.log
+fi
+mkdir -p $odir
+
+gmtset HEADER_FONT_SIZE 32
+
+owd=`pwd`
+for model in $models;do
+    if [[ $model = sks || $model = si || $model = nnr || $model = sa || $model = hs3 ]];then
+	is_gd_model=0
+	modes="-1"
+	mlabel=`echo $model | gawk '{print(toupper($1))}'`
+	if [ $model = sks ];then
+	    is_ani=1
+	    #itype=$datadir/splitting/allwuest.tele.avg
+	    itype=$datadir/splitting/allwuest.tele.avg
+	elif [ $model = si ];then
+	    is_ani=1
+	    itype=$datadir/splitting/panning_intensity/hwus15si
+	elif [ $model = nnr ];then
+	    is_ani=0
+	    itype=$datadir/plates/sks_apm.morvel.-1
+	elif [ $model = sa ];then
+	    is_ani=0
+	    itype=$datadir/plates/sks_apm.morvel.sa
+	elif [ $model = hs3 ];then
+	    is_ani=0
+	    itype=$datadir/plates/sks_apm.hs3_nuvel.-1
+	fi
+	if [ $is_ani -eq 1 ];then
+	    ulabel="@~d@~t [s]"
+	    at=dt;lspc=1
+	else
+	    mlabel="APM-$mlabel";at=amp
+	    ulabel="|v| [cm/yr]";lspc=2.5
+	fi
+	grd2xyz    $itype.$rname.$dx.azi.grd > $tmpn.1
+	grd2xyz -Z $itype.$rname.$dx.$at.grd > $tmpn.2
+	paste $tmpn.1 $tmpn.2 | grep -v NaN > $tmpn.dat
+	ifile=$tmpn.dat
+
+	ofile=$odir/$model.ps
+	pscoast -Di -A5000 -W0.5 -Sdarkgray -Glightgray \
+		$preg $proj -K -P $ann:."$mlabel": > $ofile
+	psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+	     $preg  $proj  -O -K   -W8,darkorange  >> $ofile
+	gawk -v s=$scale -v col=$col -v dtc=$dtc \
+	     '{print($1,$2,$4,$3,dtc*s)}'  $tmpn.dat | \
+	    psxy -SVB$vecsize  -C$tmpn.$at.cpt \
+		 -W0.5 $preg $proj  -O -K >> $ofile
+	psscale $psc1 -Ef \
+		-C$tmpn.$at.cpt -B$lspc/:"$ulabel": -O -K >> $ofile
+	psbasemap $preg $proj  -O $ann >> $ofile
+	modifybb $ofile
+	#echo $0: written to $ofile
+    else
+	ifile=$idir/$model/results/$rname/split_stack/splits.$strain.$dx.dat
+	is_gd_model=1
+
+	ulabel="@~d@~t [s]"
+	at=dt;lspc=1
+	if [ ! -s $ifile ];then
+	    echo $0: $ifile not found
+	    exit
+	    modes=""
+	else
+	    modes="0 2 1 3"	   
+	fi
+
+    fi
+    nmodes=`echo $modes | gawk '{print(NF)}'`    
+    fs="";misfit_string=""
+
+    for t in $obs_modes;do	# obs mode
+	if [ $t = sks ];then
+	    obs_file=$datadir/splitting/allwuest.tele.avg
+	    olabel="SKS";oamp=dt
+	elif [ $t = si ];then
+	    obs_file=$datadir/splitting/panning_intensity/hwus15si
+	    olabel="SI";oamp=dt
+	else
+	    echo error with type $t
+	    exit
+	fi
+
+	for mode in $modes ;do # split depth mode 
+	    . split_mode_parameters
+
+	    ((mc=mode+1))
+
+	    if [ $mode -ne -1 ];then
+		((col=4+mode*5))
+		off=2
+		ofile_s=$model.$strain.$dx
+		title="$model, $mlabel"
+	    else
+		off=1
+		col=3
+		ofile_s=$model
+		title=`echo $model | gawk '{print(toupper($1))}'`
+	    fi
+	    ofile=$odir/$ofile_s.$t.$mode.ps
+	    if [ $pmode -ne 3 ];then
+		pscoast -Di -A5000 -W0.5 -Sdarkgray -Glightgray \
+			$preg $proj -K -P $ann:."$title": > $ofile
+	    else
+		# misfit
+		gawk -v s=$scale -v col=$col '{print($1,$2,$(col))}'  $ifile | \
+		    grdtrack -fg -Qn -G$obs_file.$rname.$dx_obs.azi.grd | \
+		    grep -v NaN | gawk -v add_lon_lat=1 -f cdirdiff.awk | \
+		    gawk '{print($3,$4,$2)}' | \
+		    xyz2grd $reg -I$dx -G$tmpn.da.grd -fg
+		#grdinfo $tmpn.da.grd
+		
+		gawk -v s=$scale -v col=$col -v off=$off \
+		     '{print($1,$2,$(col+off))}'  $ifile | \
+		    xyz2grd $reg -I$dx -G$tmpn.mamp.grd -fg
+
+		grdmath $obs_file.$rname.$dx.$oamp.grd $tmpn.mamp.grd MUL = $tmpn.weights
+		mean_da[$mc]=`grd2geo_mean $tmpn.da.grd 1 $tmpn.weights | gawk '{printf("%.1f",$1)}'`
+
+		#grdinfo $tmpn.da.grd
+		#grdinfo $tmpn.weights
+		
+		if [ $t = si ];then
+		    grdmath  $tmpn.da.grd 0 MUL 1 ADD = prss_cover.$rname.$dx.grd
+		fi
+		if [[ $rcode -eq 4 && -s prss_cover.$rname.$dx.grd ]];then
+		    echo $0: using prss_cover.$rname.$dx.grd for inner region
+		    grdmath  $tmpn.da.grd prss_cover.$rname.$dx.grd MUL = $tmpn.da.inner
+		elif [[ $rcode -eq 89 ]];then
+		    echo $0: using India plate code
+		    grdmath $datadir/plate_boundaries/plate_code_files/nuvel.$dx.grd 13 EQ 0 NAN = $tmpn.tc
+		    grdcut -fg $reg $tmpn.tc -G$tmpn.codes
+
+		    #grdinfo -C $tmpn.tc
+		    grdinfo -C $tmpn.da.grd
+		    grdinfo -C $tmpn.codes
+
+		    grdmath $tmpn.codes $tmpn.da.grd MUL = $tmpn.da.inner
+		else
+		    echo $0: no inner region file found
+		    grdmath  $tmpn.da.grd 0 MUL 1 ADD 1 NAN = $tmpn.da.inner
+		fi
+		mean_da_inner[$mc]=`grd2geo_mean $tmpn.da.inner 1 $tmpn.weights | gawk '{printf("%.1f",$1)}'`
+		
+		grdsample -fg -I0.25 $tmpn.da.grd -G$tmpn.da.f.grd -Ql
+		grdsample -fg -I0.25 $tmpn.weights -G$tmpn.weights.f.grd -Ql
+		normalize_grid $tmpn.weights.f.grd $tmpn.i2.grd 2> /dev/null
+		grdmath $tmpn.i2.grd 0.5 SUB = $tmpn.i.grd
+		#grdinfo $tmpn.i2.grd
+		if [ ! -s lthick.grd  ];then
+		    cp $datadir/lithosphere/bernhard/sl2013_no_slabs.l.grd $tmpn.grd
+		    grdcut -fg $reg $tmpn.grd -G$tmpn.r.grd
+		    grdsample -Ql $reg -I0.25 $tmpn.r.grd -Glthick.grd -fg
+		fi
+
+		if [ $smoothed -eq 1 ];then
+		    grd2xyz -S $tmpn.da.f.grd > $tmpn.samples
+		    surface $tmpn.samples $preg -I0.25 `echo $preg | gawk -f reg2aspect.awk` -G$tmpn.da.s.in.grd -Lld -Lud 
+		    grdmask -S150K $tmpn.samples -fg $preg -I0.25 -NNaN/1/1 -G$tmpn.da.s.mask.grd
+		    grdmath $tmpn.da.s.mask.grd $tmpn.da.s.in.grd MUL = $tmpn.da.f.s.grd
+		    grdsample -fg $tmpn.da.f.s.grd -I0.025 -Ql -G$tmpn.da.f.s2.grd
+		    grdimage $tmpn.da.f.s2.grd -C$tmpn.da.cpt $preg $proj -K -P -Y10 > $ofile
+		else
+		    #grdview -T $tmpn.da.f.grd -C$tmpn.da.cpt $preg $proj -K -P -Y10 > $ofile
+		    grdimage $tmpn.da.f.grd -C$tmpn.da.cpt $preg $proj -K -P -Y10 > $ofile
+		    #grdimage $tmpn.da.f.grd -I$tmpn.i.grd -C$tmpn.da.cpt $preg $proj -K -P -Y10 > $ofile
+		
+		    #grdimage $tmpn.da.f.grd -Ilshade.grd -C$tmpn.da.cpt $preg $proj -K -P -Y10 > $ofile
+		    #grdview lthick.grd -Qs -Lg -G$tmpn.da.f.grd -C$tmpn.da.cpt $preg $proj -K -P -Y10 > $ofile
+		fi
+		grdcontour $preg $proj lthick.grd -O -K -C50 -W1,darkgreen  >> $ofile
+		grdcontour $preg $proj lthick.grd -A -O -K -C100 -W10,green  >> $ofile
+		pscoast -Di -A5000 -W0.5 \
+			$preg $proj -K -O $ann:."$title, @~Da@~@-$olabel@- = ${mean_da[$mc]}@+o@+(${mean_da_inner[$mc]}@+o@+)": >> $ofile
+		psscale $psc2  \
+			-C$tmpn.da.cpt -B30/:"@~Da@~ [@+o@+]": -O -K >> $ofile
+	    fi
+	    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+		 $preg  $proj  -O -K   -W8,darkorange  >> $ofile
+	    
+	    if [ $pmode -eq 1 ];then
+		# length
+		gawk -v s=$scale -v col=$col -v off=$off \
+		     '{print($1,$2,$(col),($(col+off)+$(col+off+1))*s)}'  $ifile | \
+		    psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+		# angular variation, need to use directions, unlike what manual says
+		gawk -v s=$scale  -v col=$col -v off=$off \
+		     '{dir=$(col);dx=$(col+off);if(dx<5)dx=5;print($1,$2,
+                                       $(col+off+1)*s,dir-dx,dir+dx);\
+                                       print($1,$2,$(col+off+2)*s,
+                                       180+dir-dx,180+dir+dx);}'  $ifile | \
+		    psxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+	    elif [[ $pmode -eq 2 || $pmode -eq 3 ]];then
+		gawk -v s=$scale  -v col=$col -v dtc=$dtc -v off=$off \
+		     '{dir=$(col);dx=$(col+off);if(dx<5)dx=5;print($1,$2,
+                                       dtc*s,dir-dx,dir+dx);\
+                                       print($1,$2,dtc*s,
+                                       180+dir-dx,180+dir+dx);}'  $ifile | \
+		    psxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+		
+		gawk -v s=$scale -v col=$col -v dtc=$dtc -v off=$off \
+		     '{print($1,$2,$(col+off),$(col),dtc*s)}'  $ifile | \
+		    psxy -SVB$vecsize  -C$tmpn.$at.cpt \
+			 -W0.5 $preg $proj  -O -K >> $ofile
+		psscale $psc3  -Ef \
+			-C$tmpn.$at.cpt -B$lspc/:"$ulabel": -O -K >> $ofile
+	    fi
+	    
+	    if [ $pmode -eq 1 ];then
+		# length variation
+		gawk -v s=$scale  -v col=$col -v off=$off \
+		     '{print($1,$2,$(col),($(col+off)-$(col+off+1))*s)}' $ifile  | \
+		    psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+	    fi
+	    
+	    psbasemap $preg $proj  -O $ann >> $ofile
+	    modifybb $ofile
+	    #echo $0: written to $ofile
+	    fs="$fs $ofile"
+	done
+	if [ $pmode -eq 3 ];then
+	    # this has the modes 0,1,2,3 labelled as 1,2,3,4
+	    misfit_string="$misfit_string $t-all-1 ${mean_da[1]} $t-all-2 ${mean_da[2]}  $t-all-3 ${mean_da[3]} $t-all-4 ${mean_da[4]} $t-inner-1 ${mean_da_inner[1]} $t-inner-2 ${mean_da_inner[2]} $t-inner-3 ${mean_da_inner[3]} $t-inner-4 ${mean_da_inner[4]} "
+	fi
+    done
+    if [ $n_obs -eq 1 ];then
+	if [ $nmodes -eq 1 ];then
+	    epsmerge -par -x 1 -y 1 $fs > $odir/$ofile_s.misfit.ps 2> /dev/null
+	else
+	    epsmerge -par -x 2 -y 2  --orientation Landscape $fs  > $odir/$ofile_s.misfit.ps 2> /dev/null
+	fi
+    else
+	epsmerge -par -x $n_obs -y $nmodes  --orientation Landscape $fs > $odir/$ofile_s.misfit.ps 2> /dev/null
+    fi
+    rm $fs
+    
+    cd $odir/
+    epstopdf $ofile_s.misfit.ps
+    rm $ofile_s.misfit.ps
+    echo $0: merged to $odir/$ofile_s.misfit.pdf
+    cp $odir/$ofile_s.misfit.pdf $HOME/Dropbox/tmp/
+    cd $owd
+    
+    if [[ $pmode -eq 3 && $is_gd_model -eq 1 ]];then # misfit
+	echo $model $strain $misfit_string >> $odir/misfit.$dx.log
+	tail -1 $odir/misfit.$dx.log
+    fi
+done
+gmtset HEADER_FONT_SIZE 36

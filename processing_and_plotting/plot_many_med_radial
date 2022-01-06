@@ -1,0 +1,30 @@
+#!/bin/bash
+rcode=55			# region code 
+smodel=sb10			# seismological model to compare to 
+
+strain=0.75
+layers="50 150 250"
+# first set of models (plates)
+m[1]=safn1h;m[2]=safs417nc;m[3]=safs417nc_er
+# second set, free slip
+m[4]=safn5h;m[5]=med_weak_new_s;m[6]=med_weak_mix_ns2e2
+
+
+for i in 1 2 3 4 5 6 ;do
+# global
+    ./plot_radial_simple ${m[$i]} $strain "$layers" 0 
+    ./plot_radial_reg ${m[$i]} $smodel $strain "$layers" $rcode 0
+done
+
+
+
+cd $HOME/tmp/
+epsmerge  --orientation Landscape -x 3 -y 1 -par --print --postscript \
+    ${m[1]}.s.$strain.eps ${m[2]}.s.$strain.eps ${m[3]}.s.$strain.eps \
+    ${m[4]}.s.$strain.eps ${m[5]}.s.$strain.eps ${m[6]}.s.$strain.eps  \
+      > med_radial.ps
+epsmerge  --orientation Landscape -x 3 -y 1 -par --print --postscript \
+    ${m[1]}.$smodel.s.$strain.$rcode.eps  ${m[2]}.$smodel.s.$strain.$rcode.eps  ${m[3]}.$smodel.s.$strain.$rcode.eps  \
+    ${m[4]}.$smodel.s.$strain.$rcode.eps  ${m[5]}.$smodel.s.$strain.$rcode.eps  ${m[6]}.$smodel.s.$strain.$rcode.eps  \
+    > med_radial.r.ps
+cd -

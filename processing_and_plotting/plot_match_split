@@ -1,0 +1,157 @@
+#!/bin/bash
+#
+# given the tensor averages obtained from spotted LPO predictions, try to figure out which tensor is needed to match observations
+#
+#
+#models=${1-"globalh.6.7.150.1.150.0.01.0.1.500.50.plate.nodens globalh.6.7.150.1.150.0.01.0.1.500.50.plate globalh.6reg.7.150.1.150.0.01.0.1.500.50.plate"}
+models=${1-"wanying_fs_slab"}
+#tensors=${2-"estey_0.avg ji_castlerock ji_nunuvak ismain_spreading ismain_subduction"}
+tensors=${2-"estey_0.avg kbbf-avg kkol.atype"}
+#tensors=${2-"kkol.atype kkol.btype kkol.ctype kkol.dtype kkol.etype"}
+#kkol.btype kkol.ctype kkol.dtype kkol.etype ji_alligator ji_castlerock ji_nunuvak
+rcode=4				# NAM
+#strains=${2-"s.0.75 s.1.5"}
+strains=${3-"s.0.75"}
+
+
+dmode=1				# based on below lithosphere
+
+layerd=190			# layer depth
+adens=3.40434			# average density from 110 ... 300 from PREM
+
+plot_field=1			# 
+
+debug=0
+
+tmpn=/tmp/$USER.$HOST.$$.cpf
+trap "rm -r $tmpn* 2>/dev/null ; exit" 0 1 2 15
+
+. set_reg_plot_par 
+pscr="-Df -A5000 -N1"
+inc=-I0.2			# for grid
+pinc=-I2			# for sticks
+proj=-JM12
+
+echo $0: $rname $reg $proj $ann $pscr $inc
+
+scale=0.2
+scale2=0.001
+vecsize=0.07/0/0
+vecsizeg=0.08/0/0
+
+makecpt -T0/90/10 -Chaxby > $tmpn.dip.cpt
+#makecpt -T0/200/25 -Chot -I > $tmpn.l.cpt
+makecpt -T0/250/10 -D -Cpolar -I > $tmpn.l.cpt
+
+
+
+for s in $strains;do
+    for use_beta in 0 1;do
+	fs=""
+	for model in $models;do
+	    
+	    . global_title
+	    idir=$datadir/flow_field/finite_strain/$model/results/simple_split/splitting.$rcode/$dmode/
+	    for tensor in $tensors;do	    	
+		input=$idir/lmatch.$s.$tensor.dat
+		if [ ! -s $input ];then
+		    echo $0: $input file not found
+		    exit
+		fi
+		#  1      2                          7      9       11        13    14                           
+		#230.29 47.53 best: 1.945e-01 at a 160.0 b 25.0 ld 75.0 with 136.5 1.17
+		#                           19      21         23   24               26   27                  29   30 
+		# best_b0: 4.639e-01 at a 160.0 ld 120.0 with 136.5 1.17 observed: 136.5 1.17 asthenosphere: 87.4 1.28
+		head -5 $input
+		
+		ofile=$idir/lmatch.$s.$use_beta.$plot_field.$tensor.$s.ps
+	    
+		if [ $plot_field -eq 1 ];then
+		    if [ $use_beta -eq 1 ];then # variable dip
+			gawk  '{print($1,$2,$7,$11)}'  $input > $tmpn.aziamp
+			gawk  '{print($1,$2,$9)}'  $input > $tmpn.beta
+			ts="x y beta"
+		    elif [ $use_beta -eq 0 ];then
+			gawk '{print($1,$2,$19,$21)}'  $input > $tmpn.aziamp
+			ts="x y"
+		    fi
+		    # alpha and Ld
+		    gawk -v pif=`pif` '{azi=$3/pif;print($1,$2,sin(2*azi)*$4)}' $tmpn.aziamp > $tmpn.x
+		    gawk -v pif=`pif` '{azi=$3/pif;print($1,$2,cos(2*azi)*$4)}' $tmpn.aziamp > $tmpn.y
+		    for t in $ts ;do
+			if [ $t = x ];then
+			    grdmask $reg $inc -fg $tmpn.x -S50K -NNaN/1/1 -G$tmpn.mask.grd
+			fi
+			surface `echo $reg | gawk -f reg2aspect.awk` $reg $inc \
+				$tmpn.$t -G$tmpn.grd -fg -Lld -Lud -T0.25 
+			grdmath $tmpn.grd $tmpn.mask.grd MUL = $tmpn.$t.grd
+		    done
+		    grdmath $tmpn.x.grd  $tmpn.y.grd ATAN2 2 DIV R2D  = $tmpn.azi
+		    grdmath $tmpn.azi 180 ADD = $tmpn.azi2
+		    grdmath $tmpn.x.grd  $tmpn.y.grd R2 SQRT = $tmpn.amp
+		    # plotting amplitude
+		    if [ $use_beta -eq 0 ];then
+			grdmath $tmpn.amp 0 MUL 1 ADD = $tmpn.pamp
+		    else	# variable length according to cos(dip)
+			grdmath $tmpn.amp 0 MUL $tmpn.beta.grd COS ADD = $tmpn.pamp
+		    fi
+
+		    
+		    grdimage $tmpn.amp $reg $proj -C$tmpn.l.cpt -P $ann -K > $ofile
+		    pscoast -W1 $pscr $reg $proj -O -K >> $ofile
+		    #grdcontour $datadir/etopo1/ETOPO1_Bed_g_gmt4.grd $reg $proj -C1000 -O -K >> $ofile
+		    psxy -m -fg $reg $proj $datadir/western_us_data/tecton_bound.gmt -W3 -O -K >>$ofile
+		    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+			 $reg  $proj  -O -K   -W5,darkblue  >> $ofile
+		    
+		    psscale -D11.2/1.25/2/.2 -C$tmpn.l.cpt -B50/:"d@-L@- [km]": -O -K >> $ofile
+		    vscale=-S5;vcolor=orange
+		    grdvector $reg $proj -Z -A -T -fg $tmpn.pamp $vscale $tmpn.azi $pinc \
+			      -O -K  -Q$vecsizeg -G$vcolor -W0.5 >> $ofile
+		    grdvector $reg $proj -Z -A -T -fg $tmpn.pamp $vscale $tmpn.azi2 $pinc \
+			      -O -K  -Q$vecsizeg -G$vcolor -W0.5 >> $ofile
+		else
+		    pscoast -G200 -S50 $pscr $reg $proj -P -K $ann > $ofile
+		    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+			 $reg  $proj  -O -K   -W5,darkblue  >> $ofile
+		    # asthenosphere
+		    gawk -v s=$scale '{print($1,$2,$29,$30*s)}'  $input | \
+			psxy -SVB$vecsizeg -Gpink -W0.5 $reg $proj  -O -K >> $ofile
+		    # observed
+		    gawk -v s=$scale '{print($1,$2,$26,$27*s)}'  $input | \
+			psxy -SVB$vecsizeg -Gwhite -W0.5 $reg $proj  -O -K >> $ofile
+		    
+		    # required addition
+		    if [ $use_beta -eq 1 ];then # variable dip
+			gawk -v s=$scale2 '{print($1,$2,$9,$7,$11*s)}'  $input | \
+			    psxy -SVB$vecsize -W0.5 -C$tmpn.dip.cpt $reg $proj  -O -K >> $ofile
+			psscale -D11.2/1.25/2/.2 -C$tmpn.dip.cpt -B30/:"@~d@~ [@+o@+]": -O -K >> $ofile
+			
+		    elif [ $use_beta -eq 0 ];then
+			gawk -v s=$scale2 '{print($1,$2,$19,$21*s)}'  $input | \
+			    psxy -SVB$vecsize -Ggreen -W0.5 $reg $proj  -O -K >> $ofile
+		    fi
+		fi
+		echo -129 54 24 0 0 LM "lith. compl. for $model_title, $tensor"  | \
+		    pstext $reg $proj -O -Wwhite -K >> $ofile
+		echo 1000 1000 | psxy $reg $proj -O -Sa.1 >> $ofile
+		modifybb $ofile
+		eps2eps $ofile $tmpn.ps; mv $tmpn.ps $ofile
+		fs="$fs $ofile"
+		#gv $ofile ; exit
+	    done
+	done
+	name_string=lmatch.$s.comp.$use_beta.$plot_field
+	
+	#epsmerge -par -x 5 -y 3 --orientation Landscape $fs > $name_string.ps
+	epsmerge -par -x 1 -y 3  $fs > $name_string.ps
+	#epsmerge -par -x 3 -y 5 --orientation Landscape $fs > $name_string.ps
+	#modifybb $name_string.ps
+	#eps2eps  $name_string.ps $tmpn.ps; mv $tmpn.ps $name_string.ps
+	ps2pdf  $name_string.ps
+	rm $name_string.ps
+	cp $name_string.pdf $HOME/Dropbox/tmp/
+	
+    done
+done
+

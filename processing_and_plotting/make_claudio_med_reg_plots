@@ -1,0 +1,139 @@
+#!/bin/bash
+
+models=${1-"medj_weak_ns medj_weak_ndns medj_noweak medj_weak_nsc medj_weak medj_weak_nsg medj_weak_slns medj_weak_nsw medj_weak_nsa medj_weak_nsa2 medj_weak_nsa2p medj_weak_vc_nsa2"}
+
+oview=${2-1}
+pfiles=${3-1}
+
+# desired models
+#
+#we should compare the reference model with:
+#
+#-reference model:              medj_weak_ns
+#-no density:                   medj_weak_ndns
+# no weak zones                 medj_noweak
+#-ara coupled:                  medj_weak_nsc
+#-southern weak zone for adria  medj_weak
+#-no claudia model:             medj_weak_nsg
+#-slab from sismicity:          medj_weak_slns
+#-wide weak zone:               medj_weak_nsw
+#-no alpine coupling in east:   medj_weak_nsa
+#-all of alps coupled:          medj_weak_nsa2
+#-all of alps and pelep. cpld:  medj_weak_nsa2p
+#-all of alps c, simpl. visc.:  medj_weak_vc_nsa2
+
+
+
+frame="-NUB"		# reference frame, AFR or EUR, or NNR, or -EUR, or -NUB
+
+pname=`echo $frame | gawk '{if(substr($1,1,1)=="-")print(substr($1,2));else print($1)}'`
+
+
+#
+# reference model at different depth
+#
+
+remove_mnr=0			# no mnr correction
+
+ref_model=medj_weak_ns
+comp_model=medj_weak_nsc	
+
+#
+# remove the reference frame files
+#
+rm */EUR.corr.v? */NUB.cfixed.v? */v?.nr.grd 2> /dev/null
+
+
+if [ $oview -eq 1 ];then
+    fs=""
+    for depth in 0 100 200 300 400 500;do
+	
+	plot_global_model_vel $ref_model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 0
+	cp $ref_model/vel.$depth.NUB.g.ps claudio/reg//ref.$ref_model.$depth.NUB.ps
+	fs="$fs ref.$ref_model.$depth.NUB.ps"
+    done
+    cd claudio/reg/
+    \epsmerge -par --print --postscript --orientation Landscape -x 3 -y 2 $fs > ref.$ref_model.NUB.ps
+    cd ../../
+
+    # comparison model 
+    fs=""
+    for depth in 0 100 200 300 400 500;do
+	
+	plot_global_model_vel $comp_model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 0
+	cp $comp_model/vel.$depth.NUB.g.ps claudio/reg//comp.$comp_model.$depth.NUB.ps
+	fs="$fs comp.$comp_model.$depth.NUB.ps"
+    done
+    cd claudio/reg/
+    \epsmerge -par --print --postscript --orientation Landscape -x 3 -y 2 $fs > comp.$comp_model.NUB.ps
+    cd ../../
+    rm $fs
+    
+    
+#
+# loop through models and make surface map view plots
+#
+    for model in $models;do
+	depth=0
+	plot_global_model_vel $model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 0 
+	cp $model/vel.$depth.NUB.g.ps claudio/reg//$model.vel.$depth.NUB.ps
+    done
+
+fi
+
+if [ $pfiles -eq 1 ];then
+#
+# loop through models and make profiles
+#
+
+# profile 1
+echo 15 46 22 33 > prof.dat	# start and end points for velocity profiles
+#    echo 12 45.5 22 33 > prof.dat	# start and end points for velocity profiles
+# profile 2
+    echo 36 46 22 33 >> prof.dat
+#echo 26 46 24 33 >> prof.dat
+    echo 10 39 28 41  >> prof.dat
+    echo 8 49 18 42 >> prof.dat
+    
+    np=`lc prof.dat`
+    
+    rm prof*vel
+    
+    use_prof=1
+    for model in $models;do
+	depth=0
+	rm prof.*.ps 2> /dev/null
+	plot_global_model_vel $model $depth xxx 1 1 0 0.5 "" $remove_mnr 0 "$frame" 2 0 1 $use_prof
+	cp $model/vel.$depth.NUB.g.ps claudio/reg//$model.velp.$depth.NUB.ps
+	mv prof.$model.*.ps  claudio/reg//
+	
+	
+	((use_prof=use_prof+1))
+
+
+    done	
+    # combine profiles from different models
+	
+
+    i=1
+    while [ $i -le $np ];do
+	plot_vel_profile -1 $i
+	mv prof.all.$i.ps claudio/reg//prof.all.$i.ps
+	((i=i+1))
+    done
+
+
+    rm prof.dat
+fi
+
+cd claudio/reg/
+for f in `ls *.ps`;do
+    epstopdf $f
+    gzip -f $f 
+
+done
+cd ../../
+
+
+tar --create --verbose --gzip --file $HOME/public_html/ftp/claudio_reg.tgz claudio/reg/
+
