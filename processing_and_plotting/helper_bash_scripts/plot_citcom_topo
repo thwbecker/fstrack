@@ -1,0 +1,71 @@
+#!/bin/bash
+#
+# plot dynamic topography on surface from CitcomCU run, assuming Cartesian for now
+#
+#
+model=${1-slab}			# 
+tstep=${2-0}			# timestep
+
+scale=1000			# scale topography with
+
+ddir=$CITCOM_SCRATCH_DIRECTORY/$model/
+if [ ! -s $ddir ];then
+    echo $0: error: data dir $ddir for model $model not found
+    exit
+fi
+
+echo $0: WARNING: assuming regional, Cartesian coordinate system
+
+tmpn=/tmp/$USER.$HOST.$$
+trap "rm -f $tmpn.* 2>/dev/null; exit" 0 1 2 15
+
+# loop through procs
+i=0; rm $tmpn.coord 2> /dev/null
+while [ -s $ddir/d.scoord.$i.gz ];do
+    zcat $ddir/d.scoord.$i.gz | gawk '{if(NR>1)print($0)}' >> $tmpn.coord
+    if [ ! -s $ddir/d.th_t.$i.$tstep.gz ];then
+	echo $0: error: $ddir/d.th_t.$i.$tstep.gz for timestep $tstep not found
+	exit
+    fi
+    zcat $ddir/d.th_t.$i.$tstep.gz | gawk '{if(NR>1)print($1)}' >> $tmpn.topo
+    if [ $i -eq 0 ];then
+	time=`zcat $ddir/d.th_t.$i.$tstep.gz | head -1 | gawk '{print($2)}'`
+    fi
+    ((i=i+1))
+done
+if [ $i -eq 0 ];then
+    echo $0: error: $ddir/d.scoord.$i.gz not found
+    exit
+fi
+n1=`lc $tmpn.coord`
+n2=`lc $tmpn.topo`
+if [ $n1 -ne $n2 ];then
+    echo $0: error: $n1 coords but $n2 topo lines\?
+    exit
+fi
+# recombine and scale
+paste $tmpn.coord $tmpn.topo | gawk '{print($1,$2,$4/1000)}' s=$scale > $tmpn.data
+
+minmax $tmpn.data
+#
+# plot
+#
+inc=-I0.05
+
+makecpt -T-200/200/10 -Cpolar > $tmpn.topo.cpt
+modifycptends $tmpn.topo.cpt
+
+reg=`minmax $inc $tmpn.data`
+proj=-JX7in			# projection
+ann=-Ba0.5f.1:"x":/:"y"::."time = $time":WesN # annotation
+
+# grid
+surface  $tmpn.data $reg $inc -G$tmpn.data.grd
+
+ofile=$ddir/$model.$tstep.dtopo.ps
+
+grdimage $tmpn.data.grd -C$tmpn.topo.cpt $reg $proj  "$ann" -K -P > $ofile
+psscale -E -D3.5/-.15/2/.1h -C$tmpn.topo.cpt -B100/:"dynamic topo [AU]": -O >> $ofile
+echo $0: output in $ofile
+
+

@@ -1,0 +1,43 @@
+#!/bin/bash
+#
+# plots a histogram of grid values on roughly equal area sampling
+#
+gfile=${1-d.1.grd}
+label=${2-"age [Ma]"}
+abs_value=${3-0}
+
+tmpn=/tmp/$USER.$HOST.$$.s
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+if [ ! -s $gfile ];then
+	echo $0
+	echo calculate histogram of data in $gfile
+	echo can not open $gfile
+	exit
+fi
+n=6
+
+ofile=$gfile.hist.ps
+proj=-JX5 
+
+max=`grd2absmax $gfile`
+if [ $abs_value -eq 1 ];then
+    reg=-R0/$max/0/15
+else
+    reg=-R-$max/$max/0/15
+fi
+width=`echo $max | gawk '{print($1*2/40)}'`
+
+zcat $datadir/sphere_points/npoints.$n.lonlat.gz | \
+    grdtrack -nl -Z -G$gfile  > $tmpn.dat
+
+
+
+echo $0: reg: $reg w: $width
+pshistogram $tmpn.dat \
+    -Ba30f3:"$label":/a5f1:"frequency [%]":WeSn \
+    $reg $proj -P -Z1 -L1 -W$width > $ofile
+modifybb $ofile
+
+cp $tmpn.dat tmp.hist
+

@@ -1,0 +1,39 @@
+#!/bin/bash
+#
+# compute which area fraction of a grd file contributes to the top f fraction of 
+# the integrated value
+#
+#
+grd=${1-tmp.grd}
+f=${2-0.8}
+#echo $0: working on $grd using top $f fraction > "/dev/stderr"
+tmpn=/tmp/$USER.$HOST.ff.$$
+trap "rm -rf $tmpn.*; exit" 0 1 2  15
+if [ ! -s $grd ];then
+    echo $0: grid not found 
+    exit
+fi
+
+dxrad=`grd2dx $grd | gawk '{print($1/180*57.2957795130823208)}'`
+dyrad=`grd2dy $grd | gawk '{print($1/180*57.2957795130823208)}'`
+
+grdmath `grd2range $grd` `grd2inc $grd`  Y = $tmpn.lat.grd
+grdmath $grd ISNAN 1 SUB ABS 0 NAN $tmpn.lat.grd COSD MUL $dxrad MUL $dyrad MUL  = $tmpn.area.grd # area
+
+gmtset D_FORMAT %22.15e
+grd2xyz -Z $grd > $tmpn.1.dat 
+grd2xyz -Z $tmpn.area.grd > $tmpn.2.dat 
+
+#
+paste $tmpn.1.dat $tmpn.2.dat | grep -v NaN | gawk '{print($1,$2,$1*$2)}' | sort -n --key=3,3 > $tmpn.3.dat
+
+
+gawk '{a+=$2;s+=$3}END{print(a,s)}' $tmpn.3.dat > $tmpn.5
+read area int < $tmpn.5
+intf=`echo $int $f | gawk '{print($1*$2)}'`
+#echo $0: $area $int $intf
+
+gawk '{a+=$2;s+=$3;if((s>intf)&&(!p)){p=1;print(1-(a-$2)/ta)}}' ta=$area intf=$intf $tmpn.3.dat
+
+
+gmtset D_FORMAT %lg

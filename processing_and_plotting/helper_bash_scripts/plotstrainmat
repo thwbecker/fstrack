@@ -1,0 +1,82 @@
+#!/bin/bash
+#
+# plots strain matrix based on tracer file with 
+# x y z err ert erp ett etp epp 
+# components
+#
+reg='-R0/360/-90/90'
+# file
+file=${1-tracer.f.s.200.dat}
+if [ ! -s $file ];then
+    echo $0: $file not found or empty
+    exit
+else
+    echo $0: reading tracer $file
+fi
+# resolution of grid file
+i=${2-1}
+inc=-I$i
+# 1: only horizontal 2: horizontal projection 3: all components
+mode=1
+tmpn=/tmp/$USER.$HOST.$$
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+scont="-L  -Lld -Lud"
+if [ $mode -eq 1 ];then
+    rm azi.grd e1.grd e2.grd er.grd 2> /dev/null
+    # only horizontal part, use extensional axis
+    # 1 2 3  4   5   6   7   8   9
+    # x y z err ert erp ett etp epp
+    gawk '{print($9,-$8,$7,$1,$2)}' $file | gawk -f calcms.awk | \
+	awk '{print($4,$5,$1,$2,$3)}' > $tmpn.he.dat
+    gawk '{print($1,$2,$3);}' $tmpn.he.dat  | surface $reg $inc -Ge1.grd $scont
+    gawk '{print($1,$2,$4);}' $tmpn.he.dat  | surface $reg $inc -Ge2.grd $scont
+    gawk '{print($1,$2,$5);}' $tmpn.he.dat  | surface $reg $inc -Gazi.grd $scont
+    gawk '{print($1,$2,$4)}' $file | surface $reg $inc -Ger.grd $scont
+    echo $0: horizontal parts in e1.grd e2.grd and azi.grd
+    echo $0: err part in er.grd
+elif [ $mode -eq 2 ];then
+    #
+    # horizontal projection of e1 vector direction in azi.grd
+    # 
+    rm e1.grd e2.grd azi.grd er.grd 2> /dev/null
+    gawk '{print($1,$2)}' $file > $tmpn.coord.dat
+    gawk '{print($4,$5,$6,$7,$8,$9)}' $file | eigen3ds | \
+    # use extensional eigenvector for azimuth only (forget about r component)
+	awk '{e3=$1;e2=$5;e1=$9;\
+		v1r=($10>0)?($10):(-$10);v1t=$11;v1p=$12;\
+		print(v1p,-v1t,v1r,e1,e3);}' > $tmpn.ev.dat
+    paste $tmpn.coord.dat $tmpn.ev.dat | \
+	awk '{print($1,$2,$3,$4,$5)}' > e1vec.xyz
+    paste $tmpn.coord.dat $tmpn.ev.dat > $tmpn.data
+    i=3
+    for f in vx vy er e1 e2; do
+	gawk '{print($1,$2,$i)}' i=$i $tmpn.data | \
+	    surface $reg $inc -G$tmpn.$f.grd $scont 
+	((i=i+1))
+    done
+    mv $tmpn.e1.grd e1.grd
+    mv $tmpn.e2.grd e2.grd
+    mv $tmpn.er.grd er.grd
+    grdmath $tmpn.vx.grd $tmpn.vy.grd ATAN2 R2D = azi.grd
+
+
+    echo $0: computed horizonral projection of direction of major 
+    echo $0: radial component of major extensional axis er.grd
+    echo $0: extensional eigenvector and largest and smallest eigenvectors
+    echo $0: output in e1.grd e2.grd and azi.grd
+
+elif [ $mode -eq 3 ];then
+    i=4
+    for f in err ert erp ett etp epp; do 
+	gawk '{print($1,$2,$i);}' i=$i $file  | surface $reg $inc -G$f.grd $scont
+	rms=`grd2rms $f.grd`
+	echo $0: $f.grd rms: $rms
+	echo $rms >> $tmpn.rms
+	((i=i+1))
+    done
+    echo weighted by err: `awk '{x[NR]=$1;}END{for(i=1;i<=6;i++)printf("%g ",x[i]/x[1]);}' $tmpn.rms`
+    echo weighted by epp: `awk '{x[NR]=$1;}END{for(i=1;i<=6;i++)printf("%g ",x[i]/x[6]);}' $tmpn.rms`
+fi
+
+
+	    

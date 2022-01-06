@@ -1,0 +1,128 @@
+#!/bin/bash
+#
+# determine equal area mean of data on a geographic grid, and 
+# on continental and oceanic subsets
+#
+# output is: global_mean continental_mean oceanic_mean [interior_ocean_mean]
+# 
+# if rms flag is set, will compute RMS instead
+# if interior is set, will compute the average also for intermediate age 
+#
+# $Id: grd2geo_mean_cont_ocean,v 1.2 2011/08/23 15:11:22 twb Exp becker $
+#
+pname=`basename $0`
+#
+wdir=/tmp/$$.$USER.$HOST.geomc/
+mkdir $wdir 2> /dev/null
+tmpn=$wdir/tmp
+
+trap "rm -rf $wdir/; exit" 0 1 2  15
+cwd=`pwd`
+
+if [ $# -lt 1 ];then
+    echo $0 file.grd \[rms\] \[calc_center\]
+    exit
+fi
+rms=${2-0}			# second argument, first is grd file
+calc_center=${3-0}
+#
+#
+# check if first grid file exists
+#
+#
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+if [ $rms -eq 1 ];then
+    grdmath $name 2 POW = $tmpn.i.grd
+else
+    cp $name $tmpn.i.grd
+fi
+cd $wdir/
+grd2xyz $tmpn.i.grd | gawk '{print($1,$2)}' > $tmpn.lonlat &
+
+oreg=`grd2reg $tmpn.i.grd`
+oinc=`grd2inc $tmpn.i.grd`
+
+
+# obtain weighting function
+grdmath $oreg $oinc  Y = $tmpn.lat.grd
+
+# weighting grid taking into account NAN
+grdmath $tmpn.i.grd ISNAN 1 SUB ABS 0 NAN \
+    $tmpn.lat.grd COSD MUL  = $tmpn.costheta.grd
+
+#
+# this assumes that grids are global
+#
+wait
+grdtrack -fg  -G$datadir/crust/3smac_derived/continent.0.25.grd -Qn $tmpn.lonlat | \
+    xyz2grd $oreg $oinc -G$tmpn.cont -fg
+
+grdmath $tmpn.cont 0 NAN \
+	$tmpn.costheta.grd MUL = $tmpn.ctc.grd & 
+grdmath $tmpn.cont 1 SUB ABS 0 NAN \
+	$tmpn.costheta.grd MUL = $tmpn.cto.grd &
+wait
+if [ $calc_center -eq 1 ];then
+    ( grdtrack -fg  -G$datadir/seafloor_age/age.3.6.grd -Qn $tmpn.lonlat 2> /dev/null | gawk '{if($3>=30 && $3<=150)print($1,$2,1);else print($1,$2,0)}' | xyz2grd  $oreg $oinc -G$tmpn.mo.grd -fg ;    grdmath $tmpn.mo.grd 0 NAN $tmpn.costheta.grd MUL = $tmpn.ctm.grd ) &
+    #grd2map2 $tmpn.mo.grd ; gv $tmpn.mo.ps
+fi
+
+
+
+sumw=`grd2sum $tmpn.costheta.grd`
+sumwc=`grd2sum $tmpn.ctc.grd` 
+sumwo=`grd2sum $tmpn.cto.grd` 
+
+
+grdmath $tmpn.costheta.grd $tmpn.i.grd MUL = $tmpn.scaled.grd &
+grdmath $tmpn.ctc.grd $tmpn.i.grd MUL = $tmpn.scaled.c.grd &
+grdmath $tmpn.cto.grd $tmpn.i.grd MUL = $tmpn.scaled.o.grd &
+
+wait
+sumwx=`grd2sum $tmpn.scaled.grd` 
+sumwxc=`grd2sum $tmpn.scaled.c.grd` 
+sumwxo=`grd2sum $tmpn.scaled.o.grd` 
+
+#echo $sumw $sumwc $sumwo $sumwx $sumwxc $sumwxo
+
+
+
+# output is 
+#
+# mean mean_c mean_o [mean_center_ocean]
+#
+mean=`echo $sumwx $sumw | gawk '{printf("%16.8f",$1/$2)}'`
+meanc=`echo $sumwxc $sumwc | gawk '{printf("%16.8f",$1/$2)}'`
+meano=`echo $sumwxo $sumwo | gawk '{printf("%16.8f",$1/$2)}'`
+out="$mean $meanc $meano"
+
+if [ $calc_center -eq 1 ];then
+    sumwm=`grd2sum $tmpn.ctm.grd`
+    grdmath $tmpn.ctm.grd $tmpn.i.grd MUL = $tmpn.scaled.m.grd
+    sumwxm=`grd2sum $tmpn.scaled.m.grd`
+    meanm=`echo $sumwxm $sumwm | gawk '{printf("%16.8f",$1/$2)}'`
+    out="$out $meanm"
+fi
+
+if [ $rms -eq 1 ];then
+    echo $out | gawk '{for(i=1;i<=NF;i++)printf("%16.8f",sqrt($i))}END{printf("\n")}'
+else
+    echo $out
+fi
+
+cd $pwd
+
+
+
+
+
+

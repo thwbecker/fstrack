@@ -1,0 +1,56 @@
+#!/bin/bash
+#
+# determine equal area mean of absolute value of data on a geographic grid
+#
+# $Id: grd2geo_mean,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+if [ $# -lt 1 ];then
+	echo `basename $0`: usage: `basename $0` file.grd
+	exit
+fi
+
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo `basename $0`: $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+
+
+
+#
+#
+#
+tmpn=/tmp/$USER.$HOST.$$.geomean
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+#
+# method 3 is still the best since it is failsafe
+# with respect to NaN and the like
+#
+cp $name $tmpn.i.grd
+
+
+# obtain weighting function
+grdmath `grd2range $tmpn.i.grd` `grd2inc $tmpn.i.grd`  Y = $tmpn.lat.grd
+    # this in here since else directories woth name 1/ would confuse grdmath
+pwd=`pwd`; cd /tmp
+    # multiply with modified original grid to correct for NaN entries
+grdmath $tmpn.i.grd ISNAN 1 SUB ABS 0 NAN $tmpn.lat.grd COSD MUL  = \
+    $tmpn.costheta.grd
+cd $pwd
+sumw=`grd2sum $tmpn.costheta.grd`
+grdmath $tmpn.costheta.grd $tmpn.i.grd MUL ABS = $tmpn.scaled.grd
+sumwx=`grd2sum $tmpn.scaled.grd`
+echo `echo $sumwx $sumw | gawk '{printf("%16.8f",$1/$2)}'`
+
+
+
+
+
+
+

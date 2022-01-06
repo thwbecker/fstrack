@@ -1,0 +1,14 @@
+#!/bin/bash
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo `basename $0`: $1 or $1.grd are nonexistent > "/dev/stderr"
+	exit
+    fi
+fi
+if [ `grdinfo $name | grep Pixel | lc ` -gt 0 ];then
+    echo -F
+fi

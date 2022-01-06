@@ -1,0 +1,53 @@
+#!/bin/bash
+#
+# determine std value of data on a geographic grid by roughly even area 
+# sampling
+#
+# usage:
+#
+# grd2geo_std file.grd 
+#
+#
+#
+
+pname=`basename $0`
+if [ $# -lt 1 ];then
+	echo $pname: usage: $pname file.grd  > "/dev/stderr"
+	echo $pname: where the std of file.grd will be computed > "/dev/stderr"
+	exit
+fi
+#
+#
+tmpn=/tmp/$$.$USER.geomean
+trap "rm -f $tmpn*; exit" 0 1 2  15
+#
+#
+# check if first grid file exists
+#
+#
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo `basename $0`: $1 or $1.grd are nonexistent > "/dev/stderr"
+	exit
+    fi
+fi
+if [ `grd2global $name` -eq 1 ];then
+    zcat  $datadir/sphere_points/npoints.10.lonlat.gz | \
+	grdtrack -Ql -fg -G$name -Z  | gawk -f standarddev.awk
+else				# regional grid
+    grd2reg $name | gawk -f reg2wesn.awk > tmp.$$
+    read w e s n < tmp.$$; rm tmp.$$ 
+    idx=`grd2dx $name | gawk '{print(int(2/$1)+1)}'`
+    gawk -v i=$idx -v xmin=$w -v xmax=$e -v ymin=$s -v ymax=$n -f even_area_sample.awk  | \
+	grdtrack -Ql -fg -G$name -Z  | gawk -f standarddev.awk
+fi
+
+
+
+
+
+

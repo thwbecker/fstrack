@@ -1,0 +1,45 @@
+#!/bin/bash
+f=${1-hs3_nuvel}		# model
+inc=${2-0.25}			# increment
+bw=${3-0}
+
+
+reg=-R0/360/-90/90
+proj=-JN180/7
+
+if [ ! -s $f.abs.$inc.grd ];then
+    echo $f.abs.$inc.grd not found
+    exit
+fi
+vmax=12
+
+if [ $bw -eq 1 ];then
+    makecpt -T0/$vmax/1 -Clight_gray > tmp.cpt
+    sc=0
+else
+#    makecpt -T0/$vmax/.25 -Cwysiwyg > tmp.cpt
+#    makecpt -T0/$vmax/.25 -Chaxby > tmp.cpt
+    makecpt -T0/$vmax/.25 -Ccyclic > tmp.cpt
+#    makecpt -T0/$vmax/.5 -Cspectral -I > tmp.cpt
+    sc=0/255/0
+fi
+
+
+grdimage $f.abs.$inc.grd -Ctmp.cpt -K -P $reg $proj > $f.ps
+#psxy $datadir/rum/all.gmt -M $reg $proj -K -O -W2,88/252/255 >> $f.ps
+pscoast -Dc -A50000 -O -W2/0 $reg $proj -K >> $f.ps
+grdvector $f.vx.$inc.-1.grd $f.vy.$inc.-1.grd \
+    -T $reg $proj -I20 -Q0.12/0.2/0.15n.7 -S30 \
+    -W0.5 -G255  -O >> $f.ps
+
+
+psscale -N50 -Ef -Ctmp.cpt -D3.5/0/3/.2h -P \
+    -Ba2/:"|v| [cm/yr]": > $f.cpt.ps
+modifybb $f.cpt.ps  210 30 520 90
+
+
+
+echo output in $f.ps and $f.cpt.ps
+
+rm tmp.cpt
+

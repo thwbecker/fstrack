@@ -1,0 +1,72 @@
+#!/bin/bash
+#
+# plot strain(rates) from e1 e2 and azi.grds
+#
+e1=${1-e1.grd}
+e2=${2-e2.grd}
+azi=${3-azi.grd}
+reg1=${4--R200/320/0/80}
+proj1=${5--JH215/7}
+pmode=0
+# 0 means strain crosses
+# 1 means axis of most tensional axis
+
+
+vinc=10
+tmpn=/tmp/$USER.$HOST.$$.pstr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+echo $0: using $e1 $e2 and $azi for strains
+ofile=strain.ps
+oinc=`grd2inc $e1`
+downsample=0
+if [ $downsample -eq 1 ];then
+    echo $0: downsampling
+else
+    cp $e1 $tmpn.e1
+    cp $e2 $tmpn.e2
+    cp $azi $tmpn.azi
+fi
+
+scale=`grd2absmax $tmpn.e1 | gawk '{print(0.15/$1)}'`
+# limit for color decision
+eps=`echo $scale | gawk '{print(0.02)}'`
+
+pscoast -Dl  $reg1 $proj1 -G200/200/200 -K -P > $ofile
+psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+    -M -W3/100/100/100 -: $reg1 $proj1 -K -O >> $ofile
+
+if [ $pmode -eq 0 ];then
+    grd2xyz $tmpn.e1     > $tmpn.st
+    grd2xyz -Z $tmpn.e2  > $tmpn.t1
+    grd2xyz -Z $tmpn.azi > $tmpn.t2
+    paste $tmpn.st $tmpn.t1 $tmpn.t2 > $tmpn.strain.dat
+    gawk '{if(($3>=-eps)&&($4>=-eps))print($0)}' eps=$eps $tmpn.strain.dat | \
+	psvelo -Sx$scale $reg1 $proj1 -O -W1/0/0/255 -K  >> $ofile
+    gawk '{if(($3<eps)&&($4<eps))print($0)}' eps=$eps $tmpn.strain.dat | \
+	psvelo -Sx$scale $reg1 $proj1 -O -W1/255/0/0 -K  >> $ofile
+    gawk '{if(($3>=eps)&&($4<eps))print($0)}' eps=$eps $tmpn.strain.dat | \
+	psvelo -Sx$scale $reg1 $proj1 -O -W1/0/255/0 -K  >> $ofile
+else
+    grdmath $tmpn.e1 $scale MUL = $tmpn.r
+    grdmath $tmpn.azi D2R = $tmpn.alpha
+    grdmath $tmpn.alpha COS $tmpn.r MUL = $tmpn.vy
+    grdmath $tmpn.alpha SIN $tmpn.r MUL = $tmpn.vx
+
+    grdvector $tmpn.vx $tmpn.vy -T -E -Sl0.1 $reg1 $proj1 -O  -K  -G0/0/255 >> $ofile
+
+fi
+
+
+
+psbasemap $reg1 $proj1 -Bf15a60/f15a30WeSn  -O  >> $ofile
+
+ps2epsi $ofile tmp
+mv tmp $ofile
+echo $0: output in $ofile
+
+
+
+		
+		
+	
+	

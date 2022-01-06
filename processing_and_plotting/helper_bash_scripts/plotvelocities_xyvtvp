@@ -1,0 +1,29 @@
+#!/bin/bash
+tmpn=/tmp/$USER.$HOST.plvel.$$
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+infile=${1-tmp.xyvxvy}
+checknr=${2-0}
+inc=-I${3-2}
+secvelfile=${4-xxxx}
+if [ ! -s $infile ];then
+    echo $0: can not find $infile
+    exit
+else
+    echo $0: reading from $infile
+fi
+reg=-R0/360/-90/90
+
+awk '{print($1,$2,$4)}'  $infile | surface $reg $inc -Lld -Lud -G$tmpn.vx.grd
+awk '{print($1,$2,-$3)}' $infile | surface $reg $inc -Lld -Lud -G$tmpn.vy.grd
+
+if [ -s $secvelfile ];then
+    echo $0: using second velocities in    $secvelfile
+    gawk '{print($1,$2,$4)}'  $secvelfile | surface -Lld -Lud $reg $inc -G$tmpn.vx.2.grd
+    gawk '{print($1,$2,-$3)}' $secvelfile | surface -Lld -Lud $reg $inc -G$tmpn.vy.2.grd
+fi
+
+plotvelocities $tmpn.vx.grd $tmpn.vy.grd \
+    xxx.grd 0 0 $checknr $tmpn.vx.2.grd $tmpn.vy.2.grd
+mv $tmpn.vx.ps $infile.ps
+echo $0: output in $infile.ps
+

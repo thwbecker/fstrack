@@ -1,0 +1,52 @@
+#!/bin/bash
+#
+# convert a grid file into three files with the lonlat point's
+# cartesian coordinates 
+#
+# $Id: grd2cartcoordgrd,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+tmpn=/tmp/$USER.$HOST.$$.grd2cartgrd
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+if [ $# -eq 0 ];then
+    echo $0 file.grd rx.grd ry.grd rz.grd radius
+    echo
+    echo converts coordinates of file.grd into cartesian coordinates and
+    echo stores them in rx.grd ry.grd rz.grd
+    echo radius is set to unity if omitted
+    exit
+fi
+if [ ! -s $1 ];then
+	if [ -s $1.grd ];then
+		name=$1.grd
+	else
+		echo $0: $1 or $1.grd not found
+		exit
+	fi
+else
+    name=$1
+fi
+rx=${2-rx.grd}
+ry=${3-ry.grd}
+rz=${4-rz.grd}
+#
+R=${5-1.0}
+verbose=${6-0}
+#
+if [ $verbose -eq 1 ];then echo $0: radius R: $r ; fi
+#
+reg=`grd2reg $name`
+inc=`grd2inc $name`
+# coords
+grdmath $reg $inc Y -1 MUL 90 ADD D2R = $tmpn.theta
+grdmath $reg $inc X               D2R = $tmpn.phi
+#
+grdmath $tmpn.theta SIN $R MUL = $tmpn.tmp
+grdmath $tmpn.phi COS $tmpn.tmp MUL = $rx
+grdmath $tmpn.phi SIN $tmpn.tmp MUL = $ry
+grdmath $tmpn.theta COS $R MUL = $rz
+if [ $verbose -eq 1 ];then
+    for t in $rx $ry $rz; do
+	echo $0: written to $t
+    done
+fi
+

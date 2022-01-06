@@ -1,0 +1,41 @@
+#!/bin/bash
+# plot single rotation vector pole in 
+# w_x w_y w_z 
+# format, units degrees/Myr
+#
+tmpn=/tmp/$USER.$HOST.$$
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+model=$datadir/plate_boundaries/plate_code_files/nuvel.2.grd
+allplates="ANT AUS AFR PAC EUR NAM NAZ COC CAR ARA PHI SAM IND JDF"
+
+if [ $# -eq 0 ]
+then
+    read wx wy wz
+else
+    if [ -s $1 ]
+    then
+	read wx wy wz < $1
+    else
+	echo $0: can not find file $1 with rotation pole
+	exit
+    fi
+fi
+echo $allplates | gawk '{for(i=1;i<=NF;i++)printf("%s %g %g %g\n",$i,wx,wy,wz)}' \
+    wx=$wx wy=$wy wz=$wz > $tmpn.rotpole
+reg=`grd2reg $model`
+inc=`grd2inc $model`
+
+grd2xyz $model  | rotvec2vel $tmpn.rotpole -1 > $tmpn.vel 2> /dev/null
+ 
+
+cat  $tmpn.vel | gawk '{print($1,$2,$3)}' | \
+	xyz2grd $reg $inc  -G$tmpn.vel.vx.grd
+cat  $tmpn.vel | gawk '{print($1,$2,-$4)}' | \
+	xyz2grd $reg $inc  -G$tmpn.vel.vy.grd
+
+plotvelocities $tmpn.vel.vx.grd $tmpn.vel.vy.grd
+mv $tmpn.vel.ps pole.ps
+echo $0: output in pole.ps
+
+
+

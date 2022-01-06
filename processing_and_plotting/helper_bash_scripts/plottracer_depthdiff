@@ -1,0 +1,15 @@
+#!/bin/bash
+pname=`basename $0`
+tmpn=/tmp/$USER.$HOST.$$.$pname
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+depth=${1-100}
+
+ff=tracer.f.l.$depth.dat
+fi=tracer.i.l.$depth.dat
+
+if [[ ! -s $ff || ! -s $fi ]];then
+    echo $0: can not find $ff and or $fi
+    exit
+fi
+head $ff $fi

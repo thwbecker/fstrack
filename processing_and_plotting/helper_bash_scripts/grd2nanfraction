@@ -1,0 +1,35 @@
+#!/bin/bash
+#
+
+wdir=`mktemp -d`
+trap "rm -rf $wdir; exit" 0 1 2  15
+cwd=`pwd`
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo `basename $0`: $1 or $1.grd are nonexistent > "/dev/stderr"
+	exit
+    fi
+fi
+
+cp $name $wdir/tmp.i.grd
+
+cd $wdir
+
+
+
+grdmath `grd2range tmp.i.grd` `grd2inc tmp.i.grd` `grd2ispixel tmp.i.grd` Y COSD = tmp.cos_lat.grd
+
+
+grdmath tmp.cos_lat.grd 0 MUL 1 ADD = tmp.unity.grd
+grdmath tmp.i.grd 0 MUL 1 ADD = tmp.filled.grd
+
+grdmath tmp.cos_lat.grd tmp.filled.grd MUL = tmp.1.grd
+grdmath tmp.cos_lat.grd tmp.unity.grd  MUL = tmp.2.grd
+
+s1=`grd2sum tmp.1.grd`
+s2=`grd2sum tmp.2.grd`
+echo $s1 $s2 | gawk '{printf("%12.7f\n",$1/$2)}'

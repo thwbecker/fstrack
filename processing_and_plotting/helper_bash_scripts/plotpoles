@@ -1,0 +1,31 @@
+#!/bin/bash
+tmpn=/tmp/$USER.tmp.vel.$$
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+model=nuvel
+inc=2
+reg=-R0/360/-90/90
+p=${1-rotvec.dat}
+usefixed=${2-0}
+if [ -s $p ]
+then
+
+echo $0: expanding poles in $p
+
+grd2xyz $datadir/plate_boundaries/$model.$inc.grd | \
+    rotvec2vel $p -1 > $tmpn.vel 2> /dev/null
+cat  $tmpn.vel | gawk '{print($1,$2,$3)}' | \
+	xyz2grd $reg -I$inc  -G$tmpn.vel.vx.grd
+cat  $tmpn.vel | gawk '{print($1,$2,-$4)}' | \
+	xyz2grd $reg -I$inc  -G$tmpn.vel.vy.grd
+if [ $usefixed -eq 1 ]
+then
+    plotvelocities_sf $tmpn.vel.vx.grd $tmpn.vel.vy.grd  2> /dev/null
+else
+    plotvelocities $tmpn.vel.vx.grd $tmpn.vel.vy.grd  2> /dev/null
+fi
+mv $tmpn.vel.vx.ps $p.ps
+echo $0: output in $p.ps
+
+else 
+echo $0: can not find poles $p
+fi

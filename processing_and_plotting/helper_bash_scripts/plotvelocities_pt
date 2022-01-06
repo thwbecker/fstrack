@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# plot a vector field that is given as phi and theta components
+# (see plotvelocities for explanation of backgrond velocities
+#
+vp=${1-vp.grd}			# phi velocities
+vt=${2-vt.grd}			# theta
+vr=${3-vr.grd}			# up
+region=${4-0}			# 
+fixscl=${5-4}			# 
+checknr=${6-0}			# 0: no check 1: check 2: remove
+secvx=${7-"xxx"}
+secvy=${8-"xxx"}
+use_psxy=${9-1}
+threeplots=${10-0}
+title=${11-""}
+ispt=1
+bw=${12-0}			# black and white
+pmean=${13-1}			# plot mean label
+abs_bg=${14-0}			# abs in background
+change_ref=${15-0}		# change reference frame
+pfix=${16-"EUR"} 		# fixed plate, can be NNR, but there's also checknr
+proj=${17-"xxx"}
+pbound=${18-1}			# 1: nuvel, 2: bird
+
+plotvelocities $vp $vt $vr \
+    $region $fixscl $checknr $secvx $secvy  \
+    $use_psxy $threeplots "$title" $ispt $bw $pmean \
+    $abs_bg $change_ref $pfix $proj $pbound
+
+

@@ -1,0 +1,25 @@
+#!/bin/bash
+grid=${1-tmp.grd}
+if [ ! -s $grid ];then
+    echo $0: cannot find $grid > /dev/stderr
+    exit
+fi
+nx=`grd2nx $grid`
+ny=`grd2ny $grid`
+grd2xyz $grid | \
+    gawk -v nx=$nx -v ny=$ny \
+	 'BEGIN{for(i=1;i<=nx;i++){mean[i]=0;n[i]=0;}
+            i=0;j=1;
+          }
+          {
+           i++;
+           if(j==1)
+             x[i]=$1;
+           if(tolower($3)!="nan"){
+             mean[i] += $3;
+             n[i]++;
+           }
+           if(i==nx){
+             i=0;j++;
+           }
+          }END{for(i=1;i<=nx;i++)print(x[i],mean[i]/n[i])}'

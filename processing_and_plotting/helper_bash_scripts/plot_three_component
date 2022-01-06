@@ -1,0 +1,48 @@
+#!/bin/bash
+infile=corrgrid.out
+inc=-I0.1
+
+reg=-R-1/1/-1/1
+proj=-JX5/5 
+
+makecpt `gawk -f minmax.awk col=4 $infile | \
+    gawk '{printf("-T%s/%s/0.0125",$1,$2)}'`\
+    -Crainbow   > corr.cpt
+modifycptends corr.cpt 
+
+either=0
+if [ $either -eq 1 ];then
+    gawk 'BEGIN{dx=0.025;ddx=dx/5;}{\
+	a=$1;b=$2;\
+	xlim1 = (a-dx<=0)?0:(a-dx);\
+	xlim2 = (a+dx>=1)?1:(a+dx);\
+	for(x=xlim1 ;x <= xlim2;x+=ddx){\
+	    x2 = x * x ;\
+	    ylim1 = (b-dx<=0)?0:(b-dx);\
+	    ylim2 = (b+dx>=1)?1:(b+dx);\
+	    for(y=ylim1;y<=ylim2;y+=ddx){\
+		tmp = 1.0 - x2 - y*y;\
+		if(tmp>0.0){\
+		    z=sqrt(tmp);\
+		    print(x,y,z,$4);\
+		}\
+	    }\
+	}\
+    }' $infile  |   gawk -f project3.awk | \
+	psxy $reg $proj -Sc0.08  -N -P -K -Ccorr.cpt > corr.ps
+
+else
+    gawk -f project3.awk $infile | \
+	psxy $reg $proj -Sc0.2  -W0.5 -N -P -K -Ccorr.cpt > corr.ps
+fi
+echo "0 0 0\n1 0 0\n>\n0 0 0\n0 1 0\n>\n0 0 0\n0 0 1\n>\n" | \
+    gawk -f project3.awk | psxy $reg $proj -W5 -M -K -O -N >> corr.ps
+echo "1.1 0 0 e@-3@-\n0 1.1 0 e@-2@-\n0 0 1.1 e@-1@-" | \
+    gawk -f project3.awk | gawk '{printf("%g %g 25 0 0 CM %s\n",$1,$2,$3)}' | \
+    pstext $reg $proj -O -N -K >> corr.ps
+psscale -Ccorr.cpt -E -L -N50 -D2.5/0/4/0.2h -B0.1/:"r": -O >> corr.ps
+modifybb corr.ps 0 0 500 500
+echo $0: output in corr.ps
+
+
+

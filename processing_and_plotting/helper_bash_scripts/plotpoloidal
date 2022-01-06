@@ -1,0 +1,38 @@
+#!/bin/bash
+vt=${1-vt.grd}
+vp=${2-vp.grd}
+cart=${3-0}
+if [[ ! -s $vt || ! -s $vp ]];then
+	echo $0: $0 vt.grd vp.grd cart
+	echo $0: plot the poloidal part of a vector field
+	echo $0: given as vt.grd and vp.grd for theta and phi  components
+	echo $0: if cart is set to unity, will use vx and vy instead
+	echo
+	exit
+fi
+if [ $cart -eq 1 ];then
+    echo $0: vx: $vt
+    echo $0: vy: $vp
+else
+    echo $0: vt: $vt
+    echo $0: vp: $vp 
+fi
+
+if [ $cart -eq 1 ];then
+    cp $vt vec_p.grd
+    grdmath $vp NEG = vec_t.grd
+else
+    cp $vt vec_t.grd
+    cp $vp vec_p.grd
+fi
+shana 127 vec_p 2 2> /dev/null | abconvert 12 0 1 4 2> /dev/null | \
+    shsyn `grd2dx $vp` 1 vpol `grd2bounds $vp` 2> /dev/null
+max=`grd2absmax vpol.grd`
+grdmath vpol.grd $max DIV = tmp.$$;mv tmp.$$ vpol.grd
+echo $0: written to vpol.grd
+
+mv vec_t.grd vt.grd
+mv vec_p.grd vp.grd
+grd2map vpol.grd "" "v@-pol@-" 1 -JN180/7 "" "" -1 "" 0 1.0 0 1
+rm vt.grd vp.grd
+

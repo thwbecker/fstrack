@@ -1,0 +1,88 @@
+#!/bin/bash
+#
+# plot the tranverse isotropy axis
+#
+model=${1-pmDsmean_nt}
+depth=${2-200}
+type=${3-s.2}
+
+
+
+if [ ! -s $model/results/tracer.tid.$depth.$type.dat.gz ];then # texture check
+    echo $0: texture file $model/results/tracer.tid.$depth.$type.dat.gz not found
+    exit
+fi
+if [ ! -s $model/results/tracer.f.s.$depth.$type.dat.gz ];then # finite strain
+    echo $0: texture file $model/results/tracer.f.s.$depth.$type.dat.gz not found
+    exit
+fi
+
+
+ofile=$HOME/tmp/$model.tid.$depth.$type.ps
+
+
+reg=-R0/360/-70/70
+proj=-JM9
+t_stickvec="-SV-0.032/0.0/0.00 -G200/0/0 -W1/1/1/1"
+fse_stickvec="-SV-0.032/0.0/0.00 -G255 -W1/1/1/1"
+
+#
+# texture
+#
+# input:
+#
+# lon lat z xr xt xp ani
+#
+# output:
+#
+# lon lat azi length
+#
+zcat $model/results/tracer.tid.$depth.$type.dat.gz | \
+    gawk '{x=$1;y=$2;xr=$4;xt=$5;xp=$6;a=$7;if(a>0){
+            xh = sqrt(1.0-xr*xr);
+            print(x,y,atan2(xp,-xt)*57.2957795130823,a*xh/40)}}' \
+		> tmp.$$.t.dat
+#
+#
+# finite strain
+#	   
+# extract horizontal projection of largest eigenvector
+#
+zcat $model/results/tracer.f.s.$depth.$type.dat.gz |\
+    gawk '{print($4,$5,$6,$7,$8,$9)}'  | eigen3ds | \
+    gawk '{e3=$1;e3r=$2;e3t=$3;e3p=$4;\
+	    e2=$5;e2r=$6;e2t=$7;e2p=$8;\
+	    e1=$9;e1r=$10;e1t=$11;e1p=$12;\
+            if((e2==0)||(e1/e2<0)){\
+             print(0,0);\
+            }else {\
+	     e1h=log(e1/e2)*sqrt(1.0-e1r*e1r);\
+	     print(atan2(e1p,-e1t)*57.29578,e1h/3);\
+            }}' > tmp.$$.fse.2.dat
+zcat $model/results/tracer.f.s.$depth.$type.dat.gz | \
+    gawk '{print($1,$2)}'  > tmp.$$.fse.1.dat
+paste tmp.$$.fse.1.dat tmp.$$.fse.2.dat > tmp.$$.fse.dat
+rm tmp.$$.fse.[1-2].dat
+
+
+pscoast -Dc -A70000  \
+    -Ba60f15/a30f15WeSn $reg $proj -S128/200/128 -G128/128/128 -K -P > $ofile
+
+psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W7 -: $reg $proj -O -K >> $ofile
+
+each=20
+# FSE
+gawk '{if(NR%each==0){a=($3<0)?(360+$3):($3);print($1,$2,a,$4);}}' \
+    each=$each tmp.$$.fse.dat > tmp.$$.fse.1.dat
+mypsxy tmp.$$.fse.1.dat $reg $proj -O -K $fse_stickvec >> $ofile
+# texture
+gawk '{if(NR%20==0){a=($3<0)?(360+$3):($3);print($1,$2,a,$4);}}' \
+    each=$each tmp.$$.t.dat > tmp.$$.t.1.dat
+mypsxy tmp.$$.t.1.dat $reg $proj -O $t_stickvec >> $ofile
+
+
+
+rm tmp.$$.t.dat tmp.$$.fse.dat tmp.$$.t.1.dat tmp.$$.fse.1.dat
+
+echo $0: output in $ofile

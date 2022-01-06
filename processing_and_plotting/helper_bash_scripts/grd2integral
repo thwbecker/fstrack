@@ -1,0 +1,37 @@
+#!/bin/bash
+#
+# determine area weighted sum of a geographic grid
+#
+# $Id: grd2integral,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+tmpn=/tmp/$USER.$HOST.$$.geomean
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+# obtain weighting function
+grdmath `grd2range $name` `grd2inc $name`  Y = $tmpn.lat.grd
+grdmath $tmpn.lat.grd D2R COS = $tmpn.costheta.grd
+# multiply with modified original grid to correct for NaN entries
+grdmath $name ISNAN 1 SUB ABS 0 NAN $tmpn.lat.grd D2R COS MUL  = \
+	$tmpn.costheta.grd
+grdmath $tmpn.costheta.grd $name MUL = $tmpn.scaled.grd
+sumwx=`grd2sum $tmpn.scaled.grd`
+dx=`grd2dx $tmpn.scaled.grd`
+dy=`grd2dy $tmpn.scaled.grd`
+echo `echo $sumwx $dx $dy | gawk '{print($1*$2*$3*12364311711.4888)}'`
+
+
+
+
+
+

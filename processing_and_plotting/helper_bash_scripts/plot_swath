@@ -1,0 +1,171 @@
+#!/bin/bash
+#
+# get topography swaths, output is
+#
+# L mlon mlat min max mean median std N 
+# 
+lon1=${1-03.92};lat1=${2-35.87};lon2=${3-15.04};lat2=${4-37.47}
+outfile=${5-swath.dat}		# output of data: L min max mean median std N
+boutfile=${6-swath.box}		# range of swath, output
+greg=${7-""}			# cut grid file
+tfile=${8-$datadir//etopo2/etopo2.grd} # input grid file
+dl=${9-5}				# spacing for along track sampling in km
+hw=${10-75}				# half width in KM
+
+plot=0				# plot for debugging
+
+#
+#
+#
+
+
+dw=$dl			# cross track sampling
+
+tmpn=/tmp/$USER.$HOST.$$.ps
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+echo $lon1 $lat1 $lon2 $lat2 | gawk -f dist_on_sphere_azi_midpoint.awk  > $tmpn
+read dist_deg azi1 mlon mlat < $tmpn; rm $tmpn
+
+azi2=`echo $mlon $mlat $lon2 $lat2 | gawk -f azimuth.awk`
+mean_azi=`echo $azi1 $azi2 | gawk '{print(($1+$2)/2)}'`
+dist_km=`echo $dist_deg | awk '{print(111.194926644559*$1)}'`
+echo $0: point1: $lon1 $lat1 midpoint: $mlon $mlat   > "/dev/stderr"
+echo $0: point2: $lon2 $lat2 azi: $azi1 $azi2 mean_azi: $mean_azi  > "/dev/stderr"
+echo $0: distance_deg: $dist_deg dist_km: $dist_km > "/dev/stderr"
+echo $0: half width of swath: $hw km, step size in L: $dl km > "/dev/stderr"
+
+if [ `echo $dl $dist_km | gawk '{if($1>$2)print(1);else print(0)}'` -eq 1 ];then
+    echo $0: ERROR: dl is larger than profile length > "/dev/stderr"
+    exit
+fi
+
+project -G$dl -Q -C$lon1/$lat1 -E$lon2/$lat2 > $tmpn.prof
+np=`lc $tmpn.prof`
+((np1=np-1))
+head -$np1 $tmpn.prof > $tmpn.dat
+mv $tmpn.dat $tmpn.prof
+
+gawk '{if(n){print(oldx,oldy,oldl,$1,$2,$3);n=0;}oldx=$1;oldy=$2;oldl=$3;n++}' $tmpn.prof | \
+    gawk '{print($1,$2,$4,$5,($3+$6)/2)}' | \
+    gawk -f dist_on_sphere_azi_midpoint.awk |\
+    gawk '{print($3,$4,$2-90,$5)}' > $tmpn.mlonmlattazi
+
+ncross=`lc $tmpn.mlonmlattazi`
+
+i=1;rm $tmpn.tprof.all $tmpn.tprof.m 2> /dev/null
+while [ $i -le $ncross ];do
+    oneline $i $tmpn.mlonmlattazi > $tmpn.dat
+    read llon llat lazi ll < $tmpn.dat
+
+    echo $ll $llon $llat >> $tmpn.tprof.m
+
+    project -Q -C$llon/$llat -A$lazi -L-$hw/$hw -G`echo $dw`K | \
+	gawk -v ll=$ll -v i=$i '{print($1,$2,ll,i)}' > $tmpn.tprof.$i &
+    [[ $((i%NR_CPUS)) -eq 0 ]] && wait
+
+    ((i=i+1))
+done
+wait
+# box
+head -1 $tmpn.tprof.1 | gawk '{print($1,$2)}' > $boutfile
+tail -1 $tmpn.tprof.1 | gawk '{print($1,$2)}' >> $boutfile
+tail -1 $tmpn.tprof.$ncross | gawk '{print($1,$2)}' >> $boutfile
+head -1 $tmpn.tprof.$ncross | gawk '{print($1,$2)}' >> $boutfile
+head $boutfile > $tmpn.t ;cat $tmpn.t >> $boutfile
+
+ 
+# all interpolate values
+#
+# convert to 
+#
+# L mlon mlat min max mean median std N 
+#
+#grdtrack -fg $tmpn.tprof.all -fg -G$tfile | gawk -f minmaxmeanstd_for_swath.awk > $tmpn.tstat
+if [ `echo $greg | gawk '{if($1=="")print(1);else print(0)}'` -eq 1 ];then
+    greg=`grd2reg $tfile`
+    echo $0: using original file at $greg > "/dev/stderr"
+else
+    echo $0: cutting topo file at $greg > "/dev/stderr"
+fi
+
+grdcut $tfile $greg -G$tmpn.tcut -fg 
+
+ginc=`grd2inc $tmpn.tcut`
+greg=`grd2reg $tmpn.tcut`
+
+
+
+i=1
+while [ $i -le $ncross ];do	# mask along profiles
+    cp $tmpn.tcut $tmpn.tcut.$i
+    (grdmask $tmpn.tprof.$i -S`echo $dl`K $greg $ginc -NNaN/1/1 -G$tmpn.mask.$i.grd;\
+	grdmath $tmpn.tcut.$i $tmpn.mask.$i.grd MUL = $tmpn.$i.out;\
+    # 1    2           3          4          5         6   7     8    9   10
+    # n average std_deviation variance avg_deviation skew curt median min max
+	grd2xyz -S -Z $tmpn.$i.out | \
+	    stddev  2> /dev/null | gawk '{print($9,$10,$2,$8,$3,$1)}' > $tmpn.tstat.$i ) &
+    [[ $((i%NR_CPUS)) -eq 0 ]] && wait
+    #   tail -1 $tmpn.tstat
+    ((i=i+1))
+
+done
+wait
+# reassumabke
+rm $tmpn.tstat 2> /dev/null
+i=1
+while [ $i -le $ncross ];do	# mask along profiles
+    cat $tmpn.tstat.$i >> $tmpn.tstat
+    rm $tmpn.tcut.$i
+    ((i=i+1))
+done
+
+
+paste $tmpn.tprof.m $tmpn.tstat > $outfile
+echo $0: written to $outfile > "/dev/stderr"
+
+
+
+
+if [ $plot -eq 1 ];then
+
+    proj=-JOa$mlon/$mlat/$mean_azi/10
+    reg=`echo $dist_deg $hw | gawk '{printf("-R%g/%g/%g/%g",-$1*0.6,$1*0.6,-$2/111*1.5,$2/111*1.5)}'`
+
+    makecpt -T-2000/2000/100 -Cgray > tmp.cpt
+    use_topo=1
+    ofile=tmp.ps
+    if [ $use_topo -eq 1 ];then
+	grdview -Qs70 $tmpn.tcut -Ctmp.cpt -Y10 $reg $proj -K -P -Ba5g5f1/a2g5f1WESn  > $ofile
+	pscoast  $reg $proj -W1 -Di  -K -O  >> $ofile
+    else
+
+	pscoast -Y10 $reg $proj -Di -S128 -K -P -Ba5g5f1/a2g5f1WESn  > $ofile
+    fi
+    psxy $boutfile -O -R -J -K  -fg  -W5,red >> $ofile
+    psxy $tmpn.prof -O -R -J -K  -fg  -W10,darkred >> $ofile
+    echo $lon1 $lat1 | psxy -O -R -J -K -Sc.2 -Gred -W0.5 >> $ofile
+    echo $lon2 $lat2 | psxy -O -R -J -K -Sc.2 -Gred -W0.5 >> $ofile
+
+
+
+    l1=`head -1 $tmpn.prof | gawk '{print($3)}'` 
+    l2=`tail -1 $tmpn.prof | gawk '{print($3)}'`
+
+    reg=-R$l1/$l2/-3000/3000
+    proj=-JX10/4
+    psbasemap $reg $proj -O -K \
+	-Ba200f20:"distance along profile [km]":/a2000f200:"elevation [m]":WeSn  -Y-5 >> $ofile
+# range
+    gawk '{print($1,$4)}' $outfile > $tmpn.dat
+    gawk '{print($1,$5)}' $outfile | sort -n -r >> $tmpn.dat
+    psxy -K -R -J -L -O -Ggray -W0.5 $tmpn.dat >> $ofile
+# median
+    gawk '{print($1,$7)}' $outfile | psxy -K -R -J -O -W10  >> $ofile
+# mean
+    gawk '{print($1,$6)}' $outfile | psxy  -R -J  -O -W2  >> $ofile
+
+    modifybb $ofile
+    echo $0: output in $ofile
+fi

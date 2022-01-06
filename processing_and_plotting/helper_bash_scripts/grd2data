@@ -1,0 +1,15 @@
+#!/bin/bash
+# converts x y z tripels on a global scale 
+# to the 'data' format of 3SMAC 
+#
+nx=`grd2nx $1`
+ny=`grd2ny $1`
+filename=`echo $1 | gawk '{printf("data%s",substr($1,1,length($1)-4))}'`
+echo automatically produced from $1 > $filename
+echo FORMAT nx=$nx ny=$ny \(\*\) >> $filename
+echo DATA >> $filename
+grd2xyz -ZLT $1 | \
+ gawk '{printf("%10.3e ",$1);n++;if(n==10){printf("\n");n=0;}}' >> $filename
+echo data output in $filename
+
+

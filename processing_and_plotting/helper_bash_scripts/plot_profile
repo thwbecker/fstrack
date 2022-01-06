@@ -1,0 +1,825 @@
+#!/bin/bash
+#
+# med:
+#plot_profile vp 20 37 50 30
+# pac slice
+#    plot_profile vp 230 0 105 90
+#rm prof.grd ; plot_profile od 20 40 45 0.1
+#rm prof.grd ; plot_profile od 25 38 25 0.1
+# plot profile of field given on grd files on layers as in $dfile
+#
+# file prefix for grid files: $pf.$i.grd
+#pf=${1-/tmp/regtest/test1.0.vp}
+pf=${1-vp}
+#pf=${1-vp}
+#dfile=$pf.vdepth.dat
+#dfile=vdepth.dat
+#dfile=dalpha.dat
+#dfile=depth.dat
+dfile=depths.dat
+# pole, i.e. center of profile
+lon=${2-15}
+lat=${3-35}
+# azimuth of profile
+azi=${4-90}
+# half length in degrees, use 180 for whole world
+hl=${5-7}
+# add overview maps?
+addomap=${6-1}
+# clean up old files?
+clean=${7-1}
+# cutoff for colorscale
+coff=${8-.5}
+# add net rotation to velocities?
+addnr=${9-0}			# 1: HS2 2: go to MM-NNR
+# create a transparent PDF
+wpdf=${10-0}
+# remove motion of indiv plates
+#removeplate="EUR"
+#removeplate="AFR"
+removeplate=""
+
+
+# use psxy for plotting
+usepsxy=0
+
+add_worldmap=0		 # add world map
+
+#
+# max depth cutoff, count z in km and postive
+#zmax=2891
+#zmax=1600
+zmax=800
+#zmax=660
+#zmax=1320
+
+remove_mean=1
+add_splitting=1
+
+
+cartesian=0			# 0: polar projection 1: cartesian
+
+
+regional=0
+
+
+vtemp=2				# 1: look for temperatures for velocity plots
+                                # 2: look for viscosity plots
+
+prog_name=`basename $0`
+
+if [ $hl -gt 45 ];then
+    hscale=15;
+else
+    hscale=5;
+fi
+
+model=`pwd | gawk '{FS="/";print($(NF))}'`
+
+# depth for velocities for surface velocity plot
+# if -1, don't plot surface velocities
+#veldepth=-1
+veldepth=0
+#veldepth=120.03
+#veldepth=358.875
+#veldepth=350
+#veldepth=215.325
+#veldepth=358.875
+#
+
+# use topography?
+topomap=1
+
+addglobalvel=1
+# width of profile plot
+pwidth=8.5
+
+# location of colorbar
+#psloc=3.5/-1/5/0.2h 
+psloc=3.75/-3.75/4/0.2h 
+
+
+rpwarned=0
+#
+# if the grd starts with "vp", expect velocities
+#
+if [ `echo $pf | gawk '{if(match($1,"vp"))print(1);else print(0)}'` -eq 1 ];then
+    # expects velocities
+    velocities=1
+    start_name=`echo $pf | gawk '{n=match($1,"vp");print(substr($1,1,n-1))}'`
+    lsn=`echo $startname | gawk '{print(length($1))}'`
+    echo $prog_name: using velocities, $start_name, $lsn
+else
+    # expects scalar field
+    velocities=0
+    echo $prog_name: using scalar
+fi
+
+if [ $wpdf -eq 1 ];then
+    gmtset BASEMAP_FRAME_RGB 255/255/255
+    pbcstr=-W12/255/0/0
+    scstr=-W7/0/255/0
+    ccstr=-G056/248/140
+else
+    pbcstr=-W8/100/0/0
+    scstr=-W2/0/100/0 
+    ccstr=-G100/120/100
+
+fi
+
+# options for surface gridding routine
+sfoptions="-Lld -Lud"
+if [ $hl -le 90 ];then
+    # number of points along track
+    m=120
+    addlabels=1
+    if [ $hl -lt 75 ];then
+	psurfacemap=1
+    else
+	psurfacemap=0
+    fi
+else
+    # assume total slice
+    m=250
+    addlabels=0
+    psurfacemap=0
+fi
+
+
+
+owd=`pwd`
+# PS and grd out
+psofile=prof.ps
+if [ $velocities -eq 1 ];then
+    # upward flow in profile
+    vrfile=$owd/v.p.r.grd
+    # right flow in profile
+    vtfile=$owd/v.p.t.grd
+    # flow out of profile, right hand rule,
+    # thumb up, index finger in azimuth direction
+    # middle finger in direction AGAINST flow
+    vpfile=$owd/v.p.p.grd
+    tfile=$owd/t.int.grd
+    # output file
+    psfile=v.p.eps
+    pdffile=v.p.pdf
+else
+    grdfile=prof.grd
+    psfile=$grdfile.ps
+    pdffile=$grdfile.pdf
+fi 
+if [ $clean -eq 1 ];then
+    rm $grdfile $vrfile $vtfile $vpfile $tfile $psfile $pdffile \
+	2> /dev/null
+fi
+vecs="-Q0.03/0.07/0.04n0.1"
+vecs2="-Sv0.04/0.1/0.06 -G255 -W0.5 "	# vector size
+
+tmpn=/tmp/$USER.$HOST.$$.dkj
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+# generate track
+dtheta=`echo $hl $m | gawk '{printf("%020.14f",2*$1/($2-1))}'`
+echo $prog_name: hl: $hl dtheta: $dtheta
+azi=`echo $azi | gawk '{a=$1;if(a>180)a-=180;print(a)}'`
+project -A$azi -C$lon/$lat -L-$hl/$hl -G$dtheta | \
+    gawk '{if($1<0)print(360+$1,$2,$3);else print($0)}' > $tmpn.prof
+
+pscoast -Rg -JH180/7 -Dc -G200 -K > tmp.ps
+psxy $tmpn.prof -Rg -JH180/7 -O >> tmp.ps
+
+
+# radial boundaries
+# number of original layers
+n=`lc $dfile`
+
+rmin=`oneline 1 $dfile | gawk '{z=$1;if(z>0)z=-z;print(6371+z);}' `
+rmax=`oneline $n $dfile | gawk '{z=$1;if(z>0)z=-z;print(6371+z);}'`
+echo $rmin $rmax | \
+    gawk '{rlim=6371-zmax;if($1>$2){rmin=$2;rmax=$1;}else{rmin=$1;rmax=$2;}\
+	    if(rmin<rlim)rmin=rlim;print(rmin,rmax)}' zmax=$zmax > $tmpn.dat
+read rmin rmax < $tmpn.dat
+echo $prog_name: depth limits: $rmin $rmax
+dr=`echo $rmin $rmax $n | gawk '{print(($2-$1)/($3-1))}'`
+rrange=`echo $rmin $rmax  | gawk '{print($2-$1)}'`
+echo $0: rrange $rrange dr $dr
+
+psxyscale=`echo $hscale | gawk '{print(1/$1)}'`			# scale for vector length
+
+#
+# check for files and possibly add net rotation
+#
+if [[ $velocities -ne 1 &&  -s $grdfile ]];then
+    echo $prog_name: WARNING: using old $grdfile
+elif [[ $velocities -eq 1 && -s $vtfile && -s $vrfile && -s $vpfile ]];then
+    echo $prog_name: WARNING: using old $vtfile and $vrfile
+else
+    if [ ! -s $dfile ];then
+	echo $prog_name: can not find depths in $dfile
+	exit
+    fi
+    if [ $n -le 3 ];then
+	echo $prog_name: $n layers is not enough
+	exit
+    fi
+    i=1
+    while [ $i -le $n ];do
+	if [ ! -s $pf.$i.grd ];then
+	    echo $prog_name: can not find $pf.$i.grd, $dfile has $n depths
+	    exit
+	else 
+	    if [ $velocities -eq 1 ];then
+		if [ $lsn -eq 0 ];then
+		    pname=vp.$i.grd;tname=vt.$i.grd;rname=vr.$i.grd
+		else
+		    pname=$start_name.vp.$i.grd
+		    tname=$start_name.vt.$i.grd
+		    rname=$start_name.vr.$i.grd
+		fi
+		if [[ ! -s $rname || ! -s $tname ]];then
+		    echo $prog_name: can not find $rname or $tname
+		    echo $prog_name: since first grd file name contained \"vp\", 
+		    echo $prog_name: this script was expecting velocities. exiting
+		    exit
+		fi
+		if [ $addnr -eq 1 ];then # add net rotation from HS2
+		    grdmath $pname $datadir/plates/hs2_nuvel.nr.vx.1.-1.grd ADD = $tmpn.vp.$i.grd
+		    grdmath $tname $datadir/plates/hs2_nuvel.nr.vy.1.-1.grd SUB = $tmpn.vt.$i.grd
+		    cp $rname $tmpn.vr.$i.grd
+		elif [ $addnr -eq 2 ];then # go to mean lower mantle NNR
+		    if [ $i -eq 1 ];then
+			if [[ ! -s vp.nr.grd || ! -s vt.nr.grd ]];then
+			    echo $0: mean net motion grids not found, computing
+			    cd ..
+			    calculate_model_net_rotation $model
+			    cd $model
+			fi
+			echo $0: correcting for mean mantle net rotation > "/dev/stderr"
+		    fi
+	    # correct
+		    grdmath  $pname vp.nr.grd SUB = $tmpn.tmp; mv $tmpn.tmp $tmpn.vp.$i.grd
+		    grdmath  $tname vt.nr.grd SUB = $tmpn.tmp; mv $tmpn.tmp $tmpn.vt.$i.grd
+		    cp $rname $tmpn.vr.$i.grd
+		else
+		    cp $rname $tmpn.vr.$i.grd
+		    cp $tname $tmpn.vt.$i.grd
+		    cp $pname $tmpn.vp.$i.grd
+		fi
+		
+		if [ `echo $removeplate | gawk '{if($1!="")print(1);else print(0)}'` -eq 1 ];then # remove a singple plate rot vec
+		    rplate=1
+		    if [ $rpwarned -eq 0 ];then echo $prog_name: correcting for $removeplate ;fi
+		    if [ ! -s corr.vx.grd ];then
+			cp vp.$n.grd $tmpn.top.vx
+			grdmath vt.$n.grd NEG = $tmpn.top.vy
+			calculate_net_rotation $tmpn.top.vx $tmpn.top.vy -1 2 2> /dev/null > /dev/null
+			grep $removeplate $HOME/tmp/bf.euler  > $tmpn.euler 
+			read p wx wy wz < $tmpn.euler
+			echo $prog_name: euler pole for $wx $wy $wz
+			create_grid_rvec $wx $wy $wz `grd2reg $tmpn.vp.$i.grd` `grd2inc $tmpn.vp.$i.grd` corr.vx.grd corr.vy.grd
+
+		    else
+			if [ $rpwarned -eq 0 ];then echo $prog_name: reusing correctiong for plate; fi
+		    fi
+		    grdmath $tmpn.vp.$i.grd corr.vx.grd SUB = $tmpn.grd;mv $tmpn.grd $tmpn.vp.$i.grd
+		    grdmath $tmpn.vt.$i.grd corr.vy.grd ADD = $tmpn.grd;mv $tmpn.grd $tmpn.vt.$i.grd
+		else
+		    rplate=0
+		fi
+		rpwarned=1
+	    fi
+	fi
+	((i=i+1))
+    done
+    if [ $velocities -eq 0 ];then
+	echo $prog_name: file check for $pf.1.grd through $pf.$n.grd ok
+    else
+	if [[ `ls $tmpn.vp.*.grd | lc ` -ne $n ||  `ls $tmpn.vt.*.grd | lc ` -ne $n || \
+	    `ls $tmpn.vr.*.grd | lc ` -ne $n ]];then
+	    echo $prog_name: temporary file error
+	    exit
+	fi
+	echo $prog_name: file check for $start_name.vp.1.grd through $start_name.vt.$n.grd  
+	echo $prog_name: through $start_name.vr.$n.grd ok
+	if [ $addnr -eq 1 ];then
+	    echo $prog_name: WARNING: added net rotation
+	elif [ $addnr -eq 2 ];then
+	    echo $prog_name: going to mean lower mantle NNR
+	fi
+
+	#
+	# select a velocity layer for map plots?
+	# 
+
+	if [ `echo $veldepth | gawk '{if($1==-1)print(0);else print(1)}'` -eq 1 ] ;then
+	    is=`gawk 'BEGIN{i=-1;}{if($1==d)i=NR;}END{print(i)}' d=$veldepth $dfile`
+	    if [ $is -eq -1 ];then
+		echo $prog_name: velocities at $veldepth for map plot not found in $dfile
+	    else 
+		echo $prog_name: generating surface velocities at depth $veldepth
+		cp $tmpn.vp.$is.grd            $tmpn.vmap.vp.grd
+		cp $tmpn.vt.$is.grd            $tmpn.vmap.vt.grd
+		grdmath $tmpn.vt.$is.grd NEG = $tmpn.vmap.vy.grd
+	    fi
+	fi
+    fi
+    #
+    echo $prog_name: pole: $lon/$lat, azi: $azi, half length: $hl degrees
+    # theta boundaries
+    tmin=-$hl
+    tmax=$hl
+    #
+    # extract a profile
+    #
+    rm $tmpn.*.dat $tmpn.dat 2> /dev/null
+    i=1
+    while [ $i -le $n ];do
+	depth=`oneline $i $dfile`
+	r=`echo $depth | gawk '{z=$1;if(z>0)z=-z;print(6371+z);}'`
+	if [ `echo $depth | gawk '{if($1<=zmax)print(1);else print(0)}' zmax=$zmax` -eq 1 ];then
+	    echo $prog_name: adding layer $i, radius: $r, depth: $depth
+	    if [ $velocities -ne 1 ];then
+		if [ ! -s lmean.dat ];then
+		    echo $0: computing layer means
+		    jj=1
+		    while [ $jj -le $n ];do
+			grd2geo_mean $pf.$jj.grd >> lmean.dat
+			((jj=jj+1))
+		    done
+		fi
+		# output is theta azimuth, R, value
+
+		if [ $remove_mean -eq 1 ];then
+		    mean=`oneline $i lmean.dat`
+		    echo $0: removing mean $mean
+		else
+		    mean=0
+		fi
+		grdtrack $tmpn.prof -fg -G$pf.$i.grd | \
+		    gawk -v r=$r -v mean=$mean '{if(NF>=4)print($3,r,$4-mean)}'  >> $tmpn.dat
+		#minmax $tmpn.dat;cp $pf.$i.grd tmp.grd;cp $tmpn.prof tmp.prof
+		#exit
+	    else
+		# extrapolate velocities
+		
+		# upward flow
+		grdtrack  $tmpn.prof -fg -G$tmpn.vr.$i.grd  | \
+		    gawk '{print($3,r,$4)}' r=$r >> $tmpn.vr.dat
+		# v_y, original frame
+		grdtrack  $tmpn.prof -fg -G$tmpn.vt.$i.grd  | \
+		    gawk '{print($3,r,-$4)}' r=$r >> $tmpn.vy.dat
+		# v_x, original frame
+		grdtrack  $tmpn.prof -fg -G$tmpn.vp.$i.grd  | \
+		    gawk '{print($3,r,$4)}' r=$r >> $tmpn.vx.dat
+		if [ $vtemp -eq 1 ];then
+		    if [ ! -s t.1.grd ];then
+			vtemp=0
+			echo $prog_name: WARNING: no temp files founds, switching back to vtemp 0
+		    else
+			grdtrack  $tmpn.prof -fg -Gt.$i.grd  | gawk '{print($3,r,$4)}' r=$r \
+			    >> $tmpn.t.dat
+		    fi
+		elif [ $vtemp -eq 2 ];then
+		    if [ ! -s e.1.grd ];then
+			vtemp=0
+			echo $prog_name: WARNING: no viscosity files founds, switching back to vtemp 0
+		    else
+			grdtrack  $tmpn.prof -fg -Ge.$i.grd  | \
+			    gawk '{print($3,r,$4)}' r=$r \
+			    >> $tmpn.e.dat
+		    fi
+		fi
+	    fi
+	else
+	    echo $prog_name: skipping layer $i, depth: $depth, depth larger than $zmax
+	fi
+	((i=i+1))
+    done
+    if [ $velocities -eq 1 ];then
+	#
+	# create grid with radial (up) velocity
+	surface $tmpn.vr.dat -R$tmin/$tmax/$rmin/$rmax \
+	    -I$dtheta/$dr -G$vrfile $sfoptions
+	# create grids with velocities in original vx/vy frame
+	surface $tmpn.vx.dat -R$tmin/$tmax/$rmin/$rmax \
+		-I$dtheta/$dr -G$tmpn.vx.grd  $sfoptions
+	surface $tmpn.vy.dat -R$tmin/$tmax/$rmin/$rmax \
+		-I$dtheta/$dr -G$tmpn.vy.grd  $sfoptions
+	# convert to theta component in rotated frame
+	sina=`echo $azi | gawk '{print(sin($1*0.017453293))}'`
+	cosa=`echo $azi | gawk '{print(cos($1*0.017453293))}'`
+	# create a grid with velocities in the local theta direction
+	# ie. along the profile without depth change
+	cd /tmp
+	grdmath $tmpn.vx.grd $sina MUL $tmpn.vy.grd $cosa MUL ADD = $vtfile
+	# flow out of profile
+	grdmath $tmpn.vx.grd $cosa MUL $tmpn.vy.grd $sina MUL SUB = $vpfile
+	cd $owd
+	echo $prog_name: output in $vrfile, $vtfile, and $vpfile
+	if [ $vtemp -eq 1 ];then
+	    surface $tmpn.t.dat -R$tmin/$tmax/$rmin/$rmax \
+		-I$dtheta/$dr -G$tmpn.t.grd  $sfoptions
+	elif [ $vtemp -eq 2 ];then
+	    surface $tmpn.e.dat -R$tmin/$tmax/$rmin/$rmax \
+		-I$dtheta/$dr -G$tmpn.e.grd  $sfoptions
+
+	fi
+    else
+	minmax $tmpn.dat
+	surface $tmpn.dat -R$tmin/$tmax/$rmin/$rmax -I$dtheta/$dr -G$grdfile  $sfoptions -V
+	mask=0
+	if [ $mask -eq 1 ];then
+	    grdmask  -R$tmin/$tmax/$rmin/$rmax -I$dtheta/$dr -S50k $tmpn.dat -Gtmp.$$.mask -NNaN/1/1
+	    grdmath $grdfile tmp.$$.mask MUL = tmp.$$; mv tmp.$$ $grdfile; rm tmp.$$.mask
+	fi
+	echo $prog_name: output in $grdfile
+    fi
+    
+
+fi
+bgcol=`gmt_bgcol`
+#
+# plot depth slice
+#
+if [ $cartesian -eq 0 ];then	# polar
+    proj=-JPa$pwidth
+    ann=`echo $rrange | gawk '{if($1>1000)x=500;else x=200;\
+    printf("-Ba10f1/a%gf%gWesn",x,x/10)}'`
+else
+    proj=-JX$pwidth/4.16
+    ann=-Bf20/a200f20:"R [km]":WsnE
+fi
+
+if [ $velocities -eq 0 ];then
+    reg=`grd2reg $grdfile`
+    if [ $pf = "ds" ];then
+	grd2cpt $grdfile -Cpolar -I -E21 -T= -D > $tmpn.cpt
+	#makecpt -Cpolar -I -T-5/5/.1 -D > $tmpn.cpt
+    elif [ $pf = "xi" ];then
+	#makecpt $grdfile -Chaxby -I -T0.85/1.15/.01 -D > $tmpn.cpt
+	makecpt  -Chaxby -I -T0.9/1.1/.01 -D > $tmpn.cpt
+    elif [ $pf = "pamp" ];then
+	#makecpt $grdfile -Chot  -T0/1/.01 -D > $tmpn.cpt
+	makecpt  -Chot  -T0/1.5/.1 -D > $tmpn.cpt
+    elif [ $pf = "dv" ];then
+#	makecpt -T-1/1/.1 -I -Chaxby > $tmpn.cpt
+	makecpt -T-1.5/1.5/.1 -I -D -Chaxby > $tmpn.cpt
+#	makecpt -T-2.5/2.5/.1 -I -D -Chaxby > $tmpn.cpt
+    else
+	grd2cpt $grdfile -Chaxby  -E12 -D > $tmpn.cpt
+    fi
+    
+    #grdview -Qi144 $proj -P $grdfile -Y7 -X2 -C$tmpn.cpt "$ann" -K > $psfile
+    grdimage $proj -P $grdfile -Y7 -X2 -Sb- -C$tmpn.cpt "$ann" -K > $psfile
+
+else
+    psxy=1
+    reg=`grd2reg $vtfile`
+    inc=`grd2inc $vtfile`
+    #
+    # grdvector -T and psxy -SV do not work
+    # therefore, we rotate from v_theta, v_r system to 
+    # v_x' v_y' of the polar projection
+    cd /tmp
+    grdmath $reg $inc X D2R COS = $tmpn.costheta
+    grdmath $reg $inc X D2R SIN = $tmpn.sintheta
+    # this is v_x and v_y rotated into the projection
+    if [ $cartesian -eq 0 ];then
+	grdmath $vrfile $tmpn.costheta MUL $vtfile $tmpn.sintheta MUL SUB = $tmpn.vup
+	grdmath $vrfile $tmpn.sintheta MUL $vtfile $tmpn.costheta MUL ADD = $tmpn.vright
+    else
+	cp $vrfile $tmpn.vup
+	cp $vtfile $tmpn.vright
+  
+    fi
+    cd $owd
+    if [ $vtemp -eq 1 ];then	# temperature
+	makecpt -T0.4/0.6/0.01  -Cpolar   > $tmpn.cpt
+	modifycptends $tmpn.cpt
+    elif [ $vtemp -eq 2 ];then	# viscosity
+#	makecpt -T-3./3/0.2  -Crainbow -I > $tmpn.cpt
+	makecpt -T-2.5/2.5/0.2  -Chaxby -I > $tmpn.cpt
+	modifycptends $tmpn.cpt
+    else
+    # phi flow
+	mymakecpt4 $vpfile $coff -Cpolar   > $tmpn.cpt
+    fi
+
+#    mymakecpt4 $vpfile $coff -Cno_green   > $tmpn.cpt
+#    mymakecpt4 $vpfile $coff -Chot   > $tmpn.cpt
+#    mymakecpt4 $vpfile $coff -Cgray   > $tmpn.cpt
+
+    if [ $vtemp -eq 1 ];then
+	grdview -Qi50 $proj -P $tmpn.t.grd -X1.5 -C$tmpn.cpt -K -Y3.5 "$ann" > $psfile
+    elif [ $vtemp -eq 2 ];then
+	grdview -Qi50 $proj -P $tmpn.e.grd -X1.5 -C$tmpn.cpt -K -Y3.5 "$ann" > $psfile
+    else
+	grdview -Qi50 $proj -P $vpfile -X1.5 -C$tmpn.cpt  -K -Y3.5 "$ann" > $psfile
+    fi
+
+    # vectors
+    if [ $usepsxy -eq 0 ];then
+
+	grdvector $tmpn.vright $tmpn.vup $reg $proj \
+	    -I4/80 -N -K -O -G255 -W0.5 $vecs -S$hscale >> $psfile
+    else
+	#
+	# gotta go to direction CCW from horizontal and length
+	#
+	cd /tmp
+	grdmath $tmpn.vright -1 MUL $tmpn.vup ATAN2 R2D 90 ADD = $tmpn.dir
+	grdmath $tmpn.vright 2 POW $tmpn.vup 2 POW ADD SQRT = $tmpn.length
+	cd $owd
+	grd2xyz $tmpn.dir > $tmpn.vr.dat
+	grd2xyz -Z $tmpn.length > $tmpn.vu.dat
+	# plot
+	paste $tmpn.vr.dat $tmpn.vu.dat | \
+	    gawk '{z=6371-$2;if(z<660){n=10-int((6371-$2)/401+0.5);if(n<1)n=1;}else{\
+             n=int((6371-$2)/100+0.5)+1;}\
+	    if((NR%n==0)&&($4*scl>0.05))print($1,$2,$3,$4*scl)}' scl=$psxyscale | \
+	    psxy $vecs2 $reg $proj -K -O >> $psfile
+# add vector label 
+#	echo 0 7000 0 5 | gawk '{print($1,$2,$3,$4*scl)}' scl=$psxyscale | \
+#	    psxy -N $vecs2 $reg $proj -K -O >> $psfile
+#	echo -0.1 7000 12 0 0 MR "5 cm/yr" | pstext $reg $proj -K -O -N >> $psfile
+    fi
+fi
+if [ $addlabels -eq 1 ];then
+    echo -$hl $hl  | gawk '{dx=($2-$1)/50.0;for(x=$1;x<=$2+1e-5;x+=dx)print(x,5711)}' | \
+	psxy $proj $reg -W3ta -O -K >> $psfile
+    roffset=`echo $rrange | gawk '{print($1/10+10)}'`
+
+    #
+    # distance along profile labels for lower plot
+    #
+    gawk --assign hl=$hl --assign ro=$roffset -v cart=$cartesian 'BEGIN{\
+	if(hl>75){dz=3000;zlim=9000;}\
+	else if(hl>60){dz=2000;zlim=8000;}\
+	else if(hl>30){dz=2000;zlim=4000}else if(hl>=10){dz=1000;zlim=2000}\
+	else{dz=200;zlim=1000;}\
+	for(x=0;x<=zlim;x+=dz){rad=x/111.195;\
+        if(x<hl*111){
+        if(cart)ang=0;else ang=-rad;
+	printf("%g %g 18 %g 0 MC %g\n",rad,6371+ro,ang,x);\
+	if(x!=0)printf("%g %g 18 %g 0 MC %g\n",-rad,6371+ro,-ang,-x);\
+	}}}' > tmp.$$.dat 
+    pstext tmp.$$.dat -N $reg $proj -O -K -G$bgcol >> $psfile
+
+    gawk -v ro=$roffset '{print($1,6371+100);print($1,6371-50);print(">");}' tmp.$$.dat | \
+	psxy -M -N $reg $proj -W10 -O -K >> $psfile
+    rm tmp.$$.dat
+    
+    ro=`echo $roffset | gawk '{print(6400+$1*4)}'`
+    
+    echo 0 $rmax 0.25 | psxy $reg $proj -W0.5 -Sa -O -K -Gorange -N >> $psfile
+    echo 0 $ro 18 0 0 MC "x [km]" | \
+	pstext -N -O -K $reg $proj -G$bgcol>> $psfile
+    ((wl=90-hl))
+
+    hlp=`echo $hl | gawk '{print($1*1.1)}'`
+    if [ $cartesian -eq 0 ];then
+	echo $hlp 6000 18 $wl 0 MC "r [km]" | pstext -N $reg $proj -O -K -G$bgcol >> $psfile
+    fi
+
+    hlp=`echo $hl | gawk '{print($1*1.015)}'`
+    echo $lon $lat 0.25 | psxy $reg $proj -O -K -N -Sa -Gorange >> $psfile
+    echo -$hlp $ro 28 0 1 MC "A" | pstext $reg $proj -O -K -G255/0/0 -N >> $psfile
+    echo  $hlp $ro 28 0 1 MC "B" | pstext $reg $proj -O -K -N -G0/200/0 >> $psfile
+fi
+
+if [ $regional -eq 1 ];then
+    echo $rrange | gawk '{x=1.2*$1/2900.+3.7;print(x+.75,3,x+2.9)}' > $tmpn.rr.dat
+else
+    echo $rrange | gawk '{x=1.2*$1/2900.+1.75;print(x+2,x+3.1,x+2.9)}' > $tmpn.rr.dat
+fi
+read yoff1 yoff2 yoff3b < $tmpn.rr.dat
+
+
+if [ $addomap -eq 1 ];then    
+    bbtop=540
+    yoff3=2.5
+    #
+    # plot detailed surface map of profile
+    #
+    if [ $psurfacemap -eq 1 ];then
+	xoff1=0.5
+	proj=-JOa$lon/$lat/$azi/7.5
+	ml=`echo $hl | gawk '{print($1*1.25)}'`
+	mw=`echo $hl | gawk '{print(int($1*0.4+5.5))}'`
+	reg=-R-$ml/$ml/-$mw/$mw
+	echo $prog_name: map: p: $proj r: $reg
+	ann=-Ba20g10f1/a10g10f1WESn
+	makecpt -T-6000/6000/100  -Crelief -D > $tmpn.topo.cpt
+	#makecpt -T-7000/4000/100  -Crelief -D > $tmpn.topo.cpt
+#	makecpt -Ctopo > $tmpn.topo.cpt
+
+	if [ $topomap -eq 1 ];then
+#	    grdview -Qi50 $datadir/etopo2/etopo2.grd $proj $reg -C$tmpn.topo.cpt -Y$yoff1 -O -K $ann -X$xoff1 >> $psfile
+	    if [ ! -s $datadir/etopo2/etopo2.grd  ];then
+		echo $prog_name: $datadir/etopo2/etopo2.grd  not found
+		pscoast $proj -Df  -O  -K $reg  -Y$yoff1 \
+		    -S200 -W1 -N1/5,orange -N2/2,grey $ann -X$xoff1 >> $psfile
+	    else
+		echo $proj $reg
+		#grdview -Qi50 $datadir/etopo2/etopo2.0.125.grd $proj $reg -C$tmpn.topo.cpt -Y$yoff1 -O -K $ann -X$xoff1 >> $psfile
+
+		grdimage $datadir/etopo2/etopo2.0.125.grd $proj $reg -C$tmpn.topo.cpt -Y$yoff1 -O -K $ann -X$xoff1 >> $psfile
+
+		pscoast $proj -Df  -O  -K $reg -W1 -N1/2,orange -N2/2,grey >> $psfile
+	    fi
+	    # western US labels
+	    #ldir=$datadir/western_us_data/labels/
+	    #sed "s/__size__/18/g" $ldir/nam_labels.dat | pstext -O -K $reg $proj >> $psfile
+	    # volcanic lines
+	    #psxy $ldir/volcanic.dat -W5/0/0/200ta -O -K -M $reg $proj >> $psfile
+# volcanic labels
+	    #sed "s/__size__/12/g"  $ldir/volcanic_labels.dat | pstext -O -K -G0/0/200 $reg $proj >> $psfile
+
+
+
+	else
+	    pscoast $proj -Dh -Y$yoff1 -O -X$xoff1 $ann -K $reg  $ccstr >> $psfile
+        fi
+
+#	if [ -s $HOME/progs/src/igmt_develop/included_data/allslabs_rum.gmt ];then
+#	    psxy $HOME/progs/src/igmt_develop/included_data/allslabs_rum.gmt -M -O -K \
+#		$scstr $reg $proj >> $psfile
+#	else
+#	    echo $prog_name: $HOME/progs/src/igmt_develop/included_data/allslabs_rum.gmt not found
+#	fi
+	#psxy $HOME/progs/src/igmt_develop/included_data/nuvel.yx -: -M -O -K \
+	#    $pbcstr $reg $proj >> $psfile
+	gawk -f prickbry.awk $HOME/plates/rick_plates/data/med_bdrys | \
+	    psxy -M -O -K $pbcstr $reg $proj >> $psfile
+	
+	psbasemap -Tx.4/.5/.5 $reg $proj -O -K >> $psfile # north compass
+	# add profile infor
+
+	echo 0.0 1.55 14 0 0 ML "($lon@+o@+,$lat@+o@+) @~a@~=$azi@+o@+" | pstext -JX5/2 -R0/1/0/1 -O -K -Ggray -N >> $psfile
+
+	if [ $add_splitting -eq 1 ];then
+	# add splitting
+	    mfile=allwuest.0.5.tele.avg.table
+	    sks_vec="-SVB0.045/0.025/0.025 -Gcyan -W0.5";sks_scale=0.25
+	    #sks_vec="-SVB0.04/0.02/0.02 -Gred -W0.5";sks_scale=0.3
+	    gawk '{if($8==1){amp=$6*scl;if(amp!=0){print($3,$2,$4,amp)}}}' \
+		scl=$sks_scale $datadir/splitting/$mfile | \
+		psxy $reg $proj -O -K $sks_vec >> $psfile
+	    # label
+	    yll=-0.1
+	    echo 0.55  $yll 90 2 | gawk '{amp=$4*scl;print($1,$2,$3,amp)}' scl=$sks_scale | psxy -R0/1/0/1 -JX7  -O -K $sks_vec -N >> $psfile
+	    echo 0.45 $yll 12 0 0 CM "@~d@~t = 2 s" | pstext  -R0/1/0/1 -JX7  -O -K -N >> $psfile
+
+	fi
+	if [ $velocities -eq 0 ];then
+	    
+	    if [ $pf = "ds" ];then
+		psscale -D$psloc -C$tmpn.cpt -B2:"isotropic anomaly":/:"@~d@~v@-S@- [%]": -O -K >> $psfile
+	    elif [ $pf = "xi" ];then
+		psscale -D$psloc -C$tmpn.cpt -B0.05:"radial anisotropy":/:"@~c@~": -E -O -K >> $psfile
+	    elif [ $pf = "pamp" ];then
+		psscale -D$psloc -C$tmpn.cpt -B0.5:"azimuthal anisotropy":/:"|2@~f@~| [%]": -Ef -O -K >> $psfile
+	    elif [ $pf = "dv" ];then
+		psscale -D$psloc -C$tmpn.cpt -B0.5:"":/:"@~d@~dv": -O -K >> $psfile
+	    else
+		psscale -D$psloc -C$tmpn.cpt -B/:"$pf": -E -O -K >> $psfile
+	    fi
+	else
+	    if [ -s $tmpn.vmap.vp.grd ] ;then
+		if [ $usepsxy -eq 1 ];then
+		    sorder=4
+		    zcat $datadir/sphere_points/points.$sorder.lonlat.u.gz  | \
+			grdtrack  -fg -G$tmpn.vmap.vp.grd > $tmpn.xyvp
+		    zcat $datadir/sphere_points/points.$sorder.lonlat.u.gz  | \
+			grdtrack  -fg -G$tmpn.vmap.vt.grd > $tmpn.xyvt
+		    paste $tmpn.xyvp $tmpn.xyvt | gawk '{print($1,$2,$3,$6)}' | \
+			gawk '{azi=atan2($3,-$4)*57.29578;\
+		    print($1,$2,azi,sqrt($3*$3+$4*$4)*scl)}' scl=$psxyscale | \
+			psxy $reg $proj -SV0.03/0.15/0.04 -W0.5 -O -K -G240/100/0 >> $psfile 
+		    echo `head -1 $tmpn.prof | gawk '{print($1-7.5,$2)}'` 12 0 0 MR "5 cm/yr" | \
+			pstext $reg $proj -O -K -N -G200/0/0 -W210 >> $psfile
+		else
+		    
+		    grdvector $tmpn.vmap.vp.grd $tmpn.vmap.vy.grd $reg $proj \
+			-I7.5 -Q0.025/0.12/0.035n0.1 -S$hscale -W0.5/1/1/1 -T -O -K \
+			-G240/100/0 >> $psfile
+		fi
+		if [ $addnr -eq 1 ];then
+		    addl="HS2"
+		    if [ $rplate -eq 1 ];then echo $0: error HS-2 and remove plate; exit; fi
+		elif [ $addnr -eq 2 ];then
+		    addl="MM-NNR"
+		    if [ $rplate -eq 1 ];then echo $0: error MM-NNR and remove plate; exit; fi
+		elif [ $rplate -eq 1 ];then
+		    addl="$removeplate fixed"
+		    if [ $addnr -ne 0 ];then echo $0: error addnr $addnr and  remove plate; exit; fi
+		else
+		    addl=""
+		fi
+		label="z = $veldepth km, $addl"
+		
+		echo `head -1 $tmpn.prof | gawk '{print($1+7.5,$2-5)}'` 12 0 0 MC "$label" | \
+		    pstext $reg $proj -O -K -N -G0 -W210 >> $psfile
+	    fi
+	fi
+	# add profile
+	psxy $tmpn.prof -W12/0/0/255 $proj $reg -O -K >> $psfile
+
+	echo $lon $lat | psxy $reg $proj -O -K -N -Sa0.25 -Gorange -W0.5 >> $psfile
+	echo `head -1 $tmpn.prof | gawk '{print($1,$2)}'` 28 0 1 MR "A" | \
+	    pstext $reg $proj -O -K -N -G255/0/0 -W210 >> $psfile
+	echo `tail -1 $tmpn.prof | gawk '{print($1,$2)}'` 28 0 1 ML "B" | \
+	    pstext $reg $proj -O -K -N -W -G0/200/0 -W210 >> $psfile
+	if [ $usepsxy -eq 1 ];then
+	    echo $lon $lat $azi `echo 5 | gawk '{print($1*scl)}' scl=$psxyscale `  | \
+			psxy $reg $proj -SV0.05/0.12/0.035 -W0.5 -O -N -K -G200/0/0 >> $psfile
+	fi
+	bbtop=800
+	yoff3=$yoff3b
+
+
+    fi # end psurfacemap
+    if [ $hl -lt 180 ];then
+	if [ $hl -gt 45 ];then
+	    yoff3=`echo $yoff3 | gawk '{print($1+3)}'`
+	    xoff=2
+	else
+	    xoff=2
+	fi
+    fi
+
+    if [ $velocities -eq 1 ];then
+	if [ $vtemp -eq 1 ];then
+	    psscale -D$psloc -C$tmpn.cpt -B.1/:"T": -E -O -K >> $psfile
+	elif [ $vtemp -eq 2 ];then
+	    psscale -D$psloc -C$tmpn.cpt -B1/:"log@-10@-(@~h@~)": -E -O -K >> $psfile
+	else
+	    psscale -D$psloc -C$tmpn.cpt -B1/:"v@-@~f@~@- [cm/yr]": -E -O -K >> $psfile
+	fi
+    fi
+    #
+    # overview world map
+    #
+    if [[ $add_worldmap -eq 1 && $regional -ne 1 && $hl -lt 180 ]];then
+	yoff3=8
+	echo $0: adding world map
+	reg=-Rg
+	#proj=-JN$lon/3.5
+	proj=-JA$lon/$lat/3.5
+	gmtset BASEMAP_FRAME_RGB 128
+	pscoast -Dc -A700000 -Bg45/g45 -Y-$yoff3 $reg  -S240 -X$xoff -G150 $proj -O -K >> $psfile
+	gmtset BASEMAP_FRAME_RGB 0
+	#
+#	elayer=39
+#	if [ -s e.$elayer.grd ];then
+#	    echo $prog_name: plotting viscosity contours at `oneline $elayer vdepth.dat`
+#	# viscosity contours at 142?
+#	    grdcontour  -C1    e.$elayer.grd $reg $proj -W2 -O -K >> $psfile
+#	    grdcontour  -A -C2 e.$elayer.grd $reg $proj -W2 -O -K >> $psfile
+#	fi
+	#psxy $HOME/progs/src/igmt_develop/included_data/nuvel.yx -: -M -O -K \
+	#    -W3/200/0/0 $reg $proj >> $psfile
+	gawk -f prickbry.awk $HOME/plates/rick_plates/data/med_bdrys | \
+	      psxy -M -O -K -W6/0 $reg $proj >> $psfile
+
+	if [[ -s $tmpn.vmap.vp.grd && $addglobalvel -eq 1 ]];then
+	    grdvector $tmpn.vmap.vp.grd $tmpn.vmap.vy.grd \
+		$reg $proj -I15 -W0.5 \
+		-Q0.02/0.06/0.04n0.1 -S$hscale \
+		-T -O -K -G242/088/0 >> $psfile
+	fi
+	psxy $tmpn.prof -W8/0/0/255 $reg $proj -O -K >> $psfile
+	echo $lon $lat 0.25 | psxy $reg $proj -O -K -N -Sa -Gorange -W0.5 >> $psfile
+	echo `head -1 $tmpn.prof | gawk '{print($1,$2)}'` 18 0 1 MR "A" | \
+	    pstext $reg $proj -O -K -N -G255/0/0 -W210 >> $psfile
+	echo `tail -1 $tmpn.prof | gawk '{print($1,$2)}'` 18 0 1 ML "B" | \
+	    pstext $reg $proj -O -K -N -W -G0/200/0 -W210 >> $psfile
+
+#	bb="55 0 775 $bbtop"
+#	bb="60 60 765 $bbtop"
+	bb="60 60 900 1000"
+    fi
+    # close plot
+    echo 7000 7000 | psxy -Sa0.1 -O $reg $proj >> $psfile
+    modifybb $psfile 
+else
+    # close plot
+    echo 7000 7000 | psxy -Sa0.1 -O $reg $proj >> $psfile
+    modifybb $psfile 
+fi
+
+
+cp $tmpn.prof prof.xy
+#epstopdf $psfile
+#echo $prog_name: output in $pdffile
+#rm $psfile
+
+
+gmtset BASEMAP_FRAME_RGB 0/0/0
+	    
+
+
+
+
+
+
+

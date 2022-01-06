@@ -1,0 +1,73 @@
+#!/bin/bash
+#
+# plot file with lon lat v_x v_y v_z components
+#
+pname=`basename $0`
+tmpn=/tmp/$USER.$HOST.$$.$pname
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+#
+file=${1-evec.dat}
+ofile=$file.ps
+sconst="-Lld -Lud -L"
+usegrds=1
+if [ ! -s $file ];then
+    echo $pname: can not find file $file
+    exit
+else
+    echo $pname: using $file
+fi
+inc=1
+vinc=5
+reg=-R0/360/-90/90
+proj=-JQ180/7
+#proj=-JN180/7
+ann=-Ba60/a30WesN
+scalespacing=-1
+hugelabels=0
+if [ $usegrds -eq 1 ];then
+    gawk '{print($1,$2,$3)}' $file | surface $reg -I$inc -G$tmpn.vx.grd $sconst
+    gawk '{print($1,$2,$4)}' $file | surface $reg -I$inc -G$tmpn.vy.grd $sconst
+    grdmath $tmpn.vx.grd $tmpn.vy.grd R2 SQRT = $tmpn.abs.grd
+    hormax=`grd2max $tmpn.abs.grd`
+    horscale=`echo $hormax | gawk '{print($1*2)}'`
+else
+    gawk '{print($1,$2,atan2($3,$4)*57.29578,sqrt($3*$3+$4*$4))}' $file > $tmpn.data
+    horscale=`gawk -f max.awk col=4 $tmpn.data | gawk '{print(2*$1)}'`
+fi
+# z component
+awk '{print($1,$2,$5)}' $file | surface $reg -I$inc -G$tmpn.r.grd $sconst
+
+maxps=`grd2absmax $tmpn.r.grd`
+if [ `echo $scalespacing | gawk '{if(match($1,"-1"))print(1);else print(0)}'` -eq 1 ];then
+    if [ $hugelabels -eq 1 ];then
+	scalespacing=`echo $maxps | gawk '{r=$1;if(r==0)r=1.;x=10**(int(log(r)/2.30258509299405)-1);while(r/4>x)x*=2;print(x);}'`
+    else
+	scalespacing=`echo $maxps | gawk '{r=$1;if(r==0)r=1.;x=10**(int(log(r)/2.30258509299405)-1);while(r/4>x)x*=2;print(x);}'`
+    fi
+    echo $0: abs max in data: $maxps, scale spacing: $scalespacing
+fi
+	   
+mymakecpt4 $tmpn.r.grd 0.6 -Chot > $tmpn.cpt
+
+grdimage $reg $proj $tmpn.r.grd -C$tmpn.cpt -P -K  > $ofile
+pscoast $reg $proj -Dc -W3 -O -K -A700000 >> $ofile
+awk '{x=$2;y=$1;if(y==">")print(">");else {if(x<0)x+=360.0;print(x,y);}}' \
+    $HOME/tcltk/igmt_develop/nuvel.yx |\
+		psxy -M $reg  $proj  -O -K   -W4/0/255/0  >> $ofile
+psscale -N50 -C$tmpn.cpt -D`echo $proj | gawk '{split($1,a,"/");if(substr(a[1],3,1)=="Q")\
+    l=0.15;else l=0;print(a[2]+0.1+l)}'`/1.75/3.5/0.18 \
+    -O -K -B$scalespacing/ -E -L >> $ofile
+if [ $usegrds -eq 1 ];then
+    grdvector $proj -T -E $tmpn.vx.grd $tmpn.vy.grd -I$vinc -O -K \
+	-W3/0/0/200 -S$horscale >> $ofile
+else
+    gawk '{print($1,$2,$3,0.7*$4/f)}' f=$horscale $tmpn.data |\
+	psxy $reg $proj -O -K -SV0.01/0./0.  -G0/0/0 >> $ofile
+   gawk '{print($1,$2,$3+180,0.7*$4/f)}' f=$horscale $tmpn.data |\
+	psxy $reg $proj -O -K -SV0.01/0./0.  -G0/0/0 >> $ofile
+fi
+psbasemap $proj $reg $ann -O >> $ofile
+modifybb $ofile 30 50 660 360
+
+
+echo $0: written to $ofile

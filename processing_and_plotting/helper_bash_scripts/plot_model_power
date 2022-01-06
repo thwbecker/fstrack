@@ -1,0 +1,453 @@
+#!/bin/bash
+#
+# plot the power spectrum of a tomographic model
+#
+#
+tmpn=tmp.$USER.$HOST.$$.mpwr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+#
+names=${1-"d"}			# 31.m.ab (regular scalar) or 31.m.gsh (GSH format) added
+
+n=`echo $names | wc | awk '{print($2)}'`
+addname=${2-1}			# 1: add a title on top 0: no title, else: use this as title
+combine=${3-0}			# combine in the end to one plot
+modes=${4-"0"}		# plotting modes: 
+                                # 0: total power
+                                # 1: normalized by maximum
+                                # 2: total log scale
+                                # 3: sqrt(pow^2)
+                                # 4: power with 2l+1 factor
+                                # 5: log(pos/neg) power
+                                # 6: log(pos) power
+                                # 7: log(neg) power
+
+
+lmax=${5-31}				# lmax to use
+orig_lmax=${6-31}		# original lmax of expansion
+bw=${7-0}			# 0: color 1: black and white
+whole_mantle=${8-0}		# use the whole mantle (50...2825), or only interior (100...275)
+invert_for_t=${9-0}		# invert the plots to show temperature 
+adjust_scale=${10-0}
+
+adapt=0		# adapt the RMS scale?
+log_scale=0		# use a log scale?
+
+add_rms_on_side=0
+
+if [ $whole_mantle -eq 1 ];then
+    zmin=50;zmax=2825;dz=100
+else
+    zmin=100;zmax=2800;dz=100
+fi
+i=1
+#
+#
+#
+#
+#gmtset LABEL_FONT_SIZE        38p
+#gmtset ANOT_FONT 6 LABEL_FONT  6
+
+gmtset ANNOT_FONT_SIZE 20p
+
+while [ $i -le $n ]; do
+    fname=`echo $names | awk '{print($i)}' i=$i`
+    is_gsh=0
+    gzip=0
+    if [ `echo $modes | gawk '{if(NF==1 && $1==5)print(1);else print(0)}'` -eq 1 ];then
+	# 
+	# neg and pos mode
+	# 
+	fmodel=$fname.pos.$orig_lmax.m.ab
+	smodel=$fname.neg.$orig_lmax.m.ab
+	if [[ ! -s $fmodel || ! -s $smodel ]];then
+	    echo $0: mode $mode file error
+	    echo $fmodel
+	    echo $smodel
+	    exit
+	fi
+    elif [ `echo $modes | gawk '{if(NF==1 && $1==6)print(1);else print(0)}'` -eq 1 ];then
+	# pos mode
+	fmodel=$fname.pos.$orig_lmax.m.ab
+	if [ ! -s $fmodel ];then
+	    echo $0: mode $mode file error
+	    echo $fmodel
+	    exit
+	fi
+    elif [ `echo $modes | gawk '{if(NF==1 && $1==7)print(1);else print(0)}'` -eq 1 ];then
+	# neg mode
+	fmodel=$fname.neg.$orig_lmax.m.ab
+	if [ ! -s $fmodel ];then
+	    echo $0: mode $mode file error
+	    echo $fmodel
+	    exit
+	fi
+    else
+	# others
+	if [ `echo $fname | awk '{if(substr($1,length($1),1)=="+")print(1);else print(0)}'` -eq 1 ];then
+	    posonlymodel=1
+	    namepart=`echo $fname | awk '{print substr($1,1,length($1)-1)}'`
+	    fmodel=$namepart.$orig_lmax.m.nn.ab
+	else
+	    posonlymodel=0
+	    fmodel=$fname.$orig_lmax.m.ab
+	fi
+	
+	if [ ! -s $fmodel ];then
+	    if [ -s fmodel=$fname.$orig_lmax.m.gsh ];then
+		fmodel=$fname.$orig_lmax.m.gsh 
+		is_gsh=1
+		echo $0: detected gsh 
+	    else
+		if [ -s $fmodel.gz ];then
+		    gzip=1
+		else
+		    echo $0: model files not found, $fmodel
+		    exit
+		fi
+	    fi
+	fi
+    fi
+    #
+    # is this a P model?
+    #
+    pmodel=`echo $fname | awk '{if(match($1,"bdp00")||match($1,"kvdh")||match($1,"pri-p05")||match($1,"vox")||match($1,"kh00p")||\
+		    match($1,"hwe97p")||match($1,"pmean")||match($1,"mitp08"))print(1);else print(0)}'`
+		    
+
+    reg=-R0/$lmax/$zmin/$zmax
+
+    inc=-I1/$dz
+    proj=-JX4/-4
+    # make grid
+
+    if [ $is_gsh -eq 1 ];then
+	cmodelpower=cmodelpower_gsh
+    else
+	cmodelpower=cmodelpower
+    fi
+    if [ `echo $modes | gawk '{if(NF==1 && $1==5)print(1);else print(0)}'` -ne 1 ];then
+	#
+	# regular mode
+	#
+	# do not limit power for RMS calculation
+
+	echo $0: using $fmodel dz: $dz
+
+	if [ $gzip -eq 1 ];then
+	    gunzip $fmodel.gz
+	    $cmodelpower $fmodel $zmin $zmax $dz -1 0 2> /dev/null > $tmpn.dat
+	    gzip $fmodel
+	else
+	    $cmodelpower $fmodel $zmin $zmax $dz -1 0 2> /dev/null > $tmpn.dat
+	fi
+	ratiomode=0
+	of=pwr
+    else			# log10(pos/neg anaomalues
+	# 
+	# pos/neg mode
+	# 
+	ratiomode=1
+	echo $fmodel $smodel
+	$cmodelpower $fmodel $zmin $zmax $dz  > $tmpn.1.dat
+	$cmodelpower $smodel $zmin $zmax $dz  > $tmpn.2.dat
+	paste $tmpn.1.dat $tmpn.2.dat 
+	paste $tmpn.1.dat $tmpn.2.dat  | gawk '{printf("%s ",$1);for(i=2;i<=NF/2;i++)if($(i+NF/2) != 0)printf("%g ",0.4342944819032518*log($i/$(i+NF/2)));else printf("%g ",0);printf("\n");}' > $tmpn.dat
+	of=pr
+    fi
+    if [ ! -s  $tmpn.dat ];then
+	echo $0: could not calculate power for  $fmodel 
+	exit
+    fi
+	# density anomaly models will be scaled to \delta v_s 
+    fac=`echo $fname | gawk -f $HOME/quakes/tomography/correlations/den2deltavs.awk`
+    echo $0: scaling $fname with $fac
+    gawk --assign f=$fac '{if($1!="#" && $1!="total"){for(i=4;i<=NF;i++)print(i-4,$1,f*f*$(i))}}' $tmpn.dat  | \
+	xyz2grd $reg $inc -G$tmpn.grd_files.$of.grd 
+    gawk '{if($1!="total"){print($3*fac,$1)}}' fac=$fac $tmpn.dat > $tmpn.grd_files.rms.dat
+	# add second rms with depth dependen Lambda
+    if [ `echo $fname | awk '{if(match($1,"ums")||match($1,"stein")||match($1,"clb")||match($1,"std00d")||match($1,"lrr98d")||match($1,"sz00"))print(1);else print(0)}'` -eq 1 ];then
+	    #
+	    # rescaled RMS for density models
+	    # 
+	isdensity=1
+	if [ `lc $tmpn.grd_files.rms.dat` -ne `lc karfac.dat` ];then
+	    echo $0: mismatch karato rms scaling
+	    lc $tmpn.grd_files.rms.dat
+	    lc karfac.dat
+	    exit
+	fi
+	paste $tmpn.grd_files.rms.dat karfac.dat | awk '{print($1*$4,$2)}' > $tmpn.grd_files.rms.3.dat 
+    else
+	isdensity=0
+    fi
+
+    # rescaled grd
+    if [[ `echo $modes | gawk '{if(NF==1 && $1==5)print(1);else print(0)}'` -eq 0 && ! -s $tmpn.grd_files.pwr.1.grd  ]];then
+	echo $0: creating scaled $tmpn.grd_files.pwr.1.grd 
+	grd2xyz $tmpn.grd_files.pwr.grd | \
+	    gawk --assign lmax=$lmax -f $datadir/tomography/power/scalepwr.awk | \
+	    xyz2grd $reg $inc  -G$tmpn.grd_files.pwr.1.grd 
+# for sqrt of power plot
+#	grd2xyz $tmpn.grd_files.pwr.grd | awk '{print($1,$2,sqrt($3))}' | awk -f $datadir/tomography/power/scalepwr.awk | xyz2grd $reg $inc  -G$tmpn.grd_files.sqrtpwr.1.grd 
+# for 2l+1 multiplied power
+	grd2xyz $tmpn.grd_files.pwr.grd | \
+	    gawk '{l=$1;print(l,$2,$3*(2*l+1))}' | \
+	    gawk --assign lmax=$lmax -f $datadir/tomography/power/scalepwr.awk | \
+	    xyz2grd $reg $inc  -G$tmpn.grd_files.pwr.wl.1.grd 
+    else
+	echo $0: WARNING: using old $tmpn.grd_files.pwr.1.grd
+    fi
+    if [ -s $tmpn.grd_files.pwr.grd ];then
+	grdmath  $tmpn.grd_files.pwr.grd LOG10 = $tmpn.grd_files.pwr.l.grd
+    else
+	echo $0: WARNING: could not find  $tmpn.grd_files.pwr.grd 
+    fi
+    for mode in $modes
+    do
+	
+#	rmin=-0.5
+	rmin=0.5
+	if [ $mode -eq 0 ];then
+	    #
+	    # normal power plot
+	    #
+	    ofile=$fname.eps
+	    gfile=$fname.pwr.gif
+	    grdfile=$tmpn.grd_files.pwr.grd
+	    cfile=$datadir/tomography/power/pwr.cpt
+	elif [ $mode -eq 1 ];then
+	    #
+	    # power normalized by max
+	    #
+	    rmin=0.5
+	    ofile=$fname.1.eps
+	    gfile=$fname.pwr.1.gif
+	    grdfile=$tmpn.grd_files.pwr.1.grd
+	    if [ $bw -eq 0 ];then
+#		cfile=$datadir/tomography/power/pwr.1.2.cpt
+		cfile=$datadir/tomography/power/pwr.1.3.cpt
+	    else
+		cfile=$datadir/tomography/power/pwr.1.cpt
+	    fi
+
+	elif [ $mode -eq 2 ];then
+	    #
+	    # power using log scale
+	    #
+	    ofile=$fname.2.eps
+	    gfile=$fname.pwr.2.gif
+	    grdfile=$tmpn.grd_files.pwr.l.grd
+	    if [ $bw -eq 0 ];then
+		cfile=$datadir/tomography/power/pwr.lc.cpt
+	    else
+		cfile=$datadir/tomography/power/pwr.l.cpt
+	    fi
+	    echo $cfile
+	elif [ $mode -eq 3 ];then
+	    # sqrt of power^2, boring
+	    ofile=$fname.1.sqrt.eps
+	    gfile=$fname.pwr.1.sqrt.gif
+	    grdfile=$tmpn.grd_files.sqrtpwr.1.grd
+	    cfile=$datadir/tomography/power/pwr.1.cpt
+	elif [ $mode -eq 4 ];then
+	    # power with 2l+1 factor
+	    ofile=$fname.1.wl.eps
+	    gfile=$fname.pwr.1.wl.gif
+	    grdfile=$tmpn.grd_files.pwr.wl.1.grd
+	    cfile=$datadir/tomography/power/pwr.1.cpt
+
+	elif [ $mode -eq 5 ];then
+	    rmin=0.5
+	    # pos/neg ratio
+	    ofile=$fname.pr.eps
+	    gfile=$fname.pr.gif
+	    grdfile=$tmpn.grd_files.pr.grd
+	    if [ $invert_for_t -eq 1 ];then
+		cfile=$datadir/tomography/power/pwr.pr.inv.cpt
+	    else
+		cfile=$datadir/tomography/power/pwr.pr.cpt
+	    fi
+	elif [ $mode -eq 6 ];then
+	    #
+	    # pos power using log scale
+	    #
+	    ofile=$fname.pos.eps
+	    gfile=$fname.pwr.pos.gif
+	    grdfile=$tmpn.grd_files.pwr.l.grd
+	    if [ $bw -eq 0 ];then
+		cfile=$datadir/tomography/power/pwr.lc.cpt
+	    else
+		cfile=$datadir/tomography/power/pwr.l.cpt
+	    fi
+	    echo $cfile
+	elif [ $mode -eq 7 ];then
+	    #
+	    # neg power using log scale
+	    #
+	    ofile=$fname.neg.eps
+	    gfile=$fname.pwr.neg.gif
+	    grdfile=$tmpn.grd_files.pwr.l.grd
+	    if [ $bw -eq 0 ];then
+		cfile=$datadir/tomography/power/pwr.lc.cpt
+	    else
+		cfile=$datadir/tomography/power/pwr.l.cpt
+	    fi
+	    echo $cfile
+	else
+	    echo $0: error
+	    exit
+	fi
+	if [ ! -s $grdfile ];then
+	    echo $0: can not find grd file $grdfile, error
+	    exit
+	fi
+	
+	echo $0: colormap: $cfile
+	echo $0: working on $ofile and $gfile
+	proj=-JX4/-4
+
+	rmax=`echo $lmax | gawk '{print($1+0.5)}'`
+	reg=-R$rmin/$rmax/$zmin/$zmax
+
+
+	ltdisc=-W5,gray,-
+	echo $grdfile
+	if [ $adjust_scale -eq 1 ];then
+	    cfile=tmp.cpt
+	    grd2cpt $grdfile -Chaxby -E20 > tmp.cpt
+	fi
+	grdimage  $grdfile -C$cfile -P $reg  $proj -X1.6 -Y1.6 \
+	    -Bf1a5:"degree l":/f100a500:"depth [km]":WeSn -Sn -K > $ofile
+	#
+	# for labeled depth ranges
+	#
+	cat <<EOF > $tmpn.p
+$rmin 660
+$rmax 660
+>
+EOF
+
+	if [ `echo $addname | gawk '{if($1=="1")print(1);else print(0)}'` -eq 1 ];then
+		# add label
+	    echo $0: adding label $addname
+	    echo -0.025 1  18 0 3 RM $fname | \
+		pstext -N -R0/1/0/1 -JX4 -O -K >> $ofile
+	elif [ `echo $addname | gawk '{if($1=="0")print(1);else print(0)}'` -eq 1 ];then
+	    echo $0: no label
+	else			# actual label
+	    echo $0: adding label $addname
+	    echo -0.025 1  18 0 3 RM $addname | \
+		pstext -N -R0/1/0/1 -JX4 -O -K >> $ofile
+	fi
+	if [ $mode -eq 1 ];then
+	    #
+	    # normalize
+	    #
+
+	    psxy $tmpn.p -O -K -M  $reg $proj $ltdisc >> $ofile
+	    # add first moment
+	    grd2xyz  $tmpn.grd_files.pwr.grd  | \
+		gawk -f $datadir/tomography/power/moment.awk | \
+		psxy $proj $reg -W7,green  -O -K >> $ofile
+	    
+	    
+	    if [ $adapt -eq 1 ];then
+	    # for adaptive scaling
+		minmax  $tmpn.grd_files.rms.dat -C | gawk '{printf("%g %g",$1*0.8,$2*1.1)}' > $tmpn.minmax
+		read rmin  rmax < $tmpn.minmax
+	    else
+		if [ $pmodel -eq 1 ];then
+		    rmax=1.5
+		else
+		    rmax=2.5
+		fi
+	    fi
+	    # override rmin
+	    if [ $mode -eq 5 ];then 
+		rmin=1
+	    else
+		if [ $log_scale -eq 1 ];then
+		    rmin=0.1
+		else
+		    rmin=0
+		fi
+	    fi
+	    cat <<EOF > $tmpn.p
+$rmin 660
+$rmax 660
+>
+$rmin 410
+$rmax 410
+>
+EOF
+
+	    reg=-R$rmin/$rmax/$zmin/$zmax
+	    if [ $log_scale -eq 1 ];then
+		proj=-JX1.5l/-5
+		xann=a1f3
+	    else
+		proj=-JX1.5/-5
+	    # p models?
+		if [ $pmodel -eq 1 ];then
+		    xann=a0.5f0.05
+		else
+		    xann=a1f0.1
+		fi
+	    fi
+	    if [[ $fname == smean && ! -s $datadir/tomography/models/smean.rms.dat ]];then
+		echo
+		echo $0: WARNING: making new smean.rms.dat reference
+		echo
+		cp $tmpn.grd_files.rms.dat $datadir/tomography/models/smean.rms.dat
+		
+	    fi
+	    if [ $add_rms_on_side -eq 1 ];then
+		if [ $pmodel -eq 1 ];then
+		    psbasemap $reg $proj -X5.4 \
+			-O -K -B$xann:"@~d@~v@-RMS@- @~[@~%@~]@~":/a500f100weSn  >> $ofile
+		else
+		# add reference
+		    psxy $datadir/tomography/models/smean.rms.dat $reg $proj -X5.4 \
+			-O -K -W8,. \
+			-B$xann:"@~d@~v@-RMS@- @~[@~%@~]@~":/a500f100weSn  >> $ofile
+		fi
+		psxy $tmpn.grd_files.rms.dat $reg $proj  -O -K -W5,blue  >> $ofile
+		psxy $tmpn.p -O -K -M  $reg $proj $ltdisc >> $ofile
+	    fi
+
+	    gmtset ANNOT_FONT_SIZE 16p
+	
+	    psscale -N50 -D.5/-1/2/.2h -B.25/:"normalized power": -O  -C$cfile >> $ofile
+
+	    #psscale  -L -D-5./-.35/2.5/0.15h  -N50 -B:"normalized power": -C$cfile -O   >> $ofile
+
+	else
+	    gmtset ANNOT_FONT_SIZE 14p
+	    if [ $mode -eq 6 ];then
+		psscale  -D0.2/-.4/2/0.15h -E -N50 -B0.75:"log@-10@-(@~s@~@-@~d@~v+@-)": -C$cfile -O   -K >> $ofile
+	    elif [ $mode -eq 7 ];then
+		psscale  -D0.2/-.4/2/0.15h -E -N50 -B0.75:"log@-10@-(@~s@~@-@~d@~v-@-)": -C$cfile -O   -K >> $ofile
+	    elif [ $mode -ne 5 ];then
+		psscale  -D0.2/-.4/2/0.15h -E -N50 -B1.5:"log@-10@-(power)": -C$cfile -O   -K >> $ofile
+	    else
+		if [ $invert_for_t -eq 1 ];then
+		    psscale  -D0.2/-.4/2/0.15h -E -N50 -B0.5:"log@-10@-(@~d@~T@-+@-/@~d@~T@--@-)": -C$cfile -O   -K >> $ofile
+		else
+		    psscale  -D0.2/-.4/2/0.15h -E -N50 -B0.5:"log@-10@-(@~d@~v@-+@-/@~d@~v@--@-)": -C$cfile -O   -K >> $ofile
+		fi
+	    fi
+	    psxy $tmpn.p -O -M  $reg $proj $ltdisc >> $ofile
+
+	    gmtset ANNOT_FONT_SIZE 20p
+	fi
+
+	modifybb $ofile
+	echo $0: output in $ofile
+    done
+    ((i=i+1))
+done
+gmtset ANOT_FONT_SIZE         14p
+gmtset LABEL_FONT_SIZE        24p
+gmtset ANOT_FONT 0 LABEL_FONT  0
+
+

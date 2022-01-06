@@ -1,0 +1,42 @@
+#!/bin/bash
+#
+# calculates the weighted RMS of a grid
+#
+# defined as   sqrt(\sum (x_i')^2 * w_i/\sum w_i)
+#
+# where x_i' = x_i - <x_i>
+#
+# $Id: grd2wvarrms,v 1.2 2007/01/09 00:02:30 becker Exp becker $
+#
+tmpn=/tmp/$USER.$HOST.$$.wrms
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+
+cp $name $tmpn.i.grd
+inc=`grd2inc $tmpn.i.grd`
+reg=`grd2reg $tmpn.i.grd`
+#echo $reg  > "/dev/stderr"
+
+grdmath $inc $reg  Y = $tmpn.y
+grdmath $tmpn.y COSD = $tmpn.w
+
+mean=`grd2geo_mean $tmpn.i.grd`
+pwd=`pwd`; cd /tmp
+
+grdmath $tmpn.i.grd $mean SUB 2 POW $tmpn.w MUL = $tmpn.s
+cd $pwd
+s=`grd2sum $tmpn.s`
+sw=`grd2sum $tmpn.w`
+echo $s $sw | gawk '{print(sqrt($1/(($2!=0.0)?($2):(1.0))))}'
+

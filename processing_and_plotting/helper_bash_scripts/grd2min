@@ -1,0 +1,14 @@
+#!/bin/bash
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+gmtset D_FORMAT %22.15e
+echo `grdinfo -L0 -C $name | gawk '{print($6)}'`
+gmtset D_FORMAT %lg

@@ -1,0 +1,141 @@
+#!/bin/bash
+#
+# plot a seismic tomography model for the Western US
+# 
+m=${1-NWUS-P}		# model
+#
+# available
+#
+# MIT-P SFTS11 SH11-P SH11-S SH11-TX DNA09-P DNA09-S NWUS-P NWUS-S 
+# DNA10 TX2008 SMEAN-WUS PMEAN-WUS
+d=${2-100}
+reg=-R235/255/32/49
+
+
+ofile=rmap.ps	# output file name
+
+
+datadir=~becker/data/		# general data directory
+tdir=$datadir/tomography/	# tomography main directory
+
+pf=${2-dv}
+title=${3-""}
+adjust=1			# adjust colormap
+
+tmpn=/tmp/$USER.$HOST.$$.ig
+trap "rm -f $tmpn* ; exit" 0 1 2 15
+
+
+#
+# figure out directory and if pmodel
+#
+. $tdir/nam_select
+if [ $dir = nan ];then
+    echo $0: error, model $m not in list, available models
+    grep "\[ \$m = " $tdir/nam_select | gawk '{gsub("\"","");print($5)}' 
+    exit
+
+fi
+pf=$f				# start of grid file name
+is_pmodel=$p			# is this a P wave model?
+idir=$tdir/$dir			# actual model directory
+if [ ! -s $idir/$pf.1.grd ];then
+    echo $0: error: $idir/$pf.1.grd not found
+    exit
+fi
+dmax=`head -1 $idir/depths.dat`
+dmin=`tail -1 $idir/depths.dat`
+if [ `echo $d $dmin $dmax  | gawk '{if(($1<$2) || ($1 > $3))print(1);else print(0)}'` -eq 1 ];then
+    echo $0: depth $d out of bounds, model $m only defined from $dmax to $dmin
+    exit
+fi
+
+# projection
+proj=-JH`echo $reg | gawk -f reg2midlon.awk`/7
+
+# annotation
+ann=-Ba5f1/a5f1wESn
+#
+# colormap
+cmap=haxby;inv="-I"
+gmtset BASEMAP_TYPE plain
+
+#
+# labels
+#
+if [ $pf = std ];then
+    vmin=0;vmax=200
+    label="@~S@~/v@-RMS@-"
+else
+    if [ $is_pmodel -eq 0 ];then
+	vmin=-4;vmax=4
+	label="S"
+    else
+	vmin=-3;vmax=3
+	label="P"
+    fi
+fi
+
+
+
+
+
+interpolate_grids $idir/$pf $idir/depths.dat $d $tmpn.grd
+
+mean=`grd2geo_mean $tmpn.grd`
+grdmath $tmpn.grd $mean SUB = $tmpn.2.grd
+mv $tmpn.2.grd $tmpn.grd
+
+if [ $pf = std ];then
+    max=130
+    makecpt -T0/$max/0.01 -Cgray -I > $tmpn.cpt
+else
+    if [ $adjust -eq 1 ];then
+	rms5=`grd2wrms $tmpn.grd | gawk '{print($1*4)}'`
+	makecpt -D -T-$rms5/$rms5/0.0025 -C$cmap $inv > $tmpn.cpt
+	use_as_cpt_max=$rms5
+    else
+	makecpt -D -T-$vmin/$vmax/0.005 -C$cmap $inv > $tmpn.cpt
+	use_as_cpt_max=$vmax
+    fi
+fi
+
+
+grdimage $tmpn.grd -Sb- -C$tmpn.cpt $reg $proj -P -K $ann > $ofile
+
+pscoast -Di -N1 -A3000 $reg $proj -O -K -W2 >> $ofile
+echo 0.5 0.94 22 0 3 CM "$m @@ $d km" | \
+    pstext  -R0/1/0/1 -N -JX7 -O -K >> $ofile
+# plate boundary
+psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt \
+    -m -fg $reg  $proj  -O -K   -W5  >> $ofile
+# tectonic provinces
+psxy -m -fg $datadir/western_us_data/tecton_bound.gmt  $reg $proj \
+    -O -K -W8,darkgray >> $ofile
+
+# western US labels
+ldir=$datadir/western_us_data/labels/
+sed "s/__size__/20/g" $ldir/nam_labels2.dat | \
+    pstext -O -K $reg $proj -Gdarkblue >> $ofile
+
+# volcanic lines
+#psxy $ldir/volcanic.dat -W5/0/0/200ta \
+#    -O -K -M $reg $proj >> $ofile
+# volcanic labels
+#sed "s/__size__/10/g"  $ldir/volcanic_labels.dat | \
+#    pstext -O -K -G0/0/200 $reg $proj >> $ofile
+
+spc=`echo $use_as_cpt_max | gawk '{if($1>5)print(4);else if($1>2)print(2);else if($1>1)print(1);else print(0.5)}'`
+psc_loc=-D-.4/4.4/3./.2 
+if [ $pf = std ];then
+    psscale -N50 -C$tmpn.cpt $psc_loc -B50/:"$label [%]": -O -K -Ef >> $ofile
+else
+    psscale -N50 -C$tmpn.cpt $psc_loc -B$spc/:"@~d@~v@-$label@- [%]": -O -K -E >> $ofile
+fi
+echo 1000 1000 | psxy $reg $proj -Sa.5 -O >> $ofile
+#modifybb $ofile  2> /dev/null
+
+echo $0: output in $ofile
+
+rm $tmpn.*
+

@@ -1,0 +1,42 @@
+#!/bin/bash
+#
+# determine the sum of all grd entries
+#
+# $Id: grd2sum,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+if [ $# -eq 0 ];then
+    echo `basename $0` grd_file > /dev/stderr
+    echo > /dev/stderr
+    echo calculates the sum of all elements of a grid file > /dev/stderr
+    exit
+fi
+wdir=/tmp/$$.$USER.g2s
+mkdir -p $wdir 2> /dev/null
+trap "rm -rf $wdir/; exit" 0 1 2  15
+cwd=`pwd`
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+cp $name $wdir/tmp.grd
+cd $wdir
+gmtset D_FORMAT %20.15e
+if [ `grdisnan tmp.grd` -eq 1 ];then
+    echo NaN
+else
+    
+    #grd2xyz -S -ZTL $name | gawk '{x+=$1}END{print(x)}'
+    grd2xyz -S  tmp.grd -ZTLf | sumfloatbin | \
+	gawk '{printf("%s\n",$1)}' # without this, there was trailing space...
+    
+    # for gmt version probs, this commented out
+    #echo `mygrdinfo -C -S $name | gawk '{printf("%20.15e\n",$12)}'`
+fi
+gmtset D_FORMAT %lg
+cd $owd

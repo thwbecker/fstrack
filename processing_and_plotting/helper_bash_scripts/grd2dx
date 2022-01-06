@@ -1,0 +1,18 @@
+#!/bin/bash
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+
+
+#echo `grdinfo -C $name | gawk '{printf("%g",($3-$2)/($10-1))}' `
+echo `grdinfo -C $name | gawk '{printf("%g",$8)}'` 
+
+

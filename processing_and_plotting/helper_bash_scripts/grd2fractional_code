@@ -1,0 +1,33 @@
+#!/bin/bash
+#
+# compute a grid of codes based on their areal rank in terms of the distribution of values
+#
+grd=${1-tmp}
+ndiv=${2-4}			# number of fractional divisions. 4-> 0-25,25-50,50-75,75-100
+if [ ! -s $grd.grd ];then
+    echo $0: grid file $grd.grd not found
+    exit
+fi
+tmpn=/tmp/$USER.$HOST.$$.cpfg
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+zcat $datadir/sphere_points/npoints.7.lonlat.gz | \
+    grdtrack -fg -G$grd.grd -Z | sort -n > $tmpn.dat
+n=`lc $tmpn.dat`
+gawk -v n=$n -v ndiv=$ndiv 'BEGIN{dx=100/ndiv;for(i=1;i<=ndiv;i++){x[i]=i*dx;yn[i]=int(n*x[i]/100)}}
+                                 {m++;val[m]=$1;}
+                             END{for(i=1;i<=ndiv;i++)print(i,x[i]-dx,x[i],yn[i],val[yn[i]])}' $tmpn.dat > $tmpn.lim
+grdmath $grd.grd 0 MUL 1 ADD = $tmpn.grd # unity for smallest
+((nd1=ndiv-1))
+i=1
+while [ $i -le $nd1 ];do
+    oneline $i $tmpn.lim > $tmpn.dd
+    read j frac1 frac2 nfrac val < $tmpn.dd
+    grdmath  $grd.grd $val GE $tmpn.grd ADD = $tmpn.2.grd 
+    mv $tmpn.2.grd $tmpn.grd
+    ((i=i+1))
+done
+mv $tmpn.grd $grd.code.grd
+echo $0: written fractional codes for $ndiv divisions to $grd.code.grd
+

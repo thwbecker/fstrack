@@ -1,0 +1,42 @@
+#!/bin/bash 
+
+range=`grdinfo $1.grd | grep zmin | gawk '{printf("min=%g max=%g\n",$3,$5)}'`
+cstep=`grdinfo $1.grd | grep zmin | gawk '{printf("%g\n",int(($5-$3)/10))}'`
+
+if [ $# -eq 2 ]
+then
+    cmp=-C$2.cpt
+else
+    #awk -f $HOME/idl_gmt/colminmax.awk $range $HOME/tcltk/igmt_develop/colormaps/col.00.cpt > col.cpt
+    gawk -f $HOME/idl_gmt/colminmax.awk $range $HOME/tcltk/igmt_develop/colormaps/col.13.cpt > col.cpt
+    cmp=-Ccol.cpt
+fi
+
+echo Contours interval: $cstep
+echo Colormap $cmp
+
+
+if [ -s $1.grd ]
+then
+	w=0.5 
+	e=359.5
+	s=-89.5
+	n=89.5
+	tmpf=$1.grd
+	psout=$1.ps
+
+	proj="-JH180/8 -P"
+#	proj="-JH180/8"
+	psbasemap  -R$w/$e/$s/$n $proj -B:."$1 L=100": -K -Y2 > $psout
+
+	grdimage $tmpf -R$w/$e/$s/$n $proj $cmp  -V -K > $psout
+#	psxy $HOME/quakes/rum_data/Contours/sorted/cont.0.xy \
+#			  -M -R$w/$e/$s/$n $proj -O -K  -W5/000/000/255  >> $psout
+#	grdcontour $1.grd -C$cstep $proj -R$w/$e/$s/$n -O -K -V -W1/255/0/0 >>  $psout
+	pscoast -R$w/$e/$s/$n $proj -O -W1/0/0/0 -Dc -A40000 -G255/255/255 -V >> $psout
+	echo Output $psout
+else
+	echo $1.grd not found.
+	exit
+fi
+

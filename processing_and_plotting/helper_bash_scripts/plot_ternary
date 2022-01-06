@@ -1,0 +1,249 @@
+#!/bin/bash
+#
+# GMT script to plot ternary diagrams
+#
+# USAGE:
+#
+# plot_ternary in.dat [0, grid_density]
+#
+# where in.dat can be of one of the following formats
+#
+# x y z 
+# x y z value
+# x y z value label
+# 
+# where x y z are the fractional compositions (x+y+z = 1) for the ternary diagram
+#
+# if value is given, will use fourth column to color samples
+# if label is given also, will use fifth column to add labels to samples
+#
+# and label can be a sample label
+#
+# options:
+#
+# grid_density:
+#      0: plot individual samples 
+#      1: plot sample density, use smooth gray background
+#      2: plot sample density, use contours
+#
+# for further settings, see below
+#
+# (C) Thorsten Becker (thorstinski-at-gmail.com)
+# $Id: plot_ternary,v 1.2 2012/06/27 22:23:32 becker Exp $
+#
+file=${1-tmp.xyz} # input file name
+grid_density=${2-0}		# generate an density of samples grid
+#
+label[1]="X";label[2]="Y";label[3]="Z"; # labels for extreme compositions
+label[4]="p"			# label for fourth ("value") component of file, if provided
+#
+# other plotting options
+#
+sym_type="-Sd";sym_color=black		      # symbol type for data, and color if not colored by fourth column
+sym_size[1]=0.2;sym_size[2]=0.1			      # symbol size for small and large number of data
+cont[1]=0.2;cont[2]=0.6;	# contour spacing, annotated contour spacing
+val_cmp=polar			# colormap for value in fourth column
+add_grid=1;dx_grid=0.2			# add a grid  with dx spacing
+add_ticks=1;dx_tick=0.05	  	# add tickmarks on the side axis
+add_tick_marks=1;dx_tmark=0.2		# add axis tick marks
+#
+font_size=28			# font size for major composition labels in the three corners
+tm_fs=12			# tick mark font size
+label_fs=12			# label font size
+#
+use_col=1			# use colors for the extreme composition labels and grid, else black and white
+                                # (WARNING: will be switched of if plotting symbols by color)
+width=0.02			# width for the Gaussians for samples for density summation
+refine=6			# how many grid pixels per width
+
+proj=-Jx5i			# linear projection
+
+if [ ! -s $file ];then		# check for file
+    echo $0: file $file not found
+    exit
+fi
+ofile=$file.$grid_density.ps	# PS output filename
+
+tmpn=/tmp/$USER.$HOST.$$.pt # for temporary files
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+#
+# take out empty lines and comments (i.e. those that start with #
+gawk '{if((substr($1,1,1)!="#")&&(NF>=3)&&($1*$2*$3>0))print($0)}' $file > $tmpn.data
+
+# count number of data
+ndata=`wc $tmpn.data | gawk '{print($1)}'`
+if [ $ndata -eq 0 ];then
+    echo $0: error, no data found, need at least three entries per row
+    exit
+fi
+if [ $ndata -lt 20 ];then
+    sym_size=${sym_size[1]}
+else
+    sym_size=${sym_size[2]}
+fi
+#
+# determine if we should color symbols by fourth column, and additionally plot labels
+have_values=`head -1 $tmpn.data | gawk '{if(NF>3)print(1);else print(0)}'`
+have_labels=`head -1 $tmpn.data | gawk '{if(NF>4)print(1);else print(0)}'`
+if [[ $have_values -eq 1 && $grid_density -eq 0 ]];then
+    use_col=0			# switch off color
+fi
+if [[ $use_col -eq 1 ]];then	# color settings
+    col[1]=red;col[2]=blue;col[3]=darkmagenta;
+else				# black and white settings
+    col[1]=black;col[2]=black;col[3]=black;
+fi
+
+#
+#
+# set up an AWK script to project from x,y,z to x',y' Cartesian plane
+# (sqrt(3)/2 = 0.866025403784439)
+# (the script  could also be stored somewhere)
+cat <<EOF > $tmpn.proj.awk
+{if(NF>=3){
+   r=\$1+\$2+\$3;
+   x=.5*(\$1+2*\$3);
+   y=0.866025403784439*\$1;
+   if(r>0){ 
+     x/=r;y/=r;
+   }
+   printf("%e %e ",x,y);
+   for(i=4;i<=NF;i++)
+    printf("%s ",\$i);
+   printf("\n");
+}else{
+print(\$0);
+}
+}
+EOF
+# project the file into x',y'1
+gawk -f $tmpn.proj.awk $tmpn.data  > $tmpn.dprojected
+
+reg=-R-.1/1.1/-.1/1.1		# x',y' region to hold the triangle
+cat <<EOF | gawk -f $tmpn.proj.awk > $tmpn.axes # make a file with corner point coordinates
+1 0 0 
+0 1 0 
+0 0 1 
+1 0 0
+EOF
+#
+echo $0: using $file, N: $ndata, have_values: $have_values, have_labels: $have_labels, grid_density: $grid_density
+if [ $grid_density -ne 0 ];then	# plot density
+    
+    inc=-I`echo $width $refine | gawk '{print($1/$2)}'` # inc for grid
+    m_split=50			# treat data in m_split chunks for summation
+
+    split  -l $m_split -d -a 10 $tmpn.dprojected $tmpn.s. # split into files
+    grdmath $reg $inc X 0 MUL = $tmpn.sum # make a zero grid
+    i=0;j=1;((k=j+m_split-1))
+    use_file=`echo $tmpn $i | gawk '{printf("%s.s.%010i",$1,$2)}'`
+    while [ -s $use_file  ];do	# sum up the next chunk
+	echo $0: adding contribution from set $i \(split by $m_split\) to density, `wc $use_file | gawk '{print($1)}'` entries
+	# sum up gaussian grids
+	gmstring=`gawk -v w=$width '{if(NF>=2)s=sprintf("%s %g %g CDIST %g DIV 2 DIV 2 POW NEG EXP ADD",s,$1,$2,w)}END{print(s)}' $use_file`
+	grdmath $tmpn.sum $gmstring = $tmpn.add; mv $tmpn.add $tmpn.sum
+	((i=i+1))
+	use_file=`echo $tmpn $i | gawk '{printf("%s.s.%010i",$1,$2)}'`
+    done
+    # mask out regions outside triangle
+    grdmask -NNaN/NaN/1 $reg $inc -G$tmpn.mask $tmpn.axes -A
+    grdmath $tmpn.sum $tmpn.mask MUL = $tmpn.grd
+    # normalize density by maximum
+    max=`grdinfo -C $tmpn.grd | gawk '{print($7)}'`	# normalize
+    grdmath $tmpn.grd $max DIV = $tmpn.density
+fi
+#
+if [ $grid_density -eq 0 ];then
+# start with axes
+    psxy $tmpn.axes  $reg $proj  -Wthickest -P -K > $ofile
+else
+    makecpt -T0/1/0.1 -Z -I -Cgray | gawk '{if($1=="N")print("N",255,255,255);else print($0)}' > $tmpn.cpt
+    if [ $grid_density -eq 1 ];then # grdimage
+	grdimage $tmpn.density -C$tmpn.cpt $reg $proj   -P -K > $ofile
+	psscale -D.5/3.5/2/.2 -B.5/:"@~r@~": -O -K -C$tmpn.cpt >> $ofile
+    else			# contours
+	grdcontour $tmpn.density -C${cont[1]}  $reg $proj  -W2 -P -K > $ofile
+	grdcontour $tmpn.density -A${cont[2]}  $reg $proj  -W5 -O -K >> $ofile
+    fi
+    psxy $tmpn.axes  $reg $proj -Wthickest  -O -K >> $ofile
+fi
+echo 0.0 0.9 20 0 0 ML "@%2%N@%% = $ndata" | pstext -O -K -J -R >> $ofile
+#
+# major labels for corners
+font=1				# 
+echo `echo 1 0 0 | gawk -f $tmpn.proj.awk | gawk '{print($1,$2+0.02)}'` $font_size 0 $font BC ${label[1]} | \
+    pstext -R -J -O -K -G${col[1]} >> $ofile
+echo `echo 0 1 0 | gawk -f $tmpn.proj.awk | gawk '{print($1-0.0125,$2-0.0125)}'` $font_size 0 $font TR ${label[2]} | \
+    pstext -R -J -O -K -G${col[2]} >> $ofile
+echo `echo 0 0 1 | gawk -f $tmpn.proj.awk | gawk '{print($1+0.0125,$2-0.0125)}'` $font_size 0 $font TL ${label[3]} | \
+    pstext -R -J -O -K -G${col[3]} >> $ofile
+if [ $add_grid -eq 1 ];then
+    # X
+    gawk -v dx=$dx_grid 'BEGIN{for(x=dx;x<1;x+=dx){print(x,0,1-x);print(x,1-x,0);print(">")}}' | \
+	gawk -f $tmpn.proj.awk | psxy -m -Wthick,${col[1]},- -R -J -K -O >> $ofile
+    # Y
+    gawk -v dx=$dx_grid 'BEGIN{for(x=dx;x<1;x+=dx){print(0,x,1-x);print(1-x,x,0);print(">")}}' | \
+	gawk -f $tmpn.proj.awk | psxy -m -Wthick,${col[2]},- -R -J -K -O >> $ofile
+    # Z
+    gawk -v dx=$dx_grid 'BEGIN{for(x=dx;x<1;x+=dx){print(0,1-x,x);print(1-x,0,x);print(">")}}' | \
+	gawk -f $tmpn.proj.awk | psxy -m -Wthick,${col[3]},- -R -J -K -O >> $ofile
+fi
+if [ $add_ticks -eq 1 ];then
+    dlen1=0.01
+    dlen2=`echo $dlen1 | gawk '{print(0.5*$1)}'`
+    # on right X-Z
+    gawk -v dx=$dx_tick\
+	'BEGIN{for(x=dx;x<0.99;x+=dx){print(x,0,1-x);}}' | gawk -f $tmpn.proj.awk | \
+	gawk  -v d1=$dlen1 -v d2=$dlen2 \
+	'{print($1,$2);print($1+d1,$2+d2);print(">")}' | psxy -m -W1 -R -J -K -O >> $ofile
+    # on left, X-Y
+    gawk -v dx=$dx_tick\
+	'BEGIN{for(x=dx;x<0.99;x+=dx){print(x,1-x,0);}}' | gawk -f $tmpn.proj.awk | \
+	gawk  -v d1=$dlen1 -v d2=$dlen2 \
+	'{print($1,$2);print($1-d1,$2+d2);print(">")}' | psxy -m -W1 -R -J -K -O >> $ofile
+    # on bottom, Y-Z
+    gawk -v dx=$dx_tick\
+	'BEGIN{for(x=dx;x<.99;x+=dx){print(0,x,1-x);}}' | gawk -f $tmpn.proj.awk | \
+	gawk  -v d1=$dlen1 -v d2=$dlen2 \
+	'{print($1,$2);print($1,$2-d1);print(">")}' | psxy -m -W1 -R -J -K -O >> $ofile
+
+fi
+if [ $add_tick_marks -eq 1 ];then
+    # labels for fractional compositions
+    gawk -v f=$tm_fs -v dx=$dx_tmark 'BEGIN{for(x=dx;x<1;x+=dx){printf("%g %g %g %i 0 0 MR %.0f%%\n",x,1-x,0,f,x*100)}}' | \
+	gawk -f $tmpn.proj.awk | \
+	pstext -G${col[1]} -R -J -K -O >> $ofile
+    gawk -v f=$tm_fs -v dx=$dx_tmark 'BEGIN{for(x=dx;x<1;x+=dx){printf("%g %g %g %i -60 0 ML %.0f%%\n",0,x,1-x,f,x*100)}}' | \
+	gawk -f $tmpn.proj.awk | \
+	gawk '{print($1,$2-.02,$3,$4,$5,$6,$7,$8)}' | pstext -G${col[2]} -R -J -K -O >> $ofile
+    gawk -v f=$tm_fs -v dx=$dx_tmark 'BEGIN{for(x=dx;x<1;x+=dx){printf("%g %g %g %i 60 0 BL %.0f%%\n",1-x,0,x,f,x*100)}}' | \
+	gawk -f $tmpn.proj.awk | \
+	gawk '{print($1+0.02,$2,$3,$4,$5,$6,$7,$8)}' | pstext -G${col[3]} -R -J -K -O >> $ofile
+fi
+
+if [ $grid_density -eq 0 ];then
+#
+# plot data
+#
+    if [ $have_values -eq 1 ];then
+	gawk 'BEGIN{xmin=1e20;xmax=-1e20;}{if($3>xmax)xmax=$3;if($3<xmin)xmin=$3;}END{print(xmin,xmax)}' $tmpn.dprojected > $tmpn.tmp
+	read xmin xmax < $tmpn.tmp
+	echo $0: determined min $xmin max $xmax of value column
+	makecpt -C$val_cmp `echo $xmin $xmax | gawk '{printf("-T%g/%g/%g",$1,$2,($2-$1)/21)}'` > $tmpn.cpt
+	blabel=`echo $xmax $xmin | gawk '{printf("%.1f",($1-$2)/5)}'`
+	psxy $tmpn.dprojected -R -J -O -K $sym_type$sym_size -C$tmpn.cpt -W0.5 >> $ofile
+	psscale -D5.25/3.5/2/.2 -B$blabel/:"${label[4]}": -O -K -C$tmpn.cpt >> $ofile
+    else			# no values
+	psxy $tmpn.dprojected -R -J -O -K $sym_type$sym_size -G$sym_color -W0.5  >> $ofile
+    fi
+    
+    if [ $have_labels -eq 1 ];then # add labels
+	gawk -v l=$label_fs '{print($1+0.01,$2+0.01,l,0,0,"BL",$4)}' $tmpn.dprojected | \
+	    pstext -N -R -J -O -K -W200  >> $ofile
+    fi
+fi
+
+echo 1000 0 | psxy -Sa.01 -R -J -O >> $ofile
+modifybb $ofile 75 75 495 455 2> /dev/null
+#modifybb $ofile 
+echo $0: output in $ofile

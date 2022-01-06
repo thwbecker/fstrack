@@ -1,0 +1,29 @@
+#!/bin/bash
+#
+# calculate mean of grd file
+#
+if [ $# -lt 1 ];then
+	echo `basename $0`: usage: `basename $0` data.grd > /dev/stderr
+	exit
+fi
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent > /dev/stderr
+	exit
+    fi
+fi
+tmpd=/tmp/$USER.$HOST.$$
+mkdir $tmpd
+trap "rm -rf $tmpd ; exit" 0 1 2 15
+
+fname=`readlink -f $name`
+
+cp $name $tmpd
+cd $tmpd
+gmtset D_FORMAT %20.15e
+grd2xyz -S -Z $fname | gawk -f mean.awk
+gmtset D_FORMAT %lg

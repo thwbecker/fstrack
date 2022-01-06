@@ -1,0 +1,20 @@
+#!/bin/bash
+tmpn=/tmp/$USER.$HOST.$$.pp
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+if [ ! -s $1.grd ];then
+	echo $0: can not find $1.grd
+	exit
+fi
+max=`grd2absmax $1.grd`
+dx=`echo $max | gawk '{print($1/10.0)}'`
+dx2=`echo $max | gawk '{print($1/5.0)}'`
+proj=-JX5
+reg=`grd2reg $1.grd`
+makecpt -T-$max/$max/$dx -Cjet > $tmpn.cpt
+
+grdimage $1.grd $proj $reg -P -C$tmpn.cpt -K > $1.ps
+grdcontour $1.grd -C$dx2 -A $proj $reg -O >> $1.ps
+
+
+echo $0: output in $1.ps

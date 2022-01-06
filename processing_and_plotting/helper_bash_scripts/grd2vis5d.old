@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# convert field (tomography) in a number of grid files to 
+# vis5d file
+# 
+prefix=${1-"od"}
+
+tmpn=/tmp/$USER.$HOST.$$.grd2vis5d
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+nl=`lc depth.dat`
+
+i=1
+while [ $i -le $nl ] ; do
+    file=$prefix.$i.grd
+    echo $0: adding $file to $tmpn.dv
+    if [ $i -eq 1 ] ; then
+	grdinfo -C $file > $tmpn.stats
+	read file xmin xmax ymin ymax zmin zmax dx dy n m < $tmpn.stats
+	echo $n $m $nl $dx $dy $xmin $ymin > $tmpn.dv
+	cat depth.dat >> $tmpn.dv
+    fi
+    grd2xyz -Z $file | gawk '{print($1,$2,($3!=999.)?($3):0)}' >> $tmpn.dv
+    
+    ((i=i+1 ))
+done
+cp $tmpn.dv tmp.dat
+exit
+
+$HOME/progs/src/vis5d/xyz2vis5d $tmpn.dv model.v5d

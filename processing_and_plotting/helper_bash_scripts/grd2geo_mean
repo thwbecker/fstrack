@@ -1,0 +1,156 @@
+#!/bin/bash
+#
+# determine equal area mean of data on a geographic grid
+#
+#
+# usage:
+#
+# grd2geo_mean file.grd [mode, 1] [w_grid, ""]
+#
+#
+#
+# $Id: grd2geo_mean,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+pname=`basename $0`
+if [ $# -lt 1 ];then
+    echo $pname: usage: $pname file.grd \[mode\] \[w_grid\] > "/dev/stderr"
+    echo $pname: where the average of file.grd will be computed > "/dev/stderr"
+    echo $pname: using equal area qeighting with operational > "/dev/stderr"
+    echo $pname: mode \"mode\" and possible further weighting > "/dev/stderr"
+    echo $pname: with w_grid > "/dev/stderr"
+    exit
+fi
+#
+#
+wdir=`mktemp -d`
+trap "rm -rf $wdir; exit" 0 1 2  15
+cwd=`pwd`
+#
+#
+# check if first grid file exists
+#
+#
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo `basename $0`: $1 or $1.grd are nonexistent > "/dev/stderr"
+	exit
+    fi
+fi
+fname=`readlink -f $name`
+if [ $# -ge 3 ];then
+    if [ ! -s $3 ];then
+	wf=$3.grd
+    else
+	wf=$3
+    fi
+    if [ ! -s $wf ];then
+	echo `basename $0`: file error with weight file > "/dev/stderr"
+	exit
+    fi
+    wname=`readlink -f $wf`
+    use_weights=1
+else
+    use_weights=0
+fi
+
+cd $wdir
+
+if [ `grdisnan $fname ` -eq 1 ];then
+    echo NaN
+else
+    
+    # select mode
+    #
+    # 1: GMT, 2: geomean program, 3: gawk script
+    #
+    # recommended: 1 or 3, 2 can't deal with NANs
+    #
+    mode=${2-1}
+    #
+    #
+
+    if [ $use_weights -eq 1 ];then
+	#
+	# check if all entries are >= 0
+	#
+	grdmath $wname 0 LT = tmp.test;
+	if [ `grd2sum tmp.test | gawk '{if($1>0)print(1);else print(0)}'` -eq 1 ];then
+	    echo $pname: error: second grid for weighting has negative entries > "/dev/stderr"
+	    exit
+	fi
+    fi
+    if [[ $use_weights -eq 1 && $mode -ne 1 ]];then
+	echo $pname: error: second grid weight only implemented for GMT mode > "/dev/stderr"
+	exit
+    fi
+
+    if [ $mode -eq 1 ];then
+	
+	#    echo okg0
+	# obtain weighting function
+	#    echo ok 1
+
+	grdmath `grd2range $fname` `grd2inc $fname` `grd2ispixel $fname` Y = tmp.lat.grd
+	#    grdinfo -C tmp.lat.grd
+	#    grdinfo -C $fname
+	#    echo $wgrid
+	# this in here since else directories woth name 1/ would confuse grdmath
+	#    grdinfo tmp.lat.grd
+	#    grdinfo $fname
+	#    exit
+	#    echo ok 2
+	if [ $use_weights -eq 0 ];then
+	    # multiply with modified original grid to correct for NaN entries
+	    # and get area weights
+	    grdmath $fname ISNAN 1 SUB ABS 0 NAN \
+		    tmp.lat.grd COSD MUL  = tmp.costheta.grd
+	    #	grdinfo -C tmp.costheta.grd
+	    #	echo okg
+
+	else
+	    # same, but also multiply with second weighting grid
+	    grdmath $fname ISNAN 1 SUB ABS 0 NAN \
+		    $wname MUL \
+		    tmp.lat.grd COSD MUL = tmp.costheta.grd
+	fi
+	#echo ok
+	#sumw=`grd2sum tmp.costheta.grd`
+	grd2sum tmp.costheta.grd > tmp.sumw & 
+	#echo okg2
+	#    grdinfo -C $fname
+	grdmath tmp.costheta.grd $fname MUL = tmp.scaled.grd
+	#echo ok
+	#sumwx=`grd2sum tmp.scaled.grd`
+	grd2sum tmp.scaled.grd > tmp.sumwx & 
+
+	wait
+	read sumw <  tmp.sumw
+	read sumwx < tmp.sumwx
+	#    echo `echo $sumwx $sumw | gawk '{printf("%16.8f",$1/$2)}'`
+	echo `echo $sumwx $sumw | gawk '{printf("%20.15e",$1/$2)}'`
+    elif [ $mode -eq 2 ];then
+	gmtset D_FORMAT %20.15e
+	if [ -x geomean ];then
+	    grd2xyz $fname | geomean | gawk '{printf("%16.8f\n",$1)}'
+	else
+	    grd2xyz $fname | gawk -f geomean.awk |  gawk '{printf("%16.8f\n",$1)}'
+	fi
+	gmtset D_FORMAT %lg
+    else
+	gmtset D_FORMAT %20.15e
+	grd2xyz $fname | gawk -f geomean.awk |  gawk '{printf("%16.8f\n",$1)}'
+	gmtset D_FORMAT %lg
+    fi
+
+    cd $pwd
+
+
+
+
+
+fi
+

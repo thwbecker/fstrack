@@ -1,0 +1,69 @@
+#!/bin/bash
+# plot velocity rms stats in format:
+
+# z[km] vr_rms vtheta_rms vphi_rms vhorizontal_rms stage time
+file=vel.rms.dat
+ofile=vel.rms.ps
+
+tmpn=/tmp/$USER.$$.$HOST.ds
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+proj=-JX3/-6
+
+awk '{t=-$7;if((t!=ot)||(NR==1)){ot=t;print(t);}}' $file > $tmpn.t
+n=`lc $tmpn.t`
+echo $0: $n times
+reg=`awk '{print($2,$1)}' $file | minmax -I.5/500`
+psbasemap $reg $proj \
+    -Ba1f0.1:"radial v@-RMS@- [cm/yr]":/a500f100WeSn:"z [km]": -P  -K > $ofile
+i=1
+while [ $i -le $n ];do
+    echo $0: plotting radial part for $i
+    col=`somecolor $i`
+    sym=`picksymbol $i $col`
+    gawk '{if($6==i)print($2,$1)}' i=$i $file | \
+	psxy $reg $proj -W3/$col -O -K >> $ofile
+    gawk '{if($6==i)print($2,$1,0.1)}' i=$i $file | \
+	psxy $reg $proj   -O -K $sym >> $ofile
+    ((i=i+1))
+done
+# labels
+py=50
+py2=150
+i=1
+proj=-JX0.7/-6
+reg=-R0/1/0/3000
+echo 6e6 6e | psxy $proj -O -K $reg -X3.3 >> $ofile
+while [ $i -le $n ];do
+    time=`oneline $i $tmpn.t`
+    col=`somecolor $i`
+    sym=`picksymbol $i $col`
+    echo 0.5 $py 0.1 | psxy $sym $reg $proj -O -K >> $ofile
+    echo 0.5 $py2 14 0 0 MC "$time Ma" | \
+	pstext -N $reg $proj -O -K >> $ofile
+    ((py=py+220))
+    ((py2=py2+220))
+    ((i=i+1))
+done
+
+reg=`awk '{print($5,$1)}' $file | minmax -I.5/500`
+proj=-JX3/-6
+psbasemap $reg $proj -X1.\
+    -Ba1f0.1:"horizontal v@-RMS@-@ [cm/yr]":/a500f100weSn:"z [km]": -O  -K >> $ofile
+i=1
+while [ $i -le $n ];do
+    col=`somecolor $i`
+    sym=`picksymbol $i $col`
+    lstring=`echo $col | gawk '{printf("-W3/%sta",$1)}'`
+    gawk '{if($6==i)print($5,$1)}' i=$i $file | \
+	psxy $reg $proj $lstring -O -K >> $ofile
+    gawk '{if($6==i)print($5,$1,0.1)}' i=$i $file | \
+	psxy $reg $proj   -O -K $sym >> $ofile
+    ((i=i+1))
+done
+
+
+echo 1e6 1e6 | psxy -O -Sa0.1 $reg $proj >> $ofile
+
+modifybb $ofile 0 0 620 510
+echo $0: output in $ofile

@@ -1,0 +1,40 @@
+#!/bin/bash
+grd=${1-tmp.grd}
+gridding=${2-11}
+#
+# detect quartiles and generate code files
+#
+tmpn=/tmp/$USER.$HOST.nnr.$$.tnr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+zcat $datadir/sphere_points/npoints.$gridding.lonlat.gz  | \
+    grdtrack -Ql -fg -G$grd | gawk '{print($3)}' | sort -n > $tmpn.dat
+n=`lc $tmpn.dat`
+i=1
+for frac in 0.25 0.5 0.75;do	# values that correspond to those fractions
+    val[$i]=`gawk -v f=$frac -v n=$n 'BEGIN{p=int(n*f+.5)}{if(NR==p)print($1)}' $tmpn.dat`
+    ((i=i+1))
+done
+nf=$i
+i=1;j=0
+while [ $i -le $nf ];do
+    
+    if [ $i -eq 1 ];then
+	grdmath $grd ${val[i]} LT = $tmpn.grd
+    elif [ $i -eq $nf ];then
+	grdmath  $grd ${val[j]} GE $i MUL $tmpn.grd ADD = $tmpn.1.grd;mv $tmpn.1.grd $tmpn.grd
+    else
+	grdmath $grd ${val[j]} GE  $grd ${val[i]} LT MUL \
+	    $i MUL $tmpn.grd ADD = $tmpn.1.grd;mv $tmpn.1.grd $tmpn.grd
+    fi
+    ((j=j+1))
+    ((i=i+1))
+done
+cp $tmpn.grd $grd.code.grd
+echo $0: output in $grd.code.grd
+grd2map2 $grd.code.grd 2> /dev/null
+
+#pshistogram $tmpn.dat 
+
+
+

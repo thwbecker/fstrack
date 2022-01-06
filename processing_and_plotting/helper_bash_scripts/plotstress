@@ -1,0 +1,210 @@
+#!/bin/bash
+#
+# plot tractions that are given in a spherical system
+#
+#check for input files
+vp=${1-rp.grd}			# r-phi
+vt=${2-rt.grd}			# r-theta
+vr=${3-rr.grd}			# r-r
+
+
+world=${5-0} 
+
+tmpn=/tmp/$USER.$HOST.$$.plotvelocities
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+if [ $world -eq 1 ];then	# world
+    reg=-R0/360/-90/90
+    proj=-JQ180/7
+    ann=-Ba60f10/a30f10WeSn
+    pscres='-Dc -A600000'
+#    style=0;vsize=0.015/0.03/0.025
+    style=1;vsize=0.03/0.04/0.03;vfl=0.15
+    vecinc=10
+else				# cali
+    reg=-R-20/15/-5/20
+    proj=-JOa240/32/140/7
+    ann=-Ba20f5/a20f5WeSn
+    pscres='-Di -A2000 -N1/5 -N2/3'
+    style=1
+    vsize=0.05/0.1/0.075
+    vfl=0.25
+    vecinc=2
+
+fi
+psfile=`echo $vp | gawk '{print(substr($1,1,length($1)-4))}'`.ps
+if [ -s $vp ]
+then 
+    if [ -s $vt ]
+    then
+	echo $0: phi component: $vp 
+	echo $0: theta component: $vt
+    else
+	echo $0: can not find $vt
+	exit
+    fi
+else
+    echo $0: can not find $vp
+    exit
+fi
+
+flip_sign=1
+scaling=-1
+
+#
+# order of sphere for style 1
+sorder=7
+pquakes=0
+threeplots=0
+
+
+if [ $flip_sign -eq 1 ];then
+    if [ -s $vr ];then
+	grdmath $vr NEG = $tmpn.vr;vr=$tmpn.vr
+    fi
+    grdmath $vt NEG = $tmpn.vt;vt=$tmpn.vt
+    grdmath $vp NEG = $tmpn.vp;vp=$tmpn.vp
+fi
+if [[ ! ! -s $vt || ! -s $vp ]];then
+    echo $0: files not found
+    echo  $vt $vp
+
+    exit
+fi
+
+
+
+legx=180
+legy=-70
+
+# full page
+#proj='-JM9'
+
+offset1='-X0.75 -Y0.5'
+reg2='-R0/360/-90/90'
+proj2='-JH180/6 -P'
+offset2='-X1.5 -Y4.5'
+reg3='-R0/360/-90/90'
+proj3='-JH0/6 -P'
+offset3='-X-2 -Y3'
+
+spain=0
+antarctica=0
+
+if [ $spain -eq 1 ];then
+    reg=-R-50/50/20/60
+    proj='-JM0/45/7 -P'
+    ann=-Ba10f2/a10f2WeSn
+    vecinc=5
+    pscres='-Di'
+    legx=0
+    legy=22
+fi
+if [ $antarctica -eq 1 ];then
+    reg=-R0/360/-90/-10
+    proj='-JS0/-90/7 -P'
+    ann=-Ba60f30/f30
+    vecinc=5
+    pscres='-Dl'
+    legx=0
+    legy=-30
+    style=2
+fi
+
+grdmath $vp $vt R2 SQRT = $tmpn.vp.tmp.abs
+max=`grd2max $tmpn.vp.tmp.abs`
+
+if [ $scaling -eq -1 ];then
+    scaling=`echo $max | gawk '{print($1)}'`
+fi
+
+echo $0: absolute maximum is $max, scaling $scaling
+
+#mapping 
+# draw coastlines and plate boundaries for first plot
+#pscoast $reg $proj -K -G200/200/200 -A70000 -Dc -Ba60/a30:."max $max":  $offset1 > $psfile
+
+if [ -s $vr ]
+then
+    echo $0: using $vr as background
+#    mymakecpt $vr  -Cjet > $tmpn.tmp.cpt
+    mymakecpt $vr  -Cpolar  > $tmpn.tmp.cpt
+#    makecpt -T-$scaling/$scaling/10 -Cpolar -I > $tmpn.tmp.cpt
+    grdimage $vr -C$tmpn.tmp.cpt $ann $reg $proj -P -K $offset1 > $psfile
+#    mypsscale -C$tmpn.tmp.cpt -N50 -D-.2/1/2/.1 -B500/:"r [MPa]": -O -K -E-2 >> $psfile
+    pscoast $reg $proj -K -O -W4  $pscres  >> $psfile
+else
+    topo=1
+    if [ $topo -eq 1 ];then
+	makecpt -T-5000/2000/200 -Clighter_gray > $tmpn.cpt
+	grdimage $datadir/etopo2/etopo2.grd -I$datadir/etopo2/etopo2.i.grd $proj $reg \
+	    -C$tmpn.cpt -P -K $ann $offset1 > $psfile
+	pscoast $reg $proj -O -K  -W1 $pscres >> $psfile
+    else
+	pscoast $reg $proj -P -K -G128/128/128 -W1  $ann $pscres $offset1 > $psfile
+    fi
+fi
+
+
+psxy $HOME/progs/src//igmt_develop/nuvel.yx -:   \
+	    -M $reg $proj  -O -K   -W4/255/0/255  >> $psfile
+if [ $pquakes -eq 1 ];then
+    gawk '{if(($1!="#")&&($1!=""))print($7,$6,$9*0.0005*8.5)}' \
+	$datadir/quakes/usgs_neic.dat | \
+	psxy  $reg $proj -O  -G255/0/255  -K -Sc   >> $psfile
+fi
+#
+#
+grdmath $vt -1 MUL = $tmpn.vt.vy.grd
+#
+if [ $threeplots -eq 1 ]
+then
+    # two other projections
+	grdvector $vp $tmpn.vt.vy.grd -T \
+		$reg $proj -I$vecinc -Q$vsize -S$scaling -G255/0/0 -O -K >> $psfile
+	pscoast $reg2 $proj2 -K -O -G200/200/200 -A70000 -Dc  $offset2 >> $psfile
+	psxy /home/becker/tcltk/igmt_develop/nuvel.yx -:   \
+		    -M $reg2 $proj2 -O -K   -W.25/0/0/255  >> $psfile
+	grdvector $vp $tmpn.vt.vy.grd   -T \
+		$reg2 $proj2 -I$vecinc -Q$vsize -S$scaling -G255/0/0 -O  -K >> $psfile
+
+	pscoast $reg3 $proj3 -K -O -G200/200/200 -A70000 -Dc   $offset3 >> $psfile
+	psxy /home/becker/tcltk/igmt_develop/nuvel.yx -:   \
+		    -M $reg3 $proj3 -O -K   -W.25/0/0/255  >> $psfile
+	grdvector $vp $tmpn.vt.vy.grd   -T \
+		$reg3 $proj2 -I$vecinc -Q$vsize -S$scaling -G255/0/0 -O  -K >> $psfile
+		
+else
+	if [ $style -lt 2 ];then
+	    if [ $style -eq 0 ];then
+		grdvector $vp $tmpn.vt.vy.grd  -T \
+		    $reg $proj -I$vecinc -Q$vsize -S$scaling -G255/0/0 -W0.5 -O  -K >> $psfile
+	    else		# fixed length
+		makecpt -T0/12.5/0.1 -Cwysiwyg > $tmpn.amp
+		mypsscale -C$tmpn.amp -N50 -D2.5/-.1/2/.1h -B5/:"[MPa]": -O -K -E-2 >> $psfile
+		grdvector $vp $tmpn.vt.vy.grd  -T -C$tmpn.amp\
+		    $reg $proj -I$vecinc -Q$vsize \
+		    -Sl$vfl -G255/0/0 -O  -K -W0.5 >> $psfile
+	    fi
+	else
+	    # interpolate
+	    zcat $datadir/sphere_points/points.$sorder.lonlat.u.gz  | \
+		grdtrack -G$vp -Lx > $tmpn.vx
+	    zcat $datadir/sphere_points/points.$sorder.lonlat.u.gz |  \
+		grdtrack -G$tmpn.vt.vy.grd -Z -Lx > $tmpn.vy
+	    paste $tmpn.vx $tmpn.vy | \
+		gawk '{print($1,$2,atan2($3,$4)*57.29578,sqrt($3*$3+$4*$4)/s)}' \
+		s=$scaling | psxy $reg $proj -SV$vsize -G255/0/0 -W1 -O  -K >> $psfile
+
+	fi
+
+	echo $legx $legy 1 0 0 0 0 "1 MPa" | \
+		psvelo -Se`echo $scaling | gawk '{print(1/$1)}'`/0.95/12 \
+		    -G255/0/255 -W6/255/0/255 -O $reg $proj >> $psfile
+
+
+fi
+
+echo $0: output in $psfile
+#gv $psfile &
+

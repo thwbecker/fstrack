@@ -1,0 +1,45 @@
+#!/bin/bash
+#
+# determine GTR1 avreages from a geographic grid by roughly even area 
+# sampling
+#
+# usage:
+#
+# grd2gtr1_avgs file.grd 
+#
+#
+#
+
+pname=`basename $0`
+if [ $# -lt 1 ];then
+	echo $pname: usage: $pname file.grd  > "/dev/stderr"
+	echo $pname: where the GTR1 averages of file.grd will be computed > "/dev/stderr"
+	exit
+fi
+#
+#
+tmpn=/tmp/$$.$USER.geomean
+trap "rm -f $tmpn*; exit" 0 1 2  15
+#
+#
+# check if first grid file exists
+#
+#
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo `basename $0`: $1 or $1.grd are nonexistent > "/dev/stderr"
+	exit
+    fi
+fi
+
+zcat  $datadir/sphere_points/npoints.3.lonlat.gz | grdtrack -fg -G$name  -s | gtr1_avg
+
+
+
+
+
+

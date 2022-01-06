@@ -1,0 +1,48 @@
+#!/bin/bash
+#
+# determine the integral of the |difference| between two grd files
+#
+# $Id: grd2intdiff,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+if [ $# -eq 0 ];then
+    echo `basename $0` grd_file_1 grd_file_2
+    echo 
+    echo calculates the integral of the absolute difference between two
+    echo grd files
+    echo
+    exit
+fi
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+if [ -s $2 ]
+then
+	name2=$2
+else
+	if [ -s $2.grd ]
+	then
+		name2=$2.grd
+	else
+		echo `basename $0`: $2 or $2.grd are nonexistent.
+		exit
+	fi
+fi
+tmpn=/tmp/$USER.$HOST.$$.geomean
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+grdmath $name1 $name2 SUB ABS = $tmpn.grd
+grd2geo_mean $tmpn.grd
+
+
+
+
+
+

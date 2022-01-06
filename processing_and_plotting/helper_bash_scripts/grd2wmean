@@ -1,0 +1,60 @@
+#!/bin/bash
+#
+# determine mean of data on a geographic grid with supplied weighting grid
+#
+# $Id: grd2wmean,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+if [ $# -lt 2 ];then
+	echo `basename $0`: usage: `basename $0` data.grd weights.grd
+	exit
+fi
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+if [ -s $2 ];then
+    wname=$2
+else
+    if [ -s $2.grd ];then
+	wname=$2.grd
+    else
+	echo `basename $0`: weight grids $2 or $2.grd are nonexistent.
+	exit
+    fi
+fi
+
+tmpn=/tmp/$USER.$HOST.$$.geomean
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+cp $name $tmpn.i.grd
+
+cp $wname $tmpn.weight.grd
+# this in here since else directories woth name 1/ would confuse grdmath
+pwd=`pwd`; cd /tmp
+
+# multiply with modified original grid to correct for NaN entries
+grdmath $tmpn.i.grd ISNAN 1 SUB ABS 0 NAN $tmpn.weight.grd MUL  = \
+	$tmpn.costheta.grd
+grd2min $tmpn.weight.grd | gawk '{if($1<0)printf("error, min weight: %g\n",$1)}' > \
+    /dev/stderr
+grd2min $tmpn.costheta.grd | gawk '{if($1<0)printf("error, min scale: %g\n",$1)}' > \
+    /dev/stderr
+#grd2minmax $tmpn.costheta.grd > /dev/stderr
+cd $pwd
+sumw=`grd2sum $tmpn.costheta.grd`
+grdmath $tmpn.costheta.grd $tmpn.i.grd MUL = $tmpn.scaled.grd
+sumwx=`grd2sum $tmpn.scaled.grd`
+echo `echo $sumwx $sumw | gawk '{printf("%16.8f",$1/$2)}'`
+
+
+
+
+
+
+
+

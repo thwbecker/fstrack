@@ -1,0 +1,87 @@
+#!/bin/bash
+#
+# plot cartesian velocity grids
+#
+vx=${1-vx.grd}
+vy=${2-vy.grd}
+vz=${3-vz.grd}
+
+scl=${4-1}			# < 1: cutoff colorbar
+
+if [ ! -s $vx ];then		# vx and vy are required
+    if [ -s $vx.grd ];then
+	vx=$vx.grd
+    else
+	echo $0: neither $vx or $vx.grd found
+	exit
+    fi
+fi
+if [ ! -s $vy ];then
+    if [ -s $vy.grd ];then
+	vy=$vy.grd
+    else
+	echo $0: neither $vy or $vy.grd found
+	exit
+    fi
+fi
+if [ ! -s $vz ];then		# vz need not exist
+    if [ -s $vz.grd ];then
+	vz=$vz.grd
+    fi
+fi
+tmpn=/tmp/$USER.$$.$HOST.
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+psout=`echo $vx | gawk '{printf("%s.ps",substr($1,1,length($1)-4))}'`
+
+# normalize by max
+if [ -s $vz ];then
+#    grdmath $vx 2 POW $vy 2 POW $vz 2 POW ADD ADD SQRT = $tmpn.abs
+    grdmath $vx $vy R2 SQRT = $tmpn.abs
+else
+    grdmath $vx $vy R2 SQRT = $tmpn.abs
+fi
+max=`grd2max $tmpn.abs | gawk '{m=$1;if(m==0)m=1;printf("%7.3e",m)}'`
+rms=`grd2rms $tmpn.abs | gawk '{printf("%7.3e",$1)}'`
+#vscale=`echo $rms | gawk '{print(.05/$1)}'`
+#vscale=`echo $rms | gawk '{print(0.01/$1)}'`
+vscale=1
+echo $vscale
+grdmath $vx $max DIV = $tmpn.vx.grd
+grdmath $vy $max DIV = $tmpn.vy.grd
+#cp $vx $tmpn.vx.grd
+#cp $vy $tmpn.vy.grd
+
+proj=-Jx1
+
+n=20
+#vinc=`grdinfo -C $tmpn.vx.grd | gawk '{printf("-I%0g/%0g",($3-$2)/s,($5-$4)/s)}' s=$n`
+vinc=`grdinfo -C $tmpn.vx.grd | gawk '{printf("-I%f/%f",$8*20,$9*20)}'`
+echo $vinc
+
+ann=-Ba1f.1:"x,$vx":/a1f.1:"y"::."v@+h@+@-rms@-=$rms":wESn
+reg=`grd2reg $tmpn.vx.grd`
+if [ -s $vz ];then
+    grdmath $vz $max DIV = $tmpn.vz.grd
+    makecpt -T-$scl/$scl/0.01 -Cpolar > $tmpn.cpt
+    modifycptends $tmpn.cpt
+    grdimage $reg $tmpn.vz.grd  $proj -C$tmpn.cpt "$ann" -P -K > $psout
+    psscale -N50 -D-0.7/1/2/0.15 -E -O -K -C$tmpn.cpt >> $psout 
+    ls=`echo $scl | gawk '{print($1/2)}'`
+    psscale -N50 -D-0.7/1/2/0.15 -E -O -K -B$ls -C$tmpn.cpt >> $psout 
+else
+    #grd2cpt -E21 $tmpn.abs  -Cpolar > $tmpn.cpt
+    #grd2cpt  $tmpn.abs  -Cpolar > $tmpn.cpt
+    makecpt -T-1/1/.1 -Cpolar -D > $tmpn.cpt    
+    grdimage $reg $tmpn.abs  $proj -C$tmpn.cpt "$ann" -P -K > $psout
+    psscale -N50 -D-0.7/1/2/0.15 -E -O -K -C$tmpn.cpt >> $psout 
+    psbasemap $reg $proj $ann -O -K >> $psout
+    #psbasemap $reg $proj $ann -P -K > $psout
+fi
+grdvector $tmpn.vx.grd $tmpn.vy.grd $vinc -N \
+    $proj  -S$vscale  -O -Gwhite -W0.5 -Q0.06/0.24/0.18n.2 >> $psout
+
+
+modifybb $psout
+
+echo $0: output in $psout

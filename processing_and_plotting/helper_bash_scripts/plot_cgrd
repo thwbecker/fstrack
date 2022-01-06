@@ -1,0 +1,50 @@
+#!/bin/bash
+#
+# plot a cartesian grid file
+#
+grd=${1-tmp.grd}
+scl=${2-1}			# < 1: cutoff colorbar
+if [ ! -s $grd ];then
+    if [ -s $grd.grd ];then
+	grd=$grd.grd
+    else
+	echo $0: neither $grd or $grd.grd found
+	exit
+    fi
+fi
+tmpn=/tmp/$USER.$$.$HOST.
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+psout=`echo $grd | gawk '{printf("%s.ps",substr($1,1,length($1)-4))}'`
+
+#
+# normalize by max
+max=`grd2absmax $grd | gawk '{printf("%7.3e",$1)}'`
+echo $max
+rms=`grd2rms    $grd | gawk '{printf("%7.3e",$1)}'`
+if [ $max != 0.000e+00 ];then
+    grdmath $grd $max DIV = $tmpn.grd
+else
+    cp $grd $tmpn.grd
+fi
+
+#makecpt -T-$scl/$scl/`echo $scl | gawk '{print($1/20)}'` -D -Cpolar > $tmpn.cpt
+makecpt -D -T-1/1/.1 -Cpolar > $tmpn.cpt
+#grd2cpt $grd -Cpolar > $tmpn.cpt
+
+proj=-Jx1
+
+
+ls=`echo $scl | gawk '{print($1/2)}'`
+if [ $max != 0.000e+00 ];then
+    grdgradient -Nt -A0 $tmpn.grd -G$tmpn.i.grd
+    grdimage -C$tmpn.cpt $proj $tmpn.grd -I$tmpn.i.grd -Ba1f.1:"x, $grd":/a1f.1:"y"::."rms=$rms":wESn -P -K > $psout
+else
+    
+    grdimage -C$tmpn.cpt $proj $tmpn.grd  -Ba1f.1:"x, $grd":/a1f.1:"y"::."rms=$rms":wESn -P -K > $psout
+fi
+psscale -N50 -D-0.7/1/2/0.15 -E -O -B$ls -C$tmpn.cpt >> $psout 
+
+
+echo $0: output in $psout
+modifybb $psout

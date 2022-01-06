@@ -1,0 +1,132 @@
+#!/bin/bash
+plon=${1-116.5}			# projection pole
+plat=${2--1.5}
+azi=${3-5}			# azimuth CW from north in degrees
+hl=${4-1200}			# half length in km
+ogrd=${5-prof.grd}		# output grid file
+plot=${6-1}			# make a plot of the grid
+
+remove_layer_mean=${7-0}	# remove the mean for region in question
+
+remove_global_mean=1		    # remove global mean
+
+wl=200				# quake projection
+qfile=$datadir/quakes/das_banda/eng.xyzm
+
+tmpn=/tmp/$USER.$HOST.$$.torque_tmp # temp file storage
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+echo $0: profile: plon: $plon plat: $plat azi: $azi half length: $hl
+#
+# generate profile sampling
+#
+project -C$plon/$plat -A$azi -L-$hl/$hl  -G25 -Q > $tmpn.prof
+
+# tomographic model
+#tm=~becker/data/tomography/mitp08/ # directory
+tm=.
+fn=dv				# grid filename
+df=$tm/depths.dat		# file with depths
+
+zbot=1700			# depth limit
+ztop=0			# top
+reg=-R-$hl/$hl/$ztop/$zbot		# projected range
+inc=-I5/5			# spacing in x along profile and with depth
+
+
+if [ ! -s $df ];then
+    echo $0: tomography depth file $df not found
+    exit
+fi
+nl=`lc $df`			# number of layers
+
+if [ ! -s $ogrd ];then		# make new grid
+    rm $tmpn.dat 2> /dev/null
+    i=$nl;z=`oneline $i $df`
+    while [ `echo $z $zbot | gawk '{if($1<=$2)print(1);else print(0)}'` -eq 1 ];do # depth loop
+	# global mean
+	mean=`grd2geo_mean $tm/$fn.$i.grd`
+
+	if [ ! -s $tm/$fn.$i.grd ];then
+	    echo $0: velocity anomaly grid $tm/$fn.$i.grd not found
+	    exit
+	fi
+	if [ $remove_global_mean -eq 1 ];then
+	    echo $0: working on $tm layer $i depth $z removing global mean $mean 
+	    grdtrack -fg -G$tm/$fn.$i.grd $tmpn.prof  2> /dev/null | \
+		gawk -v z=$z -v mean=$mean '{print($3,z,$4-mean)}' z=$z > $tmpn.z
+	else
+	    echo $0: working on $tm layer $i depth $z leaving global mean $mean 
+	    grdtrack -fg -G$tm/$fn.$i.grd $tmpn.prof  2> /dev/null | \
+		gawk -v z=$z  '{print($3,z,$4)}' z=$z > $tmpn.z
+	fi
+	if [ $remove_layer_mean -eq 1 ];then
+	    lmean=`gawk -v col=3 -f mean.awk $tmpn.z`
+	    echo $0: removing layer mean of $lmean
+	    gawk -v lm=$lmean '{print($1,$2,$3-lm)}' $tmpn.z >> $tmpn.dat
+	else
+	    cat $tmpn.z >> $tmpn.dat
+	fi
+	((i=i-1))
+	z=`oneline $i $df`
+    done
+
+#
+# convert to grid
+#
+    surface $tmpn.dat $reg $inc -G$ogrd -T0.25 -Lld -Lud 
+    echo $0: written profile anomaly grid to $ogrd
+
+else
+    echo 
+    echo $0: WARNING: using old $ogrd
+    echo
+fi
+
+
+
+if [ $plot -eq 1 ];then		# plotting
+    if [ ! -s $ogrd ];then
+	echo $0: profile grid $ogrd not found for plotting
+	exit
+    fi
+    ofile=`echo $ogrd | gawk '{gsub(".grd",".ps");print($0)}'`
+#    grd2cpt $ogrd -E15 -Cpolar -I -T= > $tmpn.cpt
+#    makecpt -T-2/2/.2 -Chaxby -I > $tmpn.cpt
+    makecpt -T-1.5/1.5/.1 -Chaxby -I > $tmpn.cpt
+#    makecpt -T-1.25/1.25/.1 -Z -Cpolar -I > $tmpn.cpt
+    scale=.003
+    proj=-Jx$scale/-$scale
+    
+    grdimage $ogrd $reg $proj \
+	-Ba200f20:"distance along profile [km]":/a200f20:"depth [km]":WesN -C$tmpn.cpt -P -K > $ofile
+
+    project -C$plon/$plat -A$azi -Q -L-$hl/$hl  -W-$wl/$wl $qfile  -Fxyzpq | \
+	gawk '{if($4==0)mag=3;else mag=$4;print($5,$3,mag/100)}' | \
+	psxy -Ggray -R -J -N -Sc -W0.5 -O -K >> $ofile
+    psscale -N50 -E -C$tmpn.cpt  -D3.5/-.25/3/.2h -B.5/:"@~d@~v@-P@- [%]": -O -K >> $ofile
+    cat <<EOF  | psxy $reg $proj -W2,- -O -K >> $ofile # phase boundary
+-$hl 660
+$hl 660
+EOF
+    # world map
+    np=-JN180/2
+    pscoast -S200 -G220 -Rg $np -O -K -X.25 -Y.15 -Dc >> $ofile
+    psxy $np -Rg ~becker/data/plate_boundaries/nuvel.yx -: -W1,blue -K -M -O >> $ofile
+    psxy $np -Rg $tmpn.prof -W5,red -O -K >> $ofile
+    
+    # zoom in map
+    np=-JOa`echo $plon`/$plat/$azi/2.5;nr=-R-15/15/-7/7
+    gmtset BASEMAP_TYPE plain ANNOT_FONT_SIZE 8 ANNOT_FONT_SIZE_SECONDARY 8 LABEL_FONT_SIZE 10
+    pscoast -S200 -G220 $nr $np -O -K  -X4 >> $ofile
+    psbasemap -Tx.15/.8/.2 $nr $np -O -K -Ba5f1g5WesN >> $ofile # north compass
+    psxy $np $nr ~becker/data/rum/allslabs_rum.gmt -W1 -K -M -O >> $ofile # rum contours
+    psxy $np $nr ~becker/data/plate_boundaries/nuvel.yx -: -W1,blue -K -M -O >> $ofile # plate boundaries
+    psxy $np $nr $tmpn.prof -W5,red -O -K >> $ofile # profile
+    echo $plon $plat | psxy $np $nr -Sa.15 -G200/0/0 -Wred -O >> $ofile # center of profile
+
+    gmtset BASEMAP_TYPE fancy ANNOT_FONT_SIZE 14p ANNOT_FONT_SIZE_SECONDARY 16p LABEL_FONT_SIZE 24p
+    echo $0: plot in $ofile
+fi
+
+    

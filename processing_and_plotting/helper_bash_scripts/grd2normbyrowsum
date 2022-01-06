@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# normalize a grid by the sum of each row
+#
+igrd=${1-tmp.grd}
+ogrd=${2-tmp.o.grd}
+
+reg=`grd2reg $igrd`
+inc=`grd2inc $igrd`
+
+grd2xyz $igrd | gawk 'BEGIN{sum=0;n=0;}{
+                        if((oldy != $2)&&(n!=0)){
+                           for(i=1;i<=n;i++){
+                               if(sum == 0)
+                                 print(x[i],y[i],"NaN");
+                               else
+                                print(x[i],y[i],z[i]/sum);
+                              }
+                        sum=0;n=0;}
+                        n++;x[n]=$1;y[n]=$2;z[n]=$3;sum += z[n];
+                        oldy=$2;
+                       }
+                       END{for(i=1;i<=n;i++)if(sum==0)print(x[i],y[i],"NaN");else print(x[i],y[i],z[i]/sum);}' | \
+			   xyz2grd $reg $inc -G$ogrd 
+echo $0: normalized each row of $igrd by each sum, written to $ogrd > /dev/stderr
+# check the sum of each row....
+#grd2xyz $ogrd | gawk 'BEGIN{sum=0;n=0;}{if((oldy != $2)&&(n!=0)){print(oldy,sum);sum=0;n=0;}n++;sum += $3;oldy=$2;}END{print(oldy,sum)}'

@@ -1,0 +1,35 @@
+#!/bin/bash
+
+
+if [ ! -s $1.node ]
+then
+	echo $0: could not find $1.node
+	exit
+fi
+
+proj='-JX5 -P'
+reg='-R-11/11/-11/11'
+#reg='-R-3/3/-3/3'
+ann='-Ba2/a2'
+
+gawk '{if(NR>1 && $1!="#" && $1 != "")print($2,$3,0.1)}' $1.node | \
+	psxy -Sc $reg $proj -G255/0/0 -K > tmp.ps
+
+gawk -f $HOME/idl_gmt/triangle2gmt.awk elecenters=1 $1.node $1.ele | \
+	awk '{printf("%g %g 12 0 1 6 %s\n",$1,$2,$3)}' | \
+	pstext $reg $proj -O -K -G0/0/255 >> tmp.ps
+
+gawk -f $HOME/idl_gmt/triangle2gmt.awk  $1.node $1.ele | \
+	psxy -L -M $reg $proj -W1/0/0/255 -O  -K >> tmp.ps
+
+gawk '{if(NR>1 && $1!="#" && $1 != "")print($2,$3,$1)}' $1.node | \
+	awk '{printf("%g %g 10 0 1 6 %s\n",$1,$2,$3)}' | \
+	pstext $reg $proj -O -K -G255/0/0 -W >> tmp.ps
+
+gawk -f $HOME/idl_gmt/triangle2gmt.awk edges=1 $1.node $1.edge | \
+	awk '{printf("%g %g 10 0 1 6 %s\n",$1+0.3,$2+0.3,$3)}' | \
+	pstext $reg $proj -O -K -G0/255/0  -N >> tmp.ps
+
+
+
+psbasemap -O $reg $proj $ann >> tmp.ps

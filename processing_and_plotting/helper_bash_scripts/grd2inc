@@ -1,0 +1,33 @@
+#!/bin/bash
+#
+# obtain increments from GMT grd file
+# $Id: grd2inc,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+name=${1-tmp.grd}
+mode=${2-1}			# 1: -I/ format 2: just x 3: just y 4: x and y (but no -I)
+
+tmpd=`mktemp -d`
+trap "rm -fr $tmpd" EXIT
+
+if [ ! -s $name ];then
+    echo $0: $name not found > "/dev/stderr"
+    exit
+fi
+
+cp $name $tmpd
+sname=`basename $name`
+
+cd $tmpd
+gmtset D_FORMAT %22.15e
+
+if [ $mode -eq 1 ];then
+    echo `grdinfo -C $sname | gawk '{printf("-I%012.7e/%012.7e",$8,$9)}' `
+elif [ $mode -eq 2 ];then
+    echo `grdinfo -C $sname | gawk '{printf("%g",$8)}' `
+elif [ $mode -eq 3 ];then
+    echo `grdinfo -C $sname | gawk '{printf("%g",$9)}' `
+elif [ $mode -eq 4 ];then
+    echo `grdinfo -C $sname | gawk '{printf("%g %g",$8,$9)}' `
+fi
+
+gmtset D_FORMAT %lg

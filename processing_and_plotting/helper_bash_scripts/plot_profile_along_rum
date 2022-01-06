@@ -1,0 +1,87 @@
+#!/bin/bash
+#
+#
+#
+dfile=depths.dat;suf=dv
+slab=indonesia
+
+tmpn=/tmp/$USER.$HOST.$$.ig
+trap "rm -f $tmpn* ; exit" 0 1 2 15
+
+reg=-R105/135/-16/0;proj=-JH`echo $reg | gawk -f reg2midlon.awk`/7
+
+
+gmtselect $reg -fg $datadir/quakes/engdahl/EHB.xyzmw  > $tmpn.quakes
+
+gmtset BASEMAP_TYPE plain
+
+makecpt -T-0.75/0.75/.01 -D -Chaxby -I > $tmpn.cpt
+rm $tmpn.dat 2> /dev/null
+d=25
+while [ $d -le 700 ];do
+    interpolate_grids $suf $dfile $d $tmpn.grd
+    # regional box
+    grdcut $tmpn.grd $reg -fg -G$tmpn.2.grd;mv $tmpn.2.grd $tmpn.grd
+    # interpolate 
+    grdsample $tmpn.grd -G$tmpn.2.grd -I0.2; mv $tmpn.2.grd $tmpn.grd
+
+    # remove mean
+    mean=`grd2geo_mean $tmpn.grd`
+    grdmath $tmpn.grd $mean SUB = $tmpn.$d.grd
+    if [ ! -s $datadir/rum/all.$d.gmt ];then
+	((duse=d-25))
+	if [ ! -s $datadir/rum/all.$duse.gmt ];then
+	    echo $0: $d or $duse not found in contours
+	    exit
+	fi
+    else
+	duse=$d
+    fi
+    #gmtselect -m -fg  $datadir/rum/all.$duse.gmt | grdtrack -fg -G$tmpn.$d.grd -m
+
+    #gawk -v d=$duse '{if($3==d)print($0)}' $datadir/rum/Contours/$slab.slb  | grdtrack -fg -G$tmpn.$d.grd | gawk -f lonlatz2xyz.awk > tmp.$d
+
+    gawk -v d=$duse '{if($3==d)print($0)}' $datadir/rum/Contours/$slab.slb  > $tmpn.cont
+    
+    grdtrack -fg $tmpn.cont -G$tmpn.$d.grd > $tmpn.lay 
+    cat $tmpn.lay >> $tmpn.dat
+    
+    plot=1
+    if [ $plot -eq 1  ];then
+	
+	grdimage $tmpn.$d.grd $reg $proj -C$tmpn.cpt -Ba5f1WesN  -K > tmp.$d.ps
+	pscoast $reg $proj -O -Dl -W2 -K >> tmp.$d.ps
+	echo  106 -15 18 0 0 ML "z = $d km" | pstext $reg $proj -W200 -O -K >> tmp.$d.ps
+	psscale -D3.5/-.2/3/.2h -E -C$tmpn.cpt -B.5/:"@~d@~v@-P@- [%]": -O -K >> tmp.$d.ps
+	gawk '{print($1,$2)}' $tmpn.cont | psxy $reg $proj -W4,darkmagenta -O -K >> tmp.$d.ps
+	#
+	gawk -v d=$d 'BEGIN{d1=d-10;d2=d+10;}{if(($3>=d1)&&($3<d2))print($1,$2,$4/100)}' \
+	    $tmpn.quakes | psxy -Sc  $reg $proj -Gdarkmagenta -O >> tmp.$d.ps
+
+	#gawk '{print($1,$2,$4)}' $tmpn.lay | psxy $reg $proj -Sc0.1  -C$tmpn.cpt -O >> tmp.$d.ps
+	modifybb tmp.$d.ps
+	eps2eps tmp.$d.ps $tmpn.ps; mv $tmpn.ps tmp.$d.ps
+	dl=`echo $d | gawk '{printf("%010.3f",$1)}'`
+	/usr/bin/convert -rotate 90 -density 100 -background white -flatten tmp.$d.ps tmp.$dl.gif
+	#eog $HOME/tmp/tmp.$d.gif
+	#gv tmp.$d.ps; 
+	rm tmp.$d.ps
+
+    fi
+
+    
+    #tail -10 $tmpn.dat
+    ((d=d+25))
+done
+
+
+preg=`minmax -I1 $tmpn.dat`
+pscoast -Di $preg -W1 -m -JM10  | \
+    gawk -f ~/awk/gmtpoly2vtk.awk > coast.$slab.vtk
+
+gawk -v is_depth=1 -f lonlatza2vtk.awk $tmpn.dat > rum.$slab.vtk
+echo $0: written to rum.$slab.vtk
+gifsicle -l 10 -d 100 tmp.*.gif > rum.$slab.gif
+rm tmp.*.gif
+echo $0: written to rum.$slab.gif
+

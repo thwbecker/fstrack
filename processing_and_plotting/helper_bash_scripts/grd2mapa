@@ -1,0 +1,108 @@
+#!/bin/bash 
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+range=`grdinfo $name | grep zmin | gawk '{printf("min=%g max=%g\n",$3,$5)}'`
+cstep=`grdinfo $name | grep zmin | gawk '{printf("%g\n",int(($5-$3)/10))}'`
+
+if [ $# -gt  1 ]
+then
+    cmp=-C$2.cpt
+else
+    #awk -f $HOME/idl_gmt/colminmax.awk $range $HOME/tcltk/igmt_develop/colormaps/col.00.cpt > col.cpt
+    #awk -f $HOME/idl_gmt/colminmax.awk $range $HOME/tcltk/igmt_develop/colormaps/col.13.cpt > col.cpt
+#    grd2cpt $name > col.cpt
+    
+
+    cmp=/tmp/.tmp.$1.col.cpt
+    dmin=`grd2min $name`
+    dmax=`grd2max $name`
+    echo $0: reading data from $name
+    echo $0: minimum $dmin maximum $dmax
+    maxps=`echo $dmin $dmax | \
+	awk '{print(((a=sqrt($1**2))>(b=sqrt($2**2)))?(a):(b))}'`
+    if [ `echo $maxps | gawk '{if($1>0)print(1);else print(0);}'` -ne 0 ]
+    then
+	step=`echo $maxps | gawk '{print($1/20.0)}'`
+	makecpt -Z \
+	    -Cjet -T-$maxps/$maxps/$step \
+	| gawk -f ~/tcltk/igmt_develop/formatcpt.awk  > $cmp
+    else
+	makecpt -Z  -Cjet -T-1/1/0.1\
+	| gawk -f ~/tcltk/igmt_develop/formatcpt.awk  > $cmp
+
+    fi 
+    cmp=-C$cmp
+fi
+if [ $# -gt  2 ]
+then
+    title=$3
+    echo title is $title
+else
+    title=""
+fi
+if [ $# -gt  3 ]
+then
+    cb=$4
+else
+    cb=0
+fi
+
+
+if [ -s $name ]
+then
+	w=0.5 
+	e=359.5
+	s=-89.5
+	n=89.5
+	reg=-R$w/$e/$s/$n
+	tmpf=$name
+	psout=`echo $name | gawk '{printf("%s.ps",substr($1,1,length($1)-4))}'`
+	offset='-X1 -Y1.5'
+#	proj="-JW0/7 -P"
+#	proj='-JM9 -Ba60/a30'
+
+#	proj='-Jq180/0.025 -P'
+#	proj='-Jx0.025c'
+#	proj='-Jx0.019c -P'
+	proj='-Jx0.04c -P'
+	
+	ann='-Ba60/a30'
+#	proj='-JG45/30/6 -P'
+#	proj='-JM7 -P'
+
+	psbasemap   $proj  $reg  -B:."$title": -K  $offset > $psout
+
+	grdimage $tmpf  $reg $proj $cmp  -K -O >> $psout
+#	psxy $HOME/quakes/rum_data/Contours/sorted/cont.0.xy \
+#			  -M -R$w/$e/$s/$n $proj -O -K  -W5/000/000/255  >> $psout
+#	grdcontour $name -C$cstep $proj -R$w/$e/$s/$n -O -K  -W1/255/0/0 >>  $psout
+
+#	if [ $cb -ne 0 ]
+#	then
+	    psscale $cmp -D3/-0.5/7/0.25h -L -O -K >> $psout
+
+#	fi
+
+	# Add NUVEL1 plate boundaries to the plot.
+	cat /home/becker/tcltk/igmt_develop/nuvel.yx | \
+	awk '{x=$2;y=$1;if(y==">")print(">");else {if(x<0)x+=360.0;print(x,y);}}'|\
+	psxy -M $reg  $proj  -O -K   -W.25/255/0/0  >> $psout
+	pscoast $reg $proj -O -W3/200/200/200 -Dc -A1000000 $ann -K >> $psout
+	echo $0: Output $psout
+else
+	echo $name not found.
+	exit
+fi
+if [ -s col.cpt ]
+then
+    rm col.cpt
+fi

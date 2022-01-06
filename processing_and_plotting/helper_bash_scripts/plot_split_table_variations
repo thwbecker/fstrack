@@ -1,0 +1,607 @@
+#!/bin/bash
+#
+# plot splitting variations
+#
+rcode=${1-48}			# region code
+add_avg=${2-0}			#  0: original split 1: averages, colored by delay time 2: averages, colored by azimuth variation
+#  3: averages, colored by delay time, no wedges, fixed length
+#  4: averages, colored by delay time, no wedges, variable length
+# -1: station names -2: station names and piercing points
+topo=${3-0}				# 0: no topo 1: topo 2: tomography 3: radial anisotropy 4: interpolated delay times 
+# 5: gray topography 6: interpolated dazi
+#data_file=$datadir/splitting/splitting.$rcode
+#data_file=${4-$datadir/splitting/growdon}
+#
+# if sstat is the ending, assume synthetic splitting output and convert
+#
+data_file=${4-$datadir/splitting/allwuest} # 
+#
+cpt_file=${5-tmp.cpt}		# delay time file
+reuse_old=${6-1}		# reuse an old, sorted file
+add_sw_ani=${7-0}		# 1: add surface waves 2: no flow 3: only flow
+
+basename=`basename $data_file`
+tomo_depth=200
+
+ba_plot=0
+add_sks_scale=0
+dts_scale=1
+
+sks_mode=2
+# for surface wave SKS predictions
+#sks_file=$datadir/tomography/dr2012/swsplit_results/split.dr2012.$sks_mode.sstat 
+sks_file=$datadir/tomography/SL2013/SL2013svA/swsplit_results/split.sl2013sva.$sks_mode.sstat 
+
+# for velocities, arrowwidth/headlength/headwidth 
+grd_vec_scale=6;grd_vec_size=0.08/0.3/0.09n.5
+
+tmpn=/tmp/$USER.$HOST.$$.torque_tmp
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+
+if [ -s $cpt_file ];then
+    cp $cpt_file $tmpn.dt.cpt
+else
+    #makecpt -T0/2.5/0.1 -D -Cseis -I > $tmpn.dt.cpt # delay time colorscale
+    makecpt -T0/2/0.1 -D -Cseis -I > $tmpn.dt.cpt # delay time colorscale
+    #makecpt -T0/2/0.1 -D -Cseis -I > $tmpn.dt.cpt # delay time colorscale
+    #makecpt -T0/3/0.1 -D -Cseis -I > $tmpn.dt.cpt # delay time colorscale
+fi
+
+
+psc_loc=-D1/5/2/.2
+veccol=lightorange;piecol=orange
+veccol_data=darkgray
+
+
+rname=`region_parameters $rcode 7`
+pscr=`region_parameters $rcode 13`
+preg=`region_parameters $rcode 3`
+proj=`region_parameters $rcode 4`
+ann=`region_parameters $rcode 6`
+
+if [ $rcode -eq 48 ];then
+    preg=-R-11/0/28.5/40
+    proj=-JH`echo $preg | gawk -f reg2midlon.awk`/10
+elif [ $rcode -eq 50 ];then
+    proj=-JH`echo $preg | gawk -f reg2midlon.awk`/7
+    psc_loc=-D4.5/0.55/2/.2h
+elif [ $rcode -eq 52 ];then
+    proj=-JH`echo $preg | gawk -f reg2midlon.awk`/10
+    psc_loc=-D7.5/1/2/.2h
+    ann=-Ba5f1/a5f1WesN
+elif [ $rcode -eq 67 ];then
+    proj=-JM15
+    psc_loc=-D15.3/3.5/2/.2
+    pscr="-Df -A1000"
+elif [ $rcode -eq 4 ];then
+    #proj=-JH`echo $preg | gawk -f reg2midlon.awk`/20
+    preg=-R-126/-66/25/50
+    proj=-JM20
+    psc_loc=-D1/2/2/.2
+fi
+
+
+if [ $rcode -eq 67 ];then
+    scale=0.3
+    #vecsize=0.05/0/0		# synth
+    # arrowwidth/headlength/headwith 
+    #vecsize=0.05/0.06/0.025
+    vecsize=0.06/0.07/0.03
+    csize=0.1
+    sqsize=0.05
+elif [ $rcode -eq 4 ];then
+    vecsize=0.075/0/0
+    scale=0.5
+    csize=0.13
+    sqsize=0.1
+elif [ $rcode -eq 52 ];then
+    scale=0.5
+    vecsize=0.1/0/0		# synth
+    csize=0.125
+    sqsize=0.2
+    
+else
+    scale=0.35
+    vecsize=0.05/0/0		# synth
+    csize=0.08
+    sqsize=0.1
+fi
+
+gmtset BASEMAP_TYPE plain
+if [ `echo $data_file | gawk '{if(match($1,"sstat"))print(1);else print(0)}'` -eq 1 ];then
+    echo $0: assuming synthetics, scaling with $dts_scale
+    gawk -v s=$dts_scale '{print("synth",$2,$1,$3,$4,$5*s,$6*s,1)}' $data_file > $tmpn.table
+    is_synthetic=1
+else
+    cp $data_file.table $tmpn.table
+    is_synthetic=0
+fi
+
+ndata=`lc $tmpn.table`
+nregion=`gawk '{print($3,$2)}' $tmpn.table | gmtselect -fg $preg | lc`
+#
+# sort splitting database 
+# 
+only_ba=0			# 0: use all 1: only wiht back azimuth information
+# 
+# only teleseismic
+# 
+if [ $only_ba -eq 1 ];then
+    # only those with backazimuth information and non null
+    gawk '{if(($14!=0)&&($6!=0)&&(($8==1)||($8==4)))print($3,$2)}' $tmpn.table | sort -n | uniq | gmtselect -fg $preg > $tmpn.locations
+    gawk '{if(($14!=0)&&($6!=0)&&(($8==1)||($8==4)))print($3,$2,$4,$6,$14,$1)}' $tmpn.table | gmtselect -fg $preg > $tmpn.lonlatazidtbast
+    gawk '{if(($14!=0)&&($6==0)&&(($8==1)||($8==4)))print($3,$2)}' $tmpn.table | gmtselect -fg $preg > $tmpn.nulls
+    
+else
+    gawk '{if(($6!=0)&&(($8==1)||($8==4)))print($3,$2)}' $tmpn.table | sort -n | uniq | gmtselect -fg $preg > $tmpn.locations
+    gawk '{if(($6!=0)&&(($8==1)||($8==4)))print($3,$2,$4,$6,$14,$1)}' $tmpn.table | gmtselect -fg $preg > $tmpn.lonlatazidtbast
+    gawk '{if(($6==0)&&(($8==1)||($8==4)))print($3,$2)}' $tmpn.table | gmtselect -fg $preg > $tmpn.nulls
+fi
+
+nloc=`lc $tmpn.locations`
+
+echo $0: $ndata total entries, $nregion in region $preg
+
+
+if [ $is_synthetic -eq 1 ];then
+    gawk -v s=$dts_scale '{print($1,$2,$3,$4,$5*s,$6*s)}'  $data_file > $tmpn.stat_data
+else
+    echo $0: $nloc unique locations, sorting for stats
+    if [[ ! -s $datadir/splitting/processed_tables/$basename.$rcode.stat_data  || $reuse_old -eq 0 ]];then
+	rm $tmpn.stat_data 2> /dev/null
+	i=1
+	while [ $i -le $nloc ];do
+	    oneline $i $tmpn.locations > $tmpn.dat
+	    read lon lat < $tmpn.dat
+	    gawk '{print($1,$2)}' $tmpn.lonlatazidtbast | \
+		gawk -v km=1 -v lon0=$lon -v lat0=$lat \
+		     -f dist_on_sphere_in_file.awk \
+		     > $tmpn.dist
+	    # limit close stations to 10 km
+	    paste $tmpn.lonlatazidtbast $tmpn.dist | gawk '{if($7<10)print($0)}' > $tmpn.station
+	    nsplit=`lc $tmpn.station`
+	    if [ $nsplit -eq 0 ];then
+		echo $0: error $lon $lat
+	    elif [ $nsplit -eq 1 ];then	# only one split
+		gawk '{print($1,$2,$3,0,$4,0)}' $tmpn.station >> $tmpn.stat_data
+	    else			# more than one, calc stats
+		echo $lon $lat `gawk '{print($5,$3,$4)}' $tmpn.station | fazi2splitstat 2> /dev/null | gawk '{print($1,$2,$3,$4)}'` >> $tmpn.stat_data
+		gawk '{print($5,$3,$4)}' $tmpn.station > $tmpn.splits
+		if [[ $nsplit -gt 4 && $ba_plot -eq 1 && $only_ba -eq 1 ]];then
+		    station=`head -1 $tmpn.station | gawk '{print($6)}'`
+		    echo $station
+		    cat <<EOF > $tmpn.gpl
+set term post enh color solid 	
+set out '$tmpn.ps'	
+
+set multi
+set size 1,.5
+set origin 0,.5
+set lmargin 10
+set rmargin 5
+set xrange [0:360]
+set title '$station'
+set ylabel 'fast azimuth [^o]'
+f(x) = a * cos(2.*x/180.*pi+b) + c
+a=10;b=5;c=10
+fit f(x) '$tmpn.splits' using 1 : 2 via a,b,c
+plot '$tmpn.splits' using 1 : 2 title '' w p pt 4 ps 2, f(x) title '' w l  lw 2
+
+set origin 0,0
+set title ''
+set xlabel "back azimuth [^o]"
+set ylabel 'delay time [s]'
+#a=1;c=0.5;fit f(x) '$tmpn.splits' using 1 : 2 via a,c
+#plot '$tmpn.splits' using 1 : 3 title '' w p pt 4 ps 2 , f(x) title '' w l lw 2
+plot '$tmpn.splits' using 1 : 3 title '' w p pt 4 ps 2 
+
+EOF
+		    gnuplot $tmpn.gpl
+		    modifybb $tmpn.ps 2> /dev/null
+		    gv $tmpn.ps 
+		fi
+		
+	    fi
+	    tail -1  $tmpn.stat_data
+	    ((i=i+1))
+	done
+
+	
+	echo $0: done, computed stats for `lc $tmpn.stat_data` entries
+	cp $tmpn.stat_data $datadir/splitting/processed_tables/$basename.$rcode.stat_data
+    else
+	echo $0: WARNING: reusing old, processed files $basename.$rcode.stat_data 
+	cp $datadir/splitting/processed_tables/$basename.$rcode.stat_data  $tmpn.stat_data 
+    fi
+fi
+
+
+
+ofile=$HOME/tmp/split.$rcode.$add_avg.map.ps 
+
+
+
+
+psbasemap $preg $proj $ann -P -K > $ofile
+if [ $topo -eq 0 ];then
+    pscoast -O -K $preg $proj $pscr -G100 -S50 $ann >> $ofile
+    #veccol=blue;piecol=cyan
+    veccol=white;piecol=gray
+    #veccol=yellow;piecol=orange
+    veccol_data=darkgray
+elif [ $topo -eq 1 ];then
+    #makecpt -Cocean -T-8500/3000/10 > dem.cpt
+    #
+    echo $preg
+    if [ -s  $datadir/etopo1/ETOPO1_Ice_g_gmt4.grd   ];then
+	grdcut $datadir/etopo1/ETOPO1_Ice_g_gmt4.grd  $preg -G$tmpn.grd -fg
+    else
+	grdcut $datadir/etopo2/etopo2.grd  $preg -G$tmpn.grd -fg
+
+    fi
+    grdsample $tmpn.grd -I0.005 -fg -G$tmpn.2.grd ; mv $tmpn.2.grd $tmpn.grd
+    grdgradient $tmpn.grd -G$tmpn.i.grd -Nt -A60
+    #makecpt -Crelief  > $tmpn.cpt
+    grd2cpt  $tmpn.grd -Cgray -E11 > $tmpn.cpt
+    #grdimage  $tmpn.grd $preg $proj -I$tmpn.i.grd -C$tmpn.cpt -O -K >> $ofile
+    grdimage  $tmpn.grd $preg $proj  -C$tmpn.cpt -O -K >> $ofile
+    #grdview -Qs70  $tmpn.grd $preg $proj -C$tmpn.cpt -O -K >> $ofile
+
+    pscoast -O -K $preg $proj  $pscr -W2 $ann >> $ofile
+elif [ $topo -eq 2 ];then	# tomography
+
+
+    #makecpt -T-2/2/0.01 -I -Chaxby  > $tmpn.cpt
+
+    # schmid at 200 km
+    #grdsample -I0.05 $datadir/tomography/schmid_s20rts/d.33.grd  -fg -G$tmpn.grd $preg
+    # LH08 at 200 km 
+    #grdsample -I0.05 $datadir/tomography/lh08/dv.9.grd  -fg -G$tmpn.grd $preg
+    # lrsp30eu at 200 km
+    #grdsample -I0.05 $datadir/tomography/lrsp30eu/dv.21.grd  -fg -G$tmpn.grd $preg
+    # s40rts
+    #grdsample -I0.05 $datadir/tomography/s40rts/dv.28.grd  -fg -G$tmpn.grd $preg
+
+    extract_layer  $datadir/tomography/models/sl2013.63.m.ab $tomo_depth | \
+	shsyn 0.25 0 $tmpn 
+    #grdsample $datadir/tomography/SL2013NA/dv.21.grd  -fg -G$tmpn.grd $preg
+    
+    grd2cpt -I -T= -E21 $tmpn.grd -Chaxby > $tmpn.cpt 
+    # take out mean
+    mean=`grd2geo_mean $tmpn.grd `
+    grdmath $tmpn.grd $mean SUB = $tmpn.2.grd ; mv $tmpn.2.grd $tmpn.grd
+    grdimage $tmpn.grd $preg $proj -C$tmpn.cpt  -O -K >> $ofile
+    pscoast -O -K $preg $proj  $pscr -W2,black $ann >> $ofile
+    psscale -C$tmpn.cpt -B2/:"@~d@~v@-SV@- [%] @@ $tomo_depth km": -E \
+	    -D2/-.25/3/.15h -O -K >> $ofile
+elif [ $topo -eq 3 ];then 	# radial anisotropy
+
+    grdsample -I0.05 $datadir/tomography/s362wmani/xi.22.grd  -fg -G$tmpn.grd $preg
+    mean=`grd2geo_mean $tmpn.grd `
+    grdmath $tmpn.grd $mean SUB = $tmpn.2.grd ; mv $tmpn.2.grd $tmpn.grd
+    grd2cpt -E21 -Chaxby  $tmpn.grd > $tmpn.cpt
+
+    grdimage $tmpn.grd $preg $proj -C$tmpn.cpt  -O -K >> $ofile
+    pscoast -O -K $preg $proj  $pscr -W2,black $ann >> $ofile
+    psscale -C$tmpn.cpt -B0.01/:"@~dx@~ @@ 200 km": -E -D2/-.25/3/.15h -O -K >> $ofile
+
+elif [ $topo -eq 4 ];then	# interpolated delay times
+    inc=-I0.125
+    gawk -v s=$scale '{print($1,$2,$5)}'  $tmpn.stat_data | \
+	surface $preg $inc -G$tmpn.grd -Lud -Lld -T0 -fg 
+    grdmask $tmpn.stat_data -NNaN/1/1 $preg $inc -S50k -G$tmpn.mask
+    grdmath $tmpn.mask $tmpn.grd MUL = $tmpn.m.grd
+    
+    grdimage $tmpn.m.grd $preg $proj -C$tmpn.dt.cpt  -O -K >> $ofile
+    pscoast -O -K $preg $proj  $pscr -W2,black $ann >> $ofile
+    if [ $add_avg -eq 0 ];then
+	psscale -C$tmpn.dt.cpt -B0.5/:"@~d@~t [s]": -Ef  \
+		-D1/1/3/.15 -O -K >> $ofile
+    fi
+elif [ $topo -eq 5 ];then
+    if [ -s  $datadir/etopo1/ETOPO1_Ice_g_gmt4.grd   ];then
+	grdcut $datadir/etopo1/ETOPO1_Ice_g_gmt4.grd  $preg -G$tmpn.grd -fg
+    else
+	grdcut $datadir/etopo2/etopo2.grd  $preg -G$tmpn.grd -fg
+
+    fi
+
+    #grdsample $tmpn.grd -I0.005 -fg -G$tmpn.2.grd ; mv $tmpn.2.grd $tmpn.grd
+
+    #grdgradient $tmpn.grd -G$tmpn.i.grd -Nt -A45
+    grd2cpt -Cgray $tmpn.grd -E51 > $tmpn.cpt
+
+    #grdimage  $tmpn.grd $preg $proj -C$tmpn.cpt -I$tmpn.i.grd -O -K >> $ofile
+    grdimage  $tmpn.grd $preg $proj -C$tmpn.cpt  -O -K >> $ofile
+
+    pscoast -O -K $preg $proj  $pscr -W1 $ann  >> $ofile
+    pscoast -O -K $preg $proj  $pscr -W1 $ann -N1 >> $ofile
+    pscoast -O -K $preg $proj  $pscr -W1 $ann -N2 >> $ofile
+
+elif [ $topo -eq 6 ];then
+    echo interpolated dazi
+    inc=-I0.05
+    gawk -v s=$scale '{print($1,$2,$4)}'  $tmpn.stat_data | blockmedian -fg -I1 $preg | \
+	surface $preg $inc -G$tmpn.grd -Lud -Lld -T0 -fg  `echo $preg | gawk -f reg2aspect.awk`
+    grdmask $tmpn.stat_data -NNaN/1/1 $preg $inc -S50k -G$tmpn.mask
+    grdmath $tmpn.mask $tmpn.grd MUL = $tmpn.m.grd
+
+    
+    makecpt -T0/50/1 -D -Chaxby  > $tmpn.da.cpt
+    grdcut $datadir/etopo1/ETOPO1_Bed_g_gmt4.grd -fg $preg -G$tmpn.topo
+    grdsample -fg $preg $inc $tmpn.topo -G$tmpn.topo2
+    grdgradient -Ne -A30 $tmpn.topo2 -G$tmpn.topoi
+    grdimage $tmpn.m.grd $preg $proj -C$tmpn.da.cpt -I$tmpn.topoi  -O -K >> $ofile
+    pscoast -O -K $preg $proj  $pscr -W2,black $ann >> $ofile
+    psscale -C$tmpn.da.cpt -B25/:"@~Da@~ [@+o@+]": -Ef $psc_loc -O -K >> $ofile
+
+    gawk -v s=$scale '{print($3,$2,$4,$6*s)}'  $data_file.1.tele.avg.table | \
+	psxy -SVB$vecsize -W1 $preg $proj  -O -K -Gwhite >> $ofile
+fi
+#psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -m -: \
+#    $preg  $proj  -O -K   -W5,red  >> $ofile
+
+#psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+#    $preg  $proj  -O -K   -W5,darkblue   >> $ofile
+psxy -m $datadir/plate_boundaries/morvel/morvel.gmt \
+     $preg  $proj  -O -K   -W4,darkblue   >> $ofile
+
+if [ $add_sw_ani -ne 0 ];then
+    
+    zcat $datadir/sphere_points/npoints.1.lonlat.gz | gawk '{print($1+0.5,$2)}' > $tmpn.inter.lonlat
+
+    
+    # relative motion at depth
+    #name=d.1.v.1.z.250 # only plate motions
+    #name=d.2.v.1.z.250		# M01
+    name=d.6.v.1.z.250		# SAVANI
+    #name=d.2.v.2.z.250		# M01
+    #name=d.3.v.1.z.250 # TX2008
+    #name=d.4.v.1.z.250 # gypsum
+    #name=d.5.v.1.z.250 # SMEAN
+    if [[ $add_sw_ani -eq 1 || $add_sw_ani -eq 3 ]];then
+	grdvector \
+	    $HOME/plates/med/flow_modeling/vx.diff.$name.grd \
+	    $HOME/plates/med/flow_modeling/vy.diff.$name.grd \
+	    -T -Q$grd_vec_size -S$grd_vec_scale $preg $proj -O -K -W0.5 -Gred -I2.5 >> $ofile
+	
+	# 18 MORVEL EU FIXED
+	pfix=18
+
+
+	#pfix=33
+	#grdtrack -fg -G$datadir/plates/morvel.vx.0.25.$pfix.grd tmp.loc.dat    > tmp.1.dat
+	#grdtrack -fg -G$datadir/plates/morvel.vy.0.25.$pfix.grd tmp.loc.dat -Z > tmp.2.dat
+	grdvector -T $datadir/plates/morvel.vx.0.25.$pfix.grd \
+		  $datadir/plates/morvel.vy.0.25.$pfix.grd \
+		  -Q$grd_vec_size -S$grd_vec_scale $preg $proj -O -K -Gblue -W0.5 -I2.5 >> $ofile
+    fi
+
+
+    if [ $add_sw_ani -eq 2 ];then
+
+
+
+	# predicted SKS, montagner style
+	#    cat $tmpn.inter.lonlat | splitting_from_ab 	$datadir/tomography/dr2012/ $sks_mode 2> /dev/null | \
+	#	gawk -v s=$scale '{print($1,$2,$3,$4*s)}'  | \
+	#	psxy  -SVB$vecsize -G200 -W0.5 $preg $proj  -O -K >> $ofile
+
+	each=3
+	# predicted SKS, full wavefrm 
+	sw_single=0
+	if [ $sw_single -eq 1 ];then
+	    gawk -v e=$each '{if(NR%e==0)print($1,$2,$3,$5)}' $sks_file | \
+		gawk -v s=$scale '{if(NR%e==0)print($1,$2,$3,$4*s)}'  | \
+		psxy  -SVB$vecsize -G250 -W0.5 $preg $proj  -O -K >> $ofile
+	else			# variations
+
+	    # length
+	    gawk  -v e=$each -v s=$scale '{if(NR%e==0)print($1,$2,$3,($5+$6)*s)}' $sks_file  | \
+		psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+	    # angular variation, need to use directions, unlike what manual says
+	    gawk  -v e=$each -v s=$scale '{dir=$3;dx=$4;if(dx<5)dx=5;if(NR%e==0){print($1,$2,$5*s,dir-dx,dir+dx);\
+          print($1,$2,$5*s,180+dir-dx,180+dir+dx);}}'  $sks_file  | \
+		psxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+	    # length variation
+	    gawk  -v e=$each -v s=$scale '{if(NR%e==0)print($1,$2,$3,($5-$6)*s)}' $sks_file  | \
+		psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K  >> $ofile
+	fi
+	#gawk  -v e=$each -v s=$scale '{if(NR%e==0)print($1,$2)}' \
+	#$datadir/tomography/dr2012/swsplit_results/split.dr2012.$sks_mode.sstat > tmp.loc.dat
+    fi
+
+
+
+    if [[ $add_sw_ani -eq 1 || $add_sw_ani -eq 3 ]];then
+	if [ $add_sw_ani -eq 1 ];then
+	    cat <<EOF | psxy -R -J -O -K -Gwhite -A >> $ofile
+0 28.5 
+10.5 28.5
+10.5 31.5
+0 31.5
+EOF
+	else
+	    cat <<EOF | psxy -R -J -O -K -Gwhite -A >> $ofile
+0 29.5 
+6 29.5
+6 31.5
+0 31.5
+EOF
+
+	fi
+
+	x=`echo $preg | gawk -v frac=0.25 -f reg2midlon.awk`
+	y1=`echo $preg | gawk -v frac=0.1 -f reg2midlat.awk`
+	y2=`echo $preg | gawk  -v frac=0.075 -f reg2midlat.awk`
+
+	vel_scale=5
+	echo $x $y1 $vel_scale | \
+	    gawk -v s=$grd_vec_scale '{print($1,$2,0,$3/s)}'  | \
+	    psxy -Sv$grd_vec_size -Ggray -W0.5 $preg $proj \
+		 -O -K >> $ofile
+	echo $x $y2 20 0 0 TC "$vel_scale cm/yr" |\
+	    pstext $preg $proj -O -K  -N -Wwhite >> $ofile
+
+    fi
+    
+    # corresponding surface vel from flow modeling
+    #    grdvector $HOME/plates/med/flow_modeling/vx.37.grd  \
+    #	$HOME/plates/med/flow_modeling/vy.37.grd \
+    #	-T -Q$grd_vec_size -S4 $preg $proj -O -K -W6,red -I3 >> $ofile
+    
+
+    if [ $add_sw_ani -eq 2 ];then
+	cat <<EOF | psxy -R -J -O -K -Gwhite -A >> $ofile
+5 29.5 
+10.5 29.5
+10.5 31.5
+5 31.5
+EOF
+	
+    fi
+fi
+
+if [[ $add_sw_ani -ne 3 && $topo -ne 6 ]];then
+
+    if [[ $add_avg -eq -1 || $add_avg -eq -2 ]];then	# station names for those with splits
+	only_data=1
+	if [ $add_avg -eq 1 ];then
+	    col="-Wwhite"
+	else
+	    col="-Gred"  
+	    # piercing points
+	    #psxy lat_lon_pierce.dat $preg $proj -: -O -K -Sa.15 -Gwhite -W0.5 >> $ofile
+	    psxy lat_lon_pierce.dat $preg $proj -: -O -K -Sa.15 -Gdarkred -W0.5 >> $ofile
+	    
+	    
+	fi
+	if [ $only_data -eq 1 ];then
+	    # all of our stations
+	    gawk '{print($3+0.05,$2+0.05)}' $HOME/plates/alboran/station.loc  | \
+		psxy -Sc0.2 -Gmagenta -W0.5 $preg $proj -O -K >> $ofile
+	    # our stations with data 
+	    grep -v PMAF  $tmpn.lonlatazidtbast | \
+		gawk '{if(substr($6,1,2)=="PM"||substr($6,1,2)=="PS")print($1,$2,12,0,0,"TR",$6)}' | \
+		pstext $preg $col $proj -O -K >> $ofile
+	    gawk '{if(substr($6,1,2)=="PM"||substr($6,1,2)=="PS")print($1+0.05,$2+0.05)}' $tmpn.lonlatazidtbast | \
+		psxy -Sc0.2 -Gred -W0.5 $preg $proj -O -K >> $ofile
+	else			# all
+	    gawk '{print($3,$2,12,0,0,"TR",$1)}' $HOME/plates/alboran/station.loc | \
+		pstext $preg $col $proj -O -K >> $ofile
+	    gawk '{print($3+0.05,$2+0.05)}' $HOME/plates/alboran/station.loc  | \
+		psxy -Sc0.2 -Gblue -W0.5 $preg $proj -O -K >> $ofile
+	    
+	fi
+
+    elif [ $add_avg -ne 0 ];then
+
+        # nulls 
+	psxy $tmpn.nulls $preg $proj -O -K -Ss$sqsize -W1,blue  >> $ofile
+
+	if [ $add_avg -lt 3 ];then
+	    # length
+	    gawk -v s=$scale '{print($1,$2,$3,($5+$6)*s)}'  $tmpn.stat_data | \
+		psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K >> $ofile
+	    # angular variation, need to use directions, unlike what manual says
+	    gawk -v s=$scale '{dir=$3;dx=$4;if(dx<5)dx=5;print($1,$2,$5*s,dir-dx,dir+dx);\
+          print($1,$2,$5*s,180+dir-dx,180+dir+dx);}'  $tmpn.stat_data | \
+		psxy -SW -W1 -G$piecol $preg $proj  -O -K >> $ofile
+	    # length variation
+	    gawk -v s=$scale '{print($1,$2,$3,($5-$6)*s)}' $tmpn.stat_data  | \
+		psxy -SVB$vecsize -G$veccol -W0.5 $preg $proj  -O -K  >> $ofile
+	elif [ $add_avg -eq 4 ];then
+	    # variable length,colored by delay time
+	    gawk   -v s=$scale  '{print($1,$2,$5,$3,$5*s)}'  $tmpn.stat_data | \
+		psxy -SVB$vecsize -C$tmpn.dt.cpt  -W0.5 $preg $proj  -O -K >> $ofile
+
+	    psscale -C$tmpn.dt.cpt -B0.5/:"@~d@~t [s]": -Ef -D15.25/3.5/3/.3 -O -K >> $ofile
+	    add_sks_scale=1
+	else
+	    # fixed length,colored by delay time
+	    gawk  '{print($1,$2,$5,$3,0.5)}'  $tmpn.stat_data | \
+		psxy -SVB$vecsize -C$tmpn.dt.cpt  -W0.5 $preg $proj  -O -K >> $ofile
+	fi
+
+	if [[ $add_avg -eq 1 ]];then
+	    gawk -v s=$scale '{print($1,$2,$5)}' $tmpn.stat_data  | \
+		psxy -Sc$csize -C$tmpn.dt.cpt -W0.5 $preg $proj  -O -K  >> $ofile
+	    psscale -C$tmpn.dt.cpt -B.5/:"@~d@~t [s]": -Ef $psc_loc -O -K >> $ofile
+	elif [[ $add_avg -eq 3 ]];then
+	    gawk -v s=$scale '{print($1,$2,$5)}' $tmpn.stat_data  | \
+		psxy -Sc0.07 -C$tmpn.dt.cpt -W0.5 $preg $proj  -O -K  >> $ofile
+	    psscale -C$tmpn.dt.cpt -B1/:"@~d@~t [s]": -Ef $psc_loc -O -K >> $ofile
+	elif [[ $add_avg -eq 2 && $topo -ne 6 ]];then
+	    makecpt -T0/40/0.1 -D -Cseis -I > $tmpn.cpt 
+	    gawk -v s=$scale '{print($1,$2,$4)}' $tmpn.stat_data  | \
+		psxy -Sc$csize -C$tmpn.cpt -W0.5 $preg $proj  -O -K  >> $ofile
+	    psscale -C$tmpn.cpt -B10/:"@~Da@~ [@+o@+]": -Ef $psc_loc -O -K >> $ofile
+	    
+	fi
+
+	#psxy $tmpn.nulls $preg $proj -O -K -Ss0.02 -Gblue  >> $ofile
+
+    else
+	# original data
+
+	# from East
+	gawk -v s=$scale '{if($5<180)print($1,$2,$3,$4*s)}' $tmpn.lonlatazidtbast | \
+	    psxy -SVB0.05/0/0 -Gyellow -W0.5 $preg $proj  -O -K >> $ofile
+	# form West
+	gawk -v s=$scale '{if($5>=180)print($1,$2,$3,$4*s)}' $tmpn.lonlatazidtbast | \
+	    psxy -SVB0.05/0/0 -Gdarkorange -W0.5 $preg $proj  -O -K >> $ofile
+
+	#    gawk '{print($3,$2)}' diaz/diaz.splits.table | \
+	#	psxy -O -K -St.12 -Gred -W0.5 $proj $preg  >> $ofile
+	#    gawk '{print($3,$2)}' amir.splits.table | \
+	#	psxy -O -K -St.12 -Ggreen -W0.5 $proj $preg  >> $ofile
+
+	# nulls 
+	#psxy $tmpn.nulls $preg $proj -O -K -Ss.1 -Gblue -W0.5 >> $ofile
+	psxy $tmpn.nulls $preg $proj -O -K -Ss.15 -W1 >> $ofile
+	# piercing points
+	psxy lat_lon_pierce.dat $preg $proj -: -O -K -Sa.15 -Gwhite -W0.5 >> $ofile
+	add_sks_scale=1
+    fi
+
+    if [ $add_sks_scale -eq 1 ];then
+	# 
+	# scale
+	#
+	x=`echo $preg | gawk -v frac=0.35 -f reg2midlon.awk`
+	y1=`echo $preg | gawk -v frac=0.1 -f reg2midlat.awk`
+	y2=`echo $preg | gawk  -v frac=0.075 -f reg2midlat.awk`
+
+	sks_scale=2
+	echo $x $y1 $sks_scale | gawk -v s=$scale '{print($1,$2,90,$3*s)}'  | \
+	    psxy -SVB$vecsize -Ggray -W0.5 $preg $proj  -O -K >> $ofile
+	echo $x $y2 20 0 0 TC "@~d@~t@-SKS@- = $sks_scale s" |\
+	    pstext $preg $proj -O -K  -N -Wwhite >> $ofile
+
+    fi
+
+
+    if [ $ba_plot -eq 1 ];then
+	dx=20;
+	gawk '{print($14)}'  $tmpn.table  | \
+	    gawk -v midpoint=1 -v dx=$dx -v min=0 -v max=360 -f histogram.awk | \
+	    gawk '{print($2,$1)}' > tmp.dat
+
+
+	max=`gawk -f max.awk tmp.dat`
+	annlev=`echo $max | gawk '{printf("%.0f",$1/5)}'`
+	psrose tmp.dat -R0/$max/0/360 "-Bg"$annlev"a"$annlev"/a20g"$dx -W3,red -Gorange -S0.75 -A$dx -LW/E/S/N  -O -K -X7 -Y.5 >> $ofile
+	rm tmp.dat
+    fi
+
+fi
+
+
+echo 1000 1000 | psxy -O $proj $preg -Sa.2 >> $ofile
+modifybb $ofile #2> /dev/null
+/usr/bin/convert -density 150 -background white -flatten -trim +repage $ofile $HOME/Dropbox/tmp/svar.png
+#echo $0: output in $ofile
+epstopdf $ofile
+rm $ofile

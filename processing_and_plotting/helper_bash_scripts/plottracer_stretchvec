@@ -1,0 +1,71 @@
+#!/bin/bash
+#
+# plot the horizontal projection of the largest eigenvector of
+# the strain
+#
+depth=${1-200}  # give depth or 'avg' 
+suffix=${2-dat} # use t.1.dat, s.1.dat or the like
+regional=${3-0} # 0: world 1: regional 2: PAC focus 3: SAM focus
+# fix the max horizontal and/or radial strain scales 
+# to the relative values. for now: only when suffix=s.1.dat
+if [ `echo $suffix | gawk '{if(match($1,"s.1.dat"))\
+    print(1);else print(0)}'` -eq 1 ];then
+    fixmaxs=1; maxs=1.2
+    fixfrrscale=1; maxfrr=1.2
+else
+    fixmaxs=0;fixfrrscale=0
+fi
+bgcolorscale=wysiwyg
+scdepth=`echo $depth | gawk '{i=split($1,a,".");print(a[i]);}'`
+file=tracer.f.s.$depth.$suffix
+if [ `echo $depth | gawk '{if(match($1,"dazi."))print(1);else print(0)}'` -eq 1 ];then
+    echo $0: can not plot from dazi file
+    exit
+fi
+esformat=`echo $depth | gawk '{if(match($1,"es."))print(1);else print(0)}'`
+if [ $esformat -eq 1 ];then
+    echo $0: eigensytem format does not work
+    exit
+else
+    echo $0: assuming normal L matrix format
+fi
+if [ ! -s $file ];then
+    if [ -s $file.gz ];then
+	gunzip $file.gz
+    else
+	echo $0: can not find $file or $file.gz
+	exit
+    fi
+else
+    echo $0: reading $file
+fi
+ofile=stretchvec.ps
+
+proj=-JM7
+ann=-Ba30f15/a15f15WesN
+scale=0.08
+gawk '{print($1,$2)}' $file > $tmpn.xy
+if [ $regional -eq 1 ];then
+    reg=`minmax -I1 $file`
+else
+    reg=-R0/360/-70/70
+fi
+# output is 
+#  1  2   3   4   5  6   7   8   9  10  11  12
+# e3 e3r e3t e3p e2 e2r e2t e2p e1 e1r e1t e1p
+#
+gawk '{print($4,$5,$6,$7,$8,$9)}' $file | eigen3ds | \
+    gawk '{print(atan2($12,-$11)*57.29578,$9*scale)}' scale=$scale > $tmpn.1.azil
+gawk '{print($9,-$8,$7)}' $file | gawk -f calcms.awk | \
+    gawk '{print($3,$1*scale)}'  scale=$scale > $tmpn.2.azil
+
+pscoast $reg -Dc -A50000 $proj -G200 -K -P $ann > $ofile 
+mypsxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W5 -: $reg $proj -O -K >> $ofile
+paste $tmpn.xy $tmpn.1.azil | gawk '{if(NR%7==0)print($0)}' | \
+    mypsxy -SV-0.005/0/0 $reg $proj -G200/0/000 -O -K >> $ofile
+paste $tmpn.xy $tmpn.2.azil | gawk '{if(NR%7==0)print($0)}' | \
+    mypsxy -SV-0.005/0/0 $reg $proj -G0/0/200 -O >> $ofile
+
+echo $0: output in $ofile
+

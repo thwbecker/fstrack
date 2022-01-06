@@ -1,0 +1,240 @@
+#!/bin/bash
+#
+# plot horizontal strain(rates) from e1 e2 and azi.grds
+#
+e1=${1-e1.grd}
+e2=${2-e2.grd}
+azi=${3-azi.grd}
+# background component?
+er=er.grd
+pmode=${4-3}
+# 0 means strain crosses
+# 1 means axis of most tensional axis scaled with difference between e1 and e2
+# 2 same as 1, only equal length vectors
+# 3 sum of e1 and e2 as background, shear strain rates as vectors scaling with 
+#   difference between e1 and e2
+# 4 like 2, but smooth azimuths and plot
+#
+# for mode 3: if $er present, will use that as background
+#
+region=${5-0} 
+vecflags=-W3/0/0/150
+vecflags2=-W4/0/150/0
+# depth plotting? if not 999, will add label with depth
+pdx=999
+pdy=999
+# topography in background
+topo=0
+# velocities in background?
+velbg=0
+if [ -s .extract_sta.depth ];then
+    read depth < .extract_sta.depth 
+else
+    depth=x
+fi
+if [ $region -eq 0 ];then # world
+    reg1=-R0/360/-90/90
+    vinc="-I5"
+    proj1=-JQ180/7
+    ofile=strain.$depth.ps
+    pscoastres="-Dc -A70000"
+    ann=-Bf15a60/f15a30WeSn   
+    bbox="0 0 600 350"
+    stickscale=3
+elif [ $region -eq 1 ];then # SAF
+    echo $0: using SAF region
+    reg1=-R235/247/32/42
+    vinc=""
+    proj1=-JM6
+    ofile=strain.$region.$depth.ps
+    pscoastres="-Df"
+    ann=-Bf1a5
+    bbox="30 35 535 550"
+    velbg=1
+    stickscale=0.5
+    pdx=243
+    pdy=41.5
+elif [ $region -eq 2 ];then # SAM
+    echo $0: using SAM 
+    reg1=-R270/297/-35/-8
+    vinc="-I2"
+    proj1=-JQ280/6
+    ofile=strain.$region.$depth.ps
+    pscoastres="-Df"
+    ann=-Bf2a10
+    bbox="30 35 535 550"
+    topo=1
+    stickscale=1.7
+elif [ $region -eq 3 ];then # Lau basin
+    echo $0: using Lau
+    reg1=-R172/190/-25/-10
+    vinc="-I1"
+    proj1=-JQ182/6
+    ofile=strain.$region.$depth.ps
+    pscoastres="-Df"
+    ann=-Bf1a4
+    bbox="30 35 535 550"
+    topo=1
+    stickscale=2
+fi
+
+lsmooth=12
+
+sdata=$datadir/splitting/silver96.1.gmt
+tmpn=/tmp/$USER.$HOST.$$.pstr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+echo $0: using $e1 $e2 and $azi for strains
+
+oinc=`grd2inc $e1`
+
+grdcut $reg1 $e1  -G$tmpn.e1
+grdcut $reg1 $e2  -G$tmpn.e2
+grdcut $reg1 $azi -G$tmpn.azi
+if [ -s er.grd ];then
+    grdcut $reg1 $er -G$tmpn.er
+fi
+
+scale=`grd2absmax $tmpn.e1 | gawk '{print(3/$1)}'`
+#scale=0.4
+# limit for color decision
+eps=`echo $scale | gawk '{print(0.02)}'`
+
+psbasemap $reg1 $proj1 $ann -K -P > $ofile
+
+if [ $pmode -eq 0 ];then
+    echo $0: strain crosses
+    grd2xyz $tmpn.e1     > $tmpn.st
+    grd2xyz -Z $tmpn.e2  > $tmpn.t1
+    grd2xyz -Z $tmpn.azi | gawk '{x=$1+90;if(x>360.0)x-=360.0;print(x)}' > $tmpn.t2
+    paste $tmpn.st $tmpn.t1 $tmpn.t2 > $tmpn.strain.dat
+
+    pscoast $pscoastres  $reg1 $proj1 -G100/100/100 -K -O >> $ofile
+    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W5/100/100/100 -: $reg1 $proj1 -K -O >> $ofile
+
+    gawk '{if(($3 >= -eps)&&($4  < eps))print($0)}' eps=$eps $tmpn.strain.dat | \
+	psvelo -Sx$scale $reg1 $proj1 -O -W1/0/255/0 -K  >> $ofile
+    gawk '{if(($3 >= -eps)&&($4 >= -eps))print($0)}' eps=$eps $tmpn.strain.dat | \
+	psvelo -Sx$scale $reg1 $proj1 -O -W1/0/0/255 -K  >> $ofile
+    gawk '{if(($3<eps)&&($4<eps))print($0)}' eps=$eps $tmpn.strain.dat | \
+	psvelo -Sx$scale $reg1 $proj1 -O -W1/255/0/0 -K  >> $ofile
+elif [[ $pmode -ge 1 && $pmode -le 4 ]];then
+    # stress difference (e1-e3)/2
+    grdmath $tmpn.e1 $tmpn.e2 SUB 2 DIV  = $tmpn.sdr
+    # mean stress (e1+e3)/2
+    grdmath $tmpn.e1 $tmpn.e2 ADD 2 DIV  = $tmpn.smr
+    echo $0: rms of stress differences: `grd2rms $tmpn.sdr`
+    #
+    # extensional direction, scale with (e1-e3)/2
+    grdmath $tmpn.azi D2R SIN $tmpn.sdr MUL $scale DIV = $tmpn.vx
+    grdmath $tmpn.azi D2R COS $tmpn.sdr MUL $scale DIV = $tmpn.vy
+    #
+    # one of the max shear stress directions, scale with shear
+    grdmath $tmpn.azi 45 ADD = $tmpn.smax
+    grdmath $tmpn.smax D2R SIN $tmpn.sdr MUL = $tmpn.smaxvx
+    grdmath $tmpn.smax D2R COS $tmpn.sdr MUL = $tmpn.smaxvy
+    if [ $pmode -eq 4 ];then
+	if [ $region -ne 0 ];then
+	    echo $0: smoothing only works for whole earth mode
+	else
+	    # smooth
+	    cp $tmpn.vx vec_p.grd; grdmath $tmpn.vy -1 MUL = vec_t.grd
+	    shana $lsmooth vec_p > $tmpn.ab;cat $tmpn.ab | shsyn 3 1 3 
+	    mv vec_p.grd $tmpn.vx; grdmath vec_t.grd -1 MUL = $tmpn.vy; rm vec_t.grd
+	fi
+    fi
+    if [ $pmode -eq 1 ];then
+	if [ $topo -eq 1 ];then
+	    if [ $region -eq 1 ];then
+		grdimage $datadir/etopo5/saf.grd -C$datadir/etopo5/saf.cpt \
+		    $reg1 $proj1  -K -O >> $ofile
+	    elif [ $region -eq 2 ];then
+		grdimage $datadir/etopo5/andes.grd -C$datadir/etopo5/andes.cpt \
+		    $reg1 $proj1  -K -O >> $ofile
+	    elif [ $region -eq 3 ];then
+		grdimage $datadir/etopo5/lau.grd -C$datadir/etopo5/lau.cpt \
+		    $reg1 $proj1  -K -O >> $ofile
+	    else
+		mymakecpt $datadir/etopo5/etopo5.0.25.grd -Chot -Z > $tmpn.cpt
+		grdimage $datadir/etopo5/etopo5.0.25.grd -C$tmpn.cpt \
+		    $reg1 $proj1  -K -O >> $ofile
+	    fi
+	else
+	    pscoast $pscoastres  $reg1 $proj1 -G200/200/200 -K -O >> $ofile
+	fi
+	pscoast $pscoastres  $reg1 $proj1 -W2 -K -O >> $ofile
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W5/100/100/100 -: $reg1 $proj1 -K -O >> $ofile
+	grdvector $tmpn.vx $tmpn.vy -T -E -S$stickscale $reg1 $proj1 -O \
+	    $vinc $vecflags -K  >> $ofile
+	grdvector $tmpn.smaxvx $tmpn.smaxvy -T -E -S$stickscale $reg1 $proj1 -O \
+	    $vinc $vecflags2 -K  >> $ofile
+    elif [[ $pmode -eq 2 || $pmode -eq 4 ]];then
+	echo $0: plotting direction of $azi only, equal length vectors
+	# equal length
+	pscoast $pscoastres  $reg1 $proj1 -G200/200/200 -K -O >> $ofile
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W5/100/100/100 -: $reg1 $proj1 -K -O >> $ofile
+	grdvector $tmpn.vx $tmpn.vy -T -E -Sl0.1 $reg1 $proj1 -O $vinc  \
+	    -K $vecflags  >> $ofile
+	# score
+	awk '{print($1,$2,$3)}' $sdata > $tmpn.dat
+	compgrddir $tmpn.dat  $tmpn.vx $tmpn.vy 1
+
+	awk '{print($1,$2,$3,$4/2)}' $sdata | \
+	    psxy -SV0.01/0/0 -G255/0/0 -O -K $reg $proj >> $ofile
+	    
+    elif [ $pmode -eq 3 ];then
+	if [ ! -s $tmpn.er ];then
+	    # sum as background, scale with difference
+	    echo $0: using sum of e1 and e2 as background
+	    cp $tmpn.smr $tmpn.bggrid
+	    label="@~e@~@-1@-@~+e@~@-3@-"
+	else
+	    echo $0: using $er as background
+	    cp $tmpn.er $tmpn.bggrid
+	    label="@~e@~@-r@-"
+	fi
+	# -absmax ... absmax
+	mymakecpt4 $tmpn.bggrid 0.7 -Cpolar -I  > $tmpn.cpt
+	#mymakecpt5 $tmpn.bggrid 0.7 -Cwysiwyg  > $tmpn.cpt
+	grdimage $tmpn.bggrid $reg1 $proj1 -C$tmpn.cpt -P -K  > $ofile
+	pscoast $pscoastres $reg1 $proj1 -W5 -O -K >> $ofile
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W5/250/50/0 -: $reg1 $proj1 -K -O >> $ofile
+	grdvector $tmpn.vx $tmpn.vy -T -E -S$stickscale $reg1 $proj1 -O $vinc  -K \
+	    $vecflags >> $ofile
+	psscale -C$tmpn.cpt -N50 -D3/-.4/6/0.2h -E \
+		-B1.5/:$label: -O -K -L >> $ofile
+
+    fi
+fi
+if [ $velbg -eq 1 ];then # add velocities
+    if [[ -s vp.grd && -s vt.grd ]];then
+	echo $0: adding horizontal velocities from vp.grd and vt.grd
+	cp vp.grd $tmpn.vx.2.grd
+	grdmath vt.grd -1 MUL = $tmpn.vy.2.grd
+	grdvector $tmpn.vx.2.grd $tmpn.vy.2.grd  -T $reg1 $proj1 \
+	    -Q0.012/0.06/0.04 -S4 -G200/0/200 -O  -K >> $ofile
+
+    fi
+fi
+if [ $pdx -ne 999 ];then # add label with depth
+    echo $pdx $pdy 24 0 0 ML "z@~ = @~$depth km" | \
+	pstext -O -K $reg1 $proj1 -W200/200/200o1 >> $ofile
+
+fi
+psbasemap $reg1 $proj1 $ann -O  >> $ofile
+
+modifybb $ofile $bbox
+ps2epsi $ofile $tmpn.ps
+mv $tmpn.ps $ofile
+
+echo $0: output in $ofile
+
+
+
+		
+		
+	
+	

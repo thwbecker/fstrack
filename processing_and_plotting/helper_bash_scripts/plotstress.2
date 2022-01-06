@@ -1,0 +1,100 @@
+#!/bin/bash
+# plot a stress vector field that is given as phi and theta components
+# uses grdvector and colors from cpt file
+pquakes=0
+threeplots=0
+vecinc=10
+vecsize='-Q0.007/0.03/0.025'
+veclen=0.14
+tmpn=/tmp/$USER.$HOST.$$.$$.ps
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+#check for files
+vp=${1-vp.grd}
+vt=${2-vt.grd}
+vr=${3-vr.grd}
+psfile=`echo $vp | gawk '{print(substr($1,1,length($1)-4))}'`.ps
+if [ -s $vp ]
+then 
+    if [ -s $vt ]
+    then
+	echo $0: using phi component: $vp 
+	echo $0: and theta component: $vt
+    else
+	echo $0: can not find $vt
+	exit
+    fi
+else
+    echo $0: can not find $vp
+    exit
+fi
+# three different projections, last two only if threeplots is set
+reg='-R0/360/-90/90'
+# convenient viewing
+proj='-JQ180/7 -P'
+# full page
+#proj='-JM9'
+ann=-Ba60f15/a30f15WeSn
+offset1='-X0.75 -Y0.5'
+reg2='-R0/360/-90/90'
+proj2='-JH180/6 -P'
+offset2='-X1.5 -Y4.5'
+reg3='-R0/360/-90/90'
+proj3='-JH0/6 -P'
+offset3='-X-2 -Y3'
+
+# megapascal
+grdmath $vp 1e-6 MUL = $tmpn.vx 
+grdmath $vt -1e-6 MUL = $tmpn.vy
+
+
+if [ -s $vr ]
+then
+    echo $0: using $vr as background
+    grdmath $vr 1e-6 MUL = $tmpn.vr
+    grdimage $tmpn.vr -Ctr.cpt $ann $reg $proj -K $ann $offset1 > $psfile
+    pscoast $reg $proj -K -O -W5/100/150/100  -Dc -A70000  >> $psfile
+else
+    pscoast $reg $proj -K -G200/200/200  -Dc  -A70000  $ann $offset1 > $psfile
+fi
+# plate boundaries
+psxy $HOME/tcltk/igmt_develop/nuvel.yx -:   \
+	    -M $reg $proj  -O -K   -W.25/0/0/255  >> $psfile
+if [ $pquakes -eq 1 ]
+then
+    gawk '{if(($1!="#")&&($1!=""))print($7,$6,$9*0.0005*8.5)}' \
+	 /wrk/arthur/becker/global_data/quakes/usgs_neic.dat | \
+	  psxy  $reg $proj -O  -G255/0/255  -K -Sc   >> $psfile
+fi
+grdmath $vt -1 MUL = $tmpn.$vt.vy.grd
+if [ $threeplots -eq 1 ]
+then
+    # two other projections
+	grdvector $tmpn.vx $tmpn.vy -A -Sl$veclen \
+		$reg $proj -I$vecinc $vecsize  -G255/0/0 -O -K >> $psfile
+	pscoast $reg2 $proj2 -K -O -G200/200/200 -A70000 -Dc  $offset2 >> $psfile
+	psxy /home/becker/tcltk/igmt_develop/nuvel.yx -:   \
+		    -M $reg2 $proj2 -O -K   -W.25/0/0/255  >> $psfile
+	grdvector $tmpn.vx $tmpn.vy -A -Sl$veclen \
+		$reg2 $proj2 -I$vecinc $vecsize  -G255/0/0 -O  -K >> $psfile
+	pscoast $reg3 $proj3 -K -O -G200/200/200 -A70000 -Dc   $offset3 >> $psfile
+	psxy /home/becker/tcltk/igmt_develop/nuvel.yx -:   \
+		    -M $reg3 $proj3 -O -K   -W.25/0/0/255  >> $psfile
+	grdvector $tmpn.vx $tmpn.vy -A -Sl$veclen \
+		$reg3 $proj2 -I$vecinc $vecsize  -G255/0/0 -O  -K >> $psfile
+	echo 40 -65 10 0 0 0 0 "10 cm/yr" | psvelo -S`echo $scaling | gawk '{print(1/$1)}'`/0.95/12 \
+	    -G255/0/255 -W6/255/0/255 -O $reg $proj >> $psfile
+		
+else
+	# only one
+	grdvector $tmpn.vx $tmpn.vy -Cstress.cpt -Sl$veclen \
+		$reg $proj -I$vecinc $vecsize -O -K  >> $psfile
+	if [ -s $vr ];then
+	    psscale  -D3/5/5/0.2h -B25:"":/:"radial, MPa": -E  -Ctr.cpt -K -O >> $psfile
+
+	fi
+	psscale  -D3/4.3/5/0.2h -B2.5:"":/:"tractions, MPa": -E  -Cstress.cpt -O >> $psfile
+fi
+
+ps2epsi $psfile $tmpn.ps
+mv $tmpn.ps $psfile
+echo $0: output in $psfile

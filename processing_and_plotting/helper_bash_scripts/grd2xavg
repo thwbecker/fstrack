@@ -1,0 +1,31 @@
+#!/bin/bash
+# 
+# given a grid, average over all longitudes (not taking area or geographic spacing into account) 
+# and print averages and std
+# output is:
+#
+# y z_avg z_std
+#
+grd=${1-tmp.grd}
+if [ ! -s $grd ];then
+    echo `basename $0`: cannot find grd file $grd
+    exit
+fi
+
+# x and y spacing
+nx=`grdinfo -C $grd | gawk '{print($10)}'` # 
+
+# y locations
+grd2xyz  $grd | gawk -v nx=$nx '{if(NR%nx==0)print($2)}' > tmp.$$.y
+
+# flip grid
+
+# compute avg
+gmtset D_FORMAT %22.15e
+grd2xyz -Z $grd | gawk -v nx=$nx 'BEGIN{x=0;x2=0;}{x+=$1;x2+=$1*$1;
+                                   if(NR % nx == 0){printf("%22.15e %22.15e\n",x/nx,sqrt(5e-15+(nx*x2-x*x)/(nx*(nx-1))));x=0;x2=0;}}' > tmp.$$.xavg
+gmtset D_FORMAT %lg
+paste tmp.$$.y tmp.$$.xavg
+
+rm tmp.$$.y tmp.$$.xavg 2> /dev/null
+

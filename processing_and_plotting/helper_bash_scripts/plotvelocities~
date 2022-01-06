@@ -1,0 +1,705 @@
+#!/bin/bash
+#
+# plot a vector field that is given as x and y components
+#
+# input parameters 
+#
+vx=${1-vx.grd}			# velocity grids
+vy=${2-vy.grd}
+# if vr given, will be background
+vr=${3-vr.grd}
+# region, 0 and 30 are world view, PAC or AFR centered, resp.
+region=${4-0}
+reg=`region_parameters $region 3`
+#
+# fixed scaling for velocities in the range of 5 cm/yr,
+#  0: leave free
+# -1: move all surface velocities into a pfix reference frame
+fixscaling=${5-4}
+#
+# determine the net-rotation compoenent? 0: no check 1: check 2: remove
+# (this will be applied first, then change of reference frame)
+#
+check_net_rotation=${6-0}
+# second velocity x and y components, will form background vectors
+secvx=${7-"xxx"}
+secvy=${8-"xxx"}
+# use psxy for fewer vectors at poles?
+use_psxy=${9-1}
+# show polar projections
+threeplots=${10-0}
+# plot title
+title=${11-""}
+# use vp,vtheta instead?
+use_vpvt=${12-0}
+# black and white?
+bw=${13-0}
+# 1: plot mean velocity label 2: plot scale
+pmean=${14-1}
+# absolute velocities as background
+useabsbg=${15-0}		 # 0: no 1: yes 2: yes, with topo
+change_ref_frame_default=${16-0}	# change reference frame?
+pfix=${17-"EUR"}		# plate to fix, can also be NNR, but there's also checknr
+proj=${18-"xxx"}		# projection
+# plate boundaries?
+plateboundaries=${19-2}		# 1: nuvel 2: bird 3: morvel
+
+adjust_cb=${20-0}			# adjust the colorbars?
+
+#gps_file=$datadir/gps/carib/carib.samfixed.gps
+gps_file=xxx
+# plot hypocentres?
+pquakes=0
+# sticks in the centers
+centersticks=0
+# grd modifications
+use_grdcut=0			# 0: leave grds
+                                # 1: use grdcut
+                                # 2: use surface
+
+
+#colormap=haxby
+colormap=roma
+#colormap=polar
+#colormap=jet
+
+use_font=Palatino-Roman;font_code=29;font_code_bold=31
+#gmtset ANNOT_FONT_PRIMARY $use_font ANNOT_FONT_SECONDARY $use_font HEADER_FONT $use_font LABEL_FONT $use_font
+
+
+tmpn=tmp.$USER.$HOST.$$.plotvelocities
+trap "rm -f $tmpn.* .gmtcommands ; exit" 0 1 2  15
+
+rm .gmt* 2> /dev/null
+
+if [ $bw -eq 1 ];then
+    plate_boundary_color=0
+    first_vel_color=255
+    second_vel_color=128
+    landcol=128
+elif [ $bw -eq 0 ];then
+# colors
+    plate_boundary_color=darkgreen
+
+
+    #first_vel_color=white
+    first_vel_color=lightgray
+    second_vel_color=blue
+    landcol=gray
+else
+    plate_boundary_color=200/0/0
+    first_vel_color=orange
+    second_vel_color=blue
+    landcol=cyan
+fi
+seacol=240
+#
+# spacing, if set to -1, will use original spacing
+if [[ $region -eq 0 || $region -eq 30 || $region -eq -1 ]];then
+    #vecinc=-I8
+    vecinc=-I14
+    sphere_order=-1
+    #sphere_order=-2
+elif [ $region -eq 8 ];then
+    vecinc=-I2
+    sphere_order=0
+else
+    vecinc=""
+    sphere_order=0
+fi
+#
+#vecsize='0.01/0.05/0.02'
+
+if [[ $region -eq 0 || $region -eq -1 ]];then
+    #vecsize='0.025/0.05/0.025'
+    vecsize='0.035/0.075/0.04'
+    svecsize='0.0125/0.025/0.0125'
+else
+    vecsize='0.035/0.11/0.07'
+    svecsize='0.017/0.06/0.035'
+fi
+
+#secvecsize='0.007/0.04/0.03'
+secvecsize=$vecsize
+
+gvec_add=n.1
+# for grdvector type, use vectors
+#firstsymtype="-Q$vecsize -G$first_vel_color -W0.5/1/1/1"
+firstsymtype="-Q`echo $vecsize`$gvec_add -G$first_vel_color -W0.5"
+secsymtype="-Q`echo $secvecsize`$gvec_add -G$second_vel_color -W0.5"
+
+# sticks
+#firstsymtype="-E -W2/$first_vel_color"
+#secsymtype="-E -W2/$second_vel_color"
+#
+region_parameters $region 8 | \
+    gawk '{print(($1+$2)/2+($2-$1)*0.3,($3+($4-$3)*0.1))}' > $tmpn.dat
+read legx legy < $tmpn.dat
+#
+reg2='-R0/360/30/89.999'
+proj2='-JG180/90/3 -P'
+offset2='-X3.5 -Y3.5'
+# 
+reg3='-R0/360/-89.999/-30'
+proj3='-JG180/-90/3 -P'
+offset3='-X-3.2 '
+#
+
+
+psfileo=`echo $vx | gawk '{print(substr($1,1,length($1)-4))}'`.ps
+
+psfile=$HOME/tmp/vel.ps
+
+if [ -s $vx ];then 
+    if [ -s $vy ];then
+	if [ $use_vpvt -eq 1 ];then
+	    echo $0: using phi component: $vx 
+	    echo $0: and   theta component: $vy
+	else
+	    echo $0: using x component: $vx 
+	    echo $0: and   y component: $vy
+	fi
+    else
+	echo $0: can not find $vy
+	exit
+    fi
+else
+    echo $0: can not find $vx
+    exit
+fi
+
+echo $0: change_ref_frame: $change_ref_frame_default pfix: $pfix
+allplates=`allplates`
+scale_added=0
+
+# has to be reg!
+regvec=$reg
+if [ $proj = "xxx" ];then
+    proj="`region_parameters $region 4` -P"
+#proj="-JH180/7 -P"
+#proj="-JN0/7in -P"
+#proj="-JQ180/7 -P"
+#proj="-JN180/7 -P"
+else
+    proj="$proj -P"
+fi
+
+echo $0: region: $region reg: $reg projection: $proj
+#proj="$proj -P"
+ann=`region_parameters $region 6`
+#ann=""
+#ann="-Ba60f15/a30f15WeSn"
+#ann=-Bg60
+#pscres='-Dc -A50000'
+pscres=`region_parameters $region 13`
+ann2=-B
+if [ $threeplots -eq 1 ];then
+    offset1='-X0.75 -Y0.75'
+else
+    offset1='-Y1.5'
+fi
+
+if [ $use_vpvt -eq 1 ];then	# flip sign
+    grdmath $vy NEG = $tmpn.vy
+else
+    cp $vy $tmpn.vy
+fi
+cp $vx $tmpn.vx
+
+
+
+
+
+
+if [ $check_net_rotation -gt 0 ]; then
+    echo $0: checking net rotation 
+    nr_check_mode=3
+    calculate_net_rotation $tmpn.vx $tmpn.vy -1 $nr_check_mode 0 $tmpn.nr.vp  $tmpn.nr.vt > $tmpn.pole #2> /dev/null
+    echo $0: net rotation pole `cat $tmpn.pole`
+    echo $0: net rotation amplitude `cat $tmpn.pole | gawk -f xyz2lonlat.awk | awk '{printf("%g",$3)}'`
+    grdmath $tmpn.vx $tmpn.vy R2 SQRT = $tmpn.abs
+    echo $0: RMS vel: `grd2wrms $tmpn.abs`
+    if [ $check_net_rotation -eq 2 ];then # remove
+	grdmath $tmpn.vx $tmpn.nr.vp SUB = $tmpn.grd ; mv $tmpn.grd $tmpn.vx
+	grdmath $tmpn.vy $tmpn.nr.vt SUB = $tmpn.grd ; mv $tmpn.grd $tmpn.vy
+	grdmath $tmpn.vx $tmpn.vy R2 SQRT = $tmpn.abs
+	echo $0: RMS after correctionvel: `grd2wrms $tmpn.abs`
+    fi
+else
+    echo $0: skipping net rotation check
+fi
+# those will be corrected if need be
+for t in vx vy;do
+    cp $tmpn.$t $HOME/tmp/$t.grd
+done
+
+rm $tmpn.c.* 2> /dev/null
+if [ $use_grdcut -eq 1 ];then	# cut grids
+    grdcut $tmpn.vx $reg -G$tmpn.c.vx
+    grdcut $tmpn.vy $reg -G$tmpn.c.vy 
+    if [ -s $vr ];then
+	grdcut $vr $reg -G$tmpn.c.vr
+    fi
+elif [ $use_grdcut -eq 2 ];then	# interpolate
+    vinc=-I`region_parameters $region 5`
+    vrinc=-I`region_parameters $region 5 | gawk '{print($1/5)}'`
+    grd2xyz $tmpn.vx | surface -fg $reg $vinc -G$tmpn.c.vx -Lld -Lud
+    grd2xyz $tmpn.vy | surface -fg $reg $vinc -G$tmpn.c.vy -Lld -Lud
+    if [ -s $vr ];then
+	grd2xyz $vr | surface -fg $reg $vrinc -G$tmpn.c.vr -Lld -Lud
+    fi
+else				# use originals
+    cp $tmpn.vx $tmpn.c.vx
+    cp $tmpn.vy $tmpn.c.vy
+    if [ -s $vr ];then
+	cp $vr $tmpn.c.vr
+    fi
+fi
+cp $tmpn.c.vx $tmpn.vx
+cp $tmpn.c.vy $tmpn.vy
+if [ -s $tmpn.c.vr  ];then
+    cp $tmpn.c.vr $tmpn.vr
+fi
+rm $tmpn.c.* 2> /dev/null
+
+
+
+if [ -s $secvx ];then
+    psecvel=1
+    echo $0: second vx to be compared: $secvx
+    echo $0: secon vy to be compared: $secvy
+
+    cp $secvx $tmpn.2.vx 
+    cp $secvy $tmpn.2.vy 
+    if [ $use_vpvt -eq 1 ];then
+	grdmath $tmpn.2.vy NEG = $tmpn.hhh; mv $tmpn.hhh $tmpn.2.vy
+    fi
+
+    if [ $check_net_rotation -gt 0 ]; then # remove NNR for second velocities
+	echo $0: checking net rotation for second set of velocities
+
+	calculate_net_rotation $tmpn.2.vx $tmpn.2.vy -1 $nr_check_mode 0 $tmpn.nr.2.vp  $tmpn.nr.2.vt > $tmpn.pole 2> /dev/null
+	echo $0: net rotation pole `cat $tmpn.pole`
+	echo $0: net rotation amplitude `cat $tmpn.pole | gawk -f xyz2lonlat.awk | awk '{printf("%g",$3)}'`
+
+	grdmath $tmpn.2.vx $tmpn.2.vy R2 SQRT = $tmpn.2.abs
+	echo $0: RMS vel: `grd2wrms $tmpn.2.abs`
+
+	if [ $check_net_rotation -eq 2 ];then # remove
+	    grdmath $tmpn.2.vx $tmpn.nr.2.vp SUB = $tmpn.grd ; mv $tmpn.grd $tmpn.2.vx
+	    grdmath $tmpn.2.vy $tmpn.nr.2.vt SUB = $tmpn.grd ; mv $tmpn.grd $tmpn.2.vy
+	    grdmath $tmpn.2.vx $tmpn.2.vy R2 SQRT = $tmpn.2.abs
+	    echo $0: RMS after correction vel: `grd2wrms $tmpn.2.abs`
+	fi
+    fi
+
+else
+    psecvel=0
+fi
+
+
+if [ $change_ref_frame_default -eq 1 ];then # change the reference frame of the velocities
+    if [ $pfix = NNR ];then
+	echo 
+	echo $0: WARNING: changing reference frame to NNR
+	echo
+	calculate_net_rotation $tmpn.vx $tmpn.vy -1 1 0  $tmpn.vxshift.grd $tmpn.vyshift.grd
+    else
+	echo 
+	echo $0: WARNING: changing reference frame to $pfix fixed
+	echo
+	cp      $tmpn.vx       $tmpn.vp
+	grdmath $tmpn.vy NEG = $tmpn.vt
+	pole=`determine_plate_rotpole $tmpn.vp $tmpn.vt $pfix 2> /dev/null`
+	#    pole=`determine_plate_rotpole $tmpn.vp $tmpn.vt $pfixl`
+	oreg=`grd2reg $tmpn.vp`
+	oinc=`grd2inc $tmpn.vp`
+	echo $0: determined best fitting Euler pole for $pfix: $pole
+	create_grid_rvec $pole $oreg $oinc $tmpn.vxshift.grd $tmpn.vyshift.grd
+    fi
+    grdmath  $tmpn.vx  $tmpn.vxshift.grd SUB = $tmpn.grd;mv $tmpn.grd $tmpn.vx
+    grdmath  $tmpn.vy  $tmpn.vyshift.grd SUB = $tmpn.grd;mv $tmpn.grd $tmpn.vy
+
+
+    if [ $psecvel -eq 1 ];then
+	if [ $pfix = NNR ];then
+	    echo 
+	    echo $0: WARNING: changing reference frame for second set of velocities to NNR
+	    echo
+	    calculate_net_rotation $tmpn.2.vx $tmpn.2.vy -1 1 0  $tmpn.vxshift.2.grd $tmpn.vyshift.2.grd
+	else
+	    cp      $tmpn.2.vx       $tmpn.2.vp
+	    grdmath $tmpn.2.vy NEG = $tmpn.2.vt
+	    pole=`determine_plate_rotpole $tmpn.2.vp $tmpn.2.vt $pfix 2> /dev/null`
+	    oreg=`grd2reg $tmpn.2.vp`
+	    oinc=`grd2inc $tmpn.2.vp`
+	    echo $0: determined best fitting Euler pole for $pfix: $pole second set of velocities
+	    create_grid_rvec $pole $oreg $oinc $tmpn.vxshift.2.grd $tmpn.vyshift.2.grd
+	fi
+	grdmath  $tmpn.2.vx  $tmpn.vxshift.2.grd SUB = $tmpn.grd;mv $tmpn.grd $tmpn.2.vx
+	grdmath  $tmpn.2.vy  $tmpn.vyshift.2.grd SUB = $tmpn.grd;mv $tmpn.grd $tmpn.2.vy
+    fi
+fi
+
+#
+# resample the horizontal input grids
+#2
+# get azimuth and legnth
+grdmath $tmpn.vx $tmpn.vy R2 SQRT = $tmpn.abs
+max=`grd2max $tmpn.abs`
+mean=`grd2geo_mean $tmpn.abs`
+
+adjust=0
+if [ `echo $fixscaling | gawk '{if($1>0)print(1);else print(0)}'` -eq 1 ];then # scaling is > 0 
+    maxfs=$fixscaling
+elif [ `echo $fixscaling | gawk '{if($1==0)print(1);else print(0)}'` -eq 1 ];then # scaling is zero, adjust
+    maxfs=`echo $mean | gawk '{printf("%5.1lf",$1*2.5)}'`
+    adjust=1
+else
+    maxfs=7
+    change_ref_frame_default=1
+    if [ $pfix = NNR ];then
+	echo $0: moving to NNR reference frame
+    else
+	echo $0: changing reference frame to $pfix fixed
+    fi
+fi
+scaling=`echo $maxfs $centersticks | gawk '{print((3/(1+$2)*$1))}'`
+
+echo $0: absolute maximum is $max, scaling $scaling, maxfs: $maxfs
+echo $0: rms is `grd2rms $tmpn.abs`, fixed: $fixscaling
+
+
+if [ $psecvel -eq 1 ];then
+    grdmath $tmpn.2.vx $tmpn.2.vy R2 SQRT = $tmpn.2.abs
+    if [ $use_psxy -eq 1 ];then
+	grdmath $tmpn.2.vx $tmpn.2.vy ATAN2 R2D = $tmpn.2.azi
+    fi
+    echo $0: correlation vx: `calculate_grid_correlation $tmpn.vx $tmpn.2.vx `
+    echo $0: correlation vy: `calculate_grid_correlation $tmpn.vy $tmpn.2.vy `
+
+    grd2xyz -Z $tmpn.vx > $tmpn.lr1.dat
+    grd2xyz -Z $tmpn.vy >> $tmpn.lr1.dat
+    grd2xyz -Z $tmpn.2.vx > $tmpn.lr2.dat
+    grd2xyz -Z $tmpn.2.vy >> $tmpn.lr2.dat
+    paste $tmpn.lr1.dat $tmpn.lr2.dat > $tmpn.lr.dat
+
+#    echo $0: best fit slope from linear regression: `gawk -f linreg.awk $tmpn.lr.dat`
+    grdmath  $tmpn.vx $tmpn.2.vx SUB  = $tmpn.relx
+    echo $0: RMS deviation vx: `grd2wrms $tmpn.relx`
+    grdmath  $tmpn.vy $tmpn.2.vy SUB  = $tmpn.relx
+    echo $0: RMS deviation vy: `grd2wrms $tmpn.relx`
+
+else
+    psecvel=0
+fi
+
+#
+# radial velocities or coastline background
+#
+if [ -s $vr ];then
+    echo $0: using $vr for background
+    if [ `echo $vr | gawk '{if(match($1,"is_viscosity"))print(1);else print (0)}'` -eq 1 ];then # assume viscosity
+	makecpt -T-3/3/.5 -I -Cpolar -D > $tmpn.tmp.cpt
+	cp $vr $tmpn.grd
+	label="log@-10@-(@~h/h@-0@-@~)"
+	spc=1
+    elif [ $vr = tmp.pol_pot.grd ];then
+	cp $vr $tmpn.grd
+	#grd2cpt -C$colormap $vr -T= -E21 > $tmpn.tmp.cpt
+	makecpt -T-12/12/1 -C$colormap > $tmpn.tmp.cpt
+	spc=3
+	label="@~F@~@-pol@-"
+    elif [ $vr = tmp.tor_pot.grd ];then
+	cp $vr $tmpn.grd
+	makecpt -T-9/9/1 -C$colormap > $tmpn.tmp.cpt
+	#grd2cpt -C$colormap $vr -T= -E21 > $tmpn.tmp.cpt
+	spc=3
+	label="@~Y@~@-tor@-"
+    else
+	if [ $adjust -eq 0 ];then
+	    maxfs_for_cpt=`echo $maxfs | gawk '{print($1*0.3)}'`
+	    makecpt -T-$maxfs_for_cpt/$maxfs_for_cpt/`echo $maxfs_for_cpt | gawk '{print($1/21)}'` -D -C$colormap > $tmpn.tmp.cpt
+	else
+	    
+	    vrmax=`grd2absmax $vr | gawk '{if($1 < 5e-4)print(1);else print($1*0.75)}'`
+	    makecpt  -D -T-$vrmax/$vrmax/`echo $vrmax | gawk '{printf("%.12f",$1/21)}'` -C$colormap > $tmpn.tmp.cpt
+	fi
+	echo $0: using $vr as background, abs max vr $vrmax
+	if [[ $region -ne 0 && $use_grdcut -ne 2 ]];then
+	    grd2xyz $vr | surface -fg $reg -I2 -G$tmpn.grd
+	else
+	    cp $vr $tmpn.grd
+	fi
+	label="v@-r@- [cm/yr]"
+	spc=0.5
+    fi
+    #grdsample -I0.25 $tmpn.grd -G$tmpn.i.grd -Ql -fg
+    #grdimage -fg $tmpn.i.grd -C$tmpn.tmp.cpt $ann $reg $proj -K $offset1  > $psfile
+    grdimage -fg $tmpn.grd -C$tmpn.tmp.cpt $ann $reg $proj -K $offset1  > $psfile
+    psscale  -xD3.5/-0.1/4/0.1h -C$tmpn.tmp.cpt -O -K -B$spc/:"$label": -E >> $psfile
+    pscoast $reg $proj -K -O -W3/$landcol  $pscres  >> $psfile
+#    grdinfo $vr | grep Remark | grep z: | gawk '{print($(NF-1),$(NF))}'
+    scale_added=1
+else
+    if [ $useabsbg -ne 0  ];then
+	# use orginal grids
+	grdmath $tmpn.vx $tmpn.vy R2 SQRT = $tmpn.abs.tmp
+	if [ $adjust_cb -eq 1 ];then
+	    echo $0: adjusting for absolute velocities
+	    #mymakecpt2 $tmpn.abs.tmp -Cpolar > $tmpn.cpt
+	    #grd2cpt  $tmpn.abs.tmp -Cpolar -D -E21 > $tmpn.cpt
+	    grd2cpt  $tmpn.abs.tmp -C$colormap -D -E21 > $tmpn.cpt
+	    cb_ends=""
+	else
+	    echo $0: use fixed range for absolute velocities 
+	    #makecpt -T0/$maxfs/0.5 -D -Cpolar > $tmpn.cpt
+	    makecpt -T0/10.5/0.5 -D -C$colormap > $tmpn.cpt
+	    cb_ends=-Ef
+	fi
+	if [ $useabsbg -eq 2 ];then
+	    grdsample $datadir/etopo1/etopo1.bed.0.125.grd `grd2inc $tmpn.abs.tmp` -fg -G$tmpn.topo.grd
+	    grdgradient -Nt -A0 $tmpn.topo.grd -G$tmpn.topoi.grd 
+	    grdimage -fg $tmpn.abs.tmp -I$tmpn.topoi.grd $ann -C$tmpn.cpt -K $reg $proj $offset1 > $psfile
+	else
+	    grdimage -fg $tmpn.abs.tmp $ann -C$tmpn.cpt -K $reg $proj $offset1 > $psfile
+	fi
+	pscoast $reg $proj -K -W4 -O $pscres  >> $psfile
+	psscale -N50 -D3.5/-0.1/3/0.1h -C$tmpn.cpt -O -K -B2/:"|v| [cm/yr]": $cb_ends >> $psfile
+	scale_added=1
+    else
+	pscoast $reg $proj -K -G$landcol  -S$seacol $pscres    $ann $offset1 -W0.5 > $psfile
+    fi
+fi
+#
+# plate boundaries
+#
+#echo ok -1 
+if [ $plateboundaries -ne 0 ];then
+    if [ -s pbfile.dat ];then
+	echo $0: attempting to plot Rick boundaries as specified in pbfile.dat 
+	read fname < pbfile.dat
+	if [ ! -s $fname ];then
+	    echo $0: can not open $fname
+	    exit
+	fi
+	gawk -f $HOME/plates/mesh/prickbry.awk $fname | \
+	    psxy   -m $reg $proj  -O -K   -W1,$plate_boundary_color  >> $psfile
+    else
+	if [ $plateboundaries -eq 1 ];then
+	    psxy $HOME/progs/src/igmt_develop/nuvel.yx -:   \
+		-m -fg $reg $proj  -O -K   \
+		-W.5,$plate_boundary_color  >> $psfile
+	elif [ $plateboundaries -eq 2 ];then
+	    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m -fg \
+		$reg  $proj  -O -K   -W1,$plate_boundary_color  >> $psfile
+	elif [ $plateboundaries -eq 3 ];then
+	    psxy $datadir/plate_boundaries/morvel/morvel.gmt  -m -fg \
+		$reg  $proj  -O -K   -W1,$plate_boundary_color  >> $psfile
+	fi
+    fi
+fi
+#echo ok0
+#
+# earthquake hypocenters?
+# 
+if [ $pquakes -eq 1 ];then
+    gawk '{if(($1!="#")&&($1!=""))print($7,$6,$9*0.0005*8.5)}' \
+	$datadir/quakes/usgs_neic.dat | psxy  $reg $proj -O  -G255/0/255  -K -Sc   >> $psfile
+fi
+if [ $use_psxy -eq 1 ];then
+
+    zcat $datadir/sphere_points/npoints.$sphere_order.lonlat.gz | \
+	grdtrack -fg -nl -G$tmpn.vx  > $tmpn.a 2> /dev/null
+    zcat $datadir/sphere_points/npoints.$sphere_order.lonlat.gz | \
+	grdtrack -fg -nl -G$tmpn.vy  > $tmpn.b 2> /dev/null
+    paste $tmpn.a $tmpn.b | \
+	gawk -v s=$scaling '{print($1,$2,atan2($3,$6)*57.2957795130823208,sqrt($3**2+$6**2)/s)}' > $tmpn.c
+    #echo ok1
+    if [ $psecvel -eq 1 ];then
+	echo $0: adding second velocity set
+	zcat $datadir/sphere_points/npoints.$sphere_order.lonlat.gz | \
+	    grdtrack -nl -fg -G$tmpn.2.vx  > $tmpn.a.2 2> /dev/null
+	zcat $datadir/sphere_points/npoints.$sphere_order.lonlat.gz | \
+	    grdtrack -nl -fg -G$tmpn.2.vy  > $tmpn.b.2 2> /dev/null
+	paste $tmpn.a.2 $tmpn.b.2 | \
+	    gawk -v s=$scaling '{print($1,$2,atan2($3,$6)*57.2957795130823208,sqrt($3**2+$6**2)/s)}' > $tmpn.2.c
+	psxy $tmpn.2.c $reg $proj -SV$secvecsize -G$second_vel_color -O  -W0.5 -K >> $psfile
+    fi
+    # don't plot small vectors
+    cat $tmpn.c | gawk '{if($4>.05)print($0)}' | \
+	psxy $reg $proj -SV$vecsize -G$first_vel_color -O  -W0.5 -K >> $psfile
+    cat $tmpn.c | gawk '{if($4<=.05)print($0)}' | \
+	psxy $reg $proj -SV$svecsize -G$first_vel_color -O  -W0.5 -K >> $psfile
+    #echo ok2
+else
+    if [ $psecvel -eq 1  ];then
+	echo $0: adding second velocity set
+	grdvector $tmpn.2.vx $tmpn.2.vy  -T \
+	    $regvec $proj $secsymtype -S$scaling -O  -K >> $psfile
+    fi
+    if [ $centersticks -eq 1 ];then
+	grdvector $tmpn.vx $tmpn.vy  -E -T $vecinc $regvec $proj -S$scaling -O  -K -W2 >> $psfile
+    else
+	grdvector $tmpn.vx $tmpn.vy  -T $vecinc  $regvec $proj $firstsymtype -S$scaling -O  -K >> $psfile
+    fi
+fi
+
+if [ $threeplots -eq 1 ];then
+    if [ -s score.dat ];then
+	read r rw chi2 chi2w < score.dat
+	echo $0: read score.dat
+	r=`echo $r | gawk '{printf("%5.2f",$1)}'`
+	rw=`echo $rw | gawk '{printf("%5.2f",$1)}'`
+	chi2=`echo $chi2 | gawk '{printf("%4.1f",$1*100.)}'`
+	chi2w=`echo $chi2w | gawk '{printf("%4.1f",$1*100.)}'`
+	
+	echo 0.5 0.97 16 0 31 MC \
+	    "r @~=@~ $r  r@-w@- @~=@~ $rw  VR @~=@~ $chi2% VR@-w@- @~=@~ $chi2w%" | \
+	    pstext -R0/1/0/1 -Jx7/8 -G255/0/0 \
+	    -O -K  -N -V >> $psfile
+    fi
+    if [ -s velcomponents.dat ];then
+	echo $0: reading velcomponents.dat
+	ij=1
+	nij=`lc velcomponents.dat`
+	while [ $ij -le $nij ];do
+	    string=`cutline velcomponents.dat $ij `
+	    echo 0.5 `echo $ij | gawk '{print(0.99-0.03*$1)}'` 16 0 29 MC \
+		"$string" | pstext -R0/1/0/1 -Jx7/8 -O -K \
+		-P -N -G$plate_boundary_color >> $psfile
+	    ((ij=ij+1))
+	done
+    fi
+    if [ $centersticks -eq 0 ];then
+	urms=1
+	if [ $urms -eq 1 ];then
+	    echo 
+	elif [ $useabsbg -ne 0  ];then
+	    echo skipping scale
+	else
+	    if [ $fixscaling -eq 1 ];then
+		echo $legx $legy  12 0 0 0 0 "$maxfs cm/yr" | \
+		    psvelo -N -Se`echo $scaling | gawk '{print(1/$1)}'`/0.95/24 \
+		    $reg $proj -Gblue -K -O -L0.5 \
+		    -A$vecsize  >> $psfile
+	    else
+		echo $legx $legy 12 0 0 0 0 "$maxfs" | \
+		    psvelo -N -Se`echo $scaling | gawk '{print(1/$1)}'`/0.95/24 \
+		    $reg $proj -V -K -O -A$vecsize   \
+		    -L0.5 -Gblue >> $psfile
+	    fi
+	fi
+    fi
+    # two other projections
+    # second 	
+    pscoast $reg2 $proj2 -K -O -G$landcol -A70000 -Dc  $offset2 >> $psfile
+
+    psxy $HOME/progs/src/igmt_develop/nuvel.yx -:   \
+	-m $reg2 $proj2 -O -K   -W1/$plate_boundary_color  >> $psfile
+    if [ $use_psxy -eq 1 ];then
+	if [ $psecvel -eq 1  ];then
+	    psxy $tmpn.2.c $reg2 $proj2 -SV$secvecsize -G$second_vel_color -O  -K $ann2  >> $psfile
+	fi
+	psxy $tmpn.c $reg2 $proj2 -SV$vecsize -G$first_vel_color -O  -K $ann2  >> $psfile
+    else
+	    # second velocity
+	if [ $psecvel -eq 1 ];then
+	    grdvector $tmpn.2.vx $tmpn.2.vy  -T $ann2 $secsymtype\
+		$reg2 $proj2  -S$scaling  $vecinc -O  -K >> $psfile
+
+	fi
+
+	grdvector $tmpn.vx $tmpn.vy  -T $ann2 $firstsymtype\
+	    $reg2 $proj2  -S$scaling $vecinc -O  -K >> $psfile
+    fi
+    # third
+    if [ $bw -eq 1 ];then
+	pscoast $reg3 $proj3 -K -O -G128 -A70000 -Dc   $offset3 >> $psfile
+    else
+	pscoast $reg3 $proj3 -K -O -G200/200/200 -A70000 -Dc   $offset3 >> $psfile
+    fi
+    psxy $HOME/progs/src/igmt_develop/nuvel.yx -:   \
+	-m $reg3 $proj3 -O -K   -W1/$plate_boundary_color  >> $psfile
+    if [ $use_psxy -eq 1 ];then
+	if [ $psecvel -eq 1 ];then
+	    psxy $tmpn.2.c $reg3 $proj3 -SV$secvecsize -G$second_vel_color -O  -K $ann2  >> $psfile
+	fi
+	psxy $tmpn.c $reg3 $proj3 -SV$vecsize -G$first_vel_color -O  $ann2 -K  >> $psfile
+    else	
+	if [ $psecvel -eq 1 ];then
+	    grdvector $tmpn.2.vx $tmpn.2.vy $vecinc  -T $ann2 $secsymtype\
+		$reg3 $proj3  -S$scaling  -O  -K >> $psfile
+	fi
+	grdvector $tmpn.vx $tmpn.vy $vecinc  -T $ann2 $firstsymtype\
+	    $reg3 $proj3   -S$scaling  -O -K   >> $psfile
+    fi
+    # end three plots part
+else 
+	    
+    if [ -s $gps_file ];then
+	# add gps
+	echo $0: adding $gps_file assuming mm
+	minmax $gps_file
+	gawk '{err=sqrt($5**2+$6**2);if(err < 5)print($0)}' $gps_file | \
+	    psvelo -Se`echo $scaling | gawk '{print(0.1/$1)}'`/0/-1 \
+	    -A$vecsize $proj  $reg -Gblue -O -K   >> $psfile
+	echo
+	echo $vecsize
+	echo
+    fi
+
+
+    if [ `echo $title | gawk '{if($1!="")print(1);else print(0)}'` -eq 1 ];then
+	echo adding title $title
+	echo -0.01 .55 18 0 31 ML "$title" | \
+	    pstext -R0/1/0/1 -JX7 -N -O -K >> $psfile
+    fi
+
+    # add profile
+#    project -C140/40 -A80 -L-20000/20000 -G10 -Q  | gawk '{print($1,$2)}' | \
+#    project -C140/40 -E290/-20 -L-20000/20000 -G10 -Q  | gawk '{print($1,$2)}' | \
+#	psxy $reg $proj -W8,magenta -O -K >> $psfile
+
+    if [ $centersticks -eq 0 ] ;then
+
+	if [ $pmean -eq 1 ];then
+	    means=`echo $mean | gawk '{printf("%.2f",$1)}'`
+	    
+	    echo -0.01 0.0125 12 0 29 ML "@~\341|@~v@~|\361 =@~ $means cm/yr" | \
+		pstext -R0/1/0/1 -JX7 -N -O -K >> $psfile
+	elif [ $useabsbg -ne 0 ];then
+	    echo skipping scale
+	else
+	    if [ $fixscaling -eq 1 ];then
+		echo $legx $legy 12 0 0 0 0 "$maxfs cm/yr" | \
+		    psvelo -N -Se`echo $scaling | gawk '{print(0.1/$1)}'`/0.95/15 \
+		    $reg $proj -O  -G0 -A$vecsize -K \
+		    -W1/0  >> $psfile
+	    else
+		echo $legx $legy 12 0 0 0 0 "$maxfs cm/yr" | \
+
+
+		    psvelo -N -Se`echo $scaling | gawk '{print(0.1/$1)}'`/0.95/15 \
+		    $reg $proj -O  -G0 -K -A$vecsize \
+		    -W1/0   >> $psfile
+	    fi
+	fi
+
+
+    else
+	echo 1000 1000 1 | psxy $reg $proj -Sc -O -K >> $psfile
+    fi
+fi
+echo 1000 100000 1 | psxy $reg $proj -O -Sc >> $psfile
+
+echo $0: output in $psfile
+
+
+modifybb $psfile
+
+
+cp $psfile $psfileo
+echo $0: and $psfileo
+
+#gmtset ANNOT_FONT_PRIMARY Helvetica ANNOT_FONT_SECONDARY Helvetica HEADER_FONT Helvetica LABEL_FONT Helvetica

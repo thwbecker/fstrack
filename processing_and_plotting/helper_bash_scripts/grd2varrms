@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# calculates the RMS of a grid
+#
+# defined as   sqrt(\sum (x_i')^2 /N)
+#
+# where x_i' = x_i - <x_i>
+#
+# $Id: grd2varrms,v 1.1 2013/02/07 19:41:56 becker Exp becker $
+#
+tmpn=/tmp/$USER.$HOST.$$.wrms
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+
+mean=`grd2geo_mean $name`
+grdmath $name $mean SUB  = $tmpn.s
+echo `grdinfo -C -L2 $tmpn.s | gawk '{print($14)}'`

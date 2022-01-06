@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# calculates the mean absolute value of a grid
+#
+#
+tmpn=/tmp/$USER.$HOST.$$.wabs
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+# method 0 is much faster
+either=0
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+
+
+inc=`grd2inc $name`
+reg=`grd2reg $name`
+grdmath $inc $reg  Y = $tmpn.y
+grdmath $tmpn.y D2R COS = $tmpn.w
+grdmath $name ABS $tmpn.w MUL  = $tmpn.s
+s=`grd2sum $tmpn.s`
+sw=`grd2sum $tmpn.w`
+echo $s $sw | gawk '{print($1/$2)}'
+

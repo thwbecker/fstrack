@@ -1,0 +1,42 @@
+#!/bin/bash
+#
+# grid to std 
+#
+# mode: 0, regular
+# mode: 1, spehrically sampled
+#
+# $Id: grd2std,v 1.1 2007/03/01 00:33:57 becker Exp becker $
+#
+mode=${2-0}
+gridding=${3-11}
+if [ $# -eq 0 ];then
+    echo `basename $0` grd_file > /dev/stderr
+    echo > /dev/stderr
+    echo calculates the sum of all elements of a grid file > /dev/stderr
+    exit
+fi
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+#gmtset D_FORMAT %20.15e
+if [ $mode -eq 0 ];then
+    grdinfo -C -L  $name | gawk '{print($13)}'
+else
+    zcat $datadir/sphere_points/npoints.$gridding.lonlat.gz  | \
+	grdtrack -fg -nl -Z -s -G$name | gawk -f std.awk
+ 
+fi
+
+#gmtset D_FORMAT %lg
+
+
+
+

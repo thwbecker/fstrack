@@ -1,0 +1,20 @@
+#!/bin/bash
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+tmpd=/tmp/$USER.$HOST.$$
+mkdir $tmpd
+trap "rm -rf $tmpd ; exit" 0 1 2 15
+
+cp $name $tmpd & 
+cd $tmpd
+wait
+#grd2xyz -S -Z `basename $name` | gawk -f rms.awk
+grdinfo -L2 -C `basename $name` | gawk '{print($14)}'

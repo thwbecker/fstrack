@@ -1,0 +1,64 @@
+#!/bin/bash
+model=${1-ngrand}		# tomo model
+layer=${2-22}			# number of layer
+region=${3-32}			# geographic region
+
+# projection, annotation and pscoast resolution
+proj=`region_parameters $region 4`
+ann=`region_parameters $region 6`
+pscr=`region_parameters $region 13`
+reg=`region_parameters $region 3`
+tmpn=/tmp/$USER.$HOST.$$.pstr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+dir=$datadir/tomography/$model/
+if [ ! -s $dir/dv.$layer.grd ];then
+    if [ -s $dir/d.$layer.grd ];then
+	name=d
+    else
+	echo $0: cannot find dv.$layer.grd or d.$layer.grd 
+	echo $0: in $dir
+	exit
+    fi
+else
+    name=dv
+fi
+grd=$dir/$name.$layer.grd
+if [ ! -s $dir/depths.dat ];then
+    echo $0: cannot find $dir/depths.dat
+    exit
+fi
+grdcut $grd -G$tmpn.grd $reg
+
+
+depth=`oneline $layer $dir/depths.dat`
+# get max
+max=`grd2absmax $tmpn.grd | gawk '{if($1<10)printf("%.1f",$1*.75);else print(7.5);}'`
+#max=3
+echo $0: 75\% of max: $max
+makecpt -T-$max/$max/0.05 -Cseis > $tmpn.cpt
+modifycptends $tmpn.cpt
+
+ofile=$HOME/tmp/$model.$region.$depth.ps
+# make contours
+echo  0 C > $tmpn.cont
+echo -0.25 C >> $tmpn.cont
+echo -0.5 C >> $tmpn.cont
+grdcontour $reg $proj \
+    -C$tmpn.cont -D$HOME/tmp/$model.$region.$depth.cont.dat $tmpn.grd -S8 > /dev/null
+
+grdimage -C$tmpn.cpt $tmpn.grd $reg $proj -P $ann -K > $ofile
+pscoast -W1 $reg $proj $pscr $pscr -O -K >> $ofile
+gawk '{x=$2;y=$1;if(y==">")print(">");else {if(x<0)x+=360.0;print(x,y);}}' \
+    $HOME/progs/src/igmt_develop/nuvel.yx |\
+    mypsxy -M $reg  $proj  -O -K   -W3/000/0/106 >> $ofile
+mypsscale -N50 -E -B1/:"@~d@~v@-S@- (z = $depth km)[%]": -D3/-.5/3/.25h -C$tmpn.cpt -O  >> $ofile
+echo $0: output in $ofile
+
+
+gv $ofile &
+
+
+
+
+

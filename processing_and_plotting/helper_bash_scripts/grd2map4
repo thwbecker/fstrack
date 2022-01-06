@@ -1,0 +1,34 @@
+#!/bin/bash 
+
+if [ $# -eq 0 ]
+then
+	echo $0 "GMTgrdfile<.grd>" colormap
+	exit
+fi
+
+cmp=-C$2
+
+#    cmp=-C$HOME/tcltk/igmt_develop/colormaps/col.13.cpt
+
+
+if [ -s $1.grd ]
+then
+	w=0.5 
+	e=359.5
+	s=-89.5
+	n=89.5
+	tmpf=$1.grd
+	psout=$1.ps
+	#	proj="-JH180/8 -P -Bg60/g30"
+	#proj="-JA0/30/4 -P -Bg30/g15"
+	proj="-JH180/8 -P "
+
+	grdimage $tmpf -R$w/$e/$s/$n $proj $cmp  -K > $psout
+	pscoast -R$w/$e/$s/$n $proj -O -W1/0/0/0 -G255/255/255 -Bg90/g45 -Dc -A40000 -K >> $psout
+	psscale -O $cmp -D4/-0.25/8/0.25h >> $psout
+	echo Output $psout
+else
+	echo $1.grd not found.
+	exit
+fi
+

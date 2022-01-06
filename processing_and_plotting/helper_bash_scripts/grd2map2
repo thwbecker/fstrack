@@ -1,0 +1,86 @@
+#!/bin/bash 
+#
+# plots grd files using a colorbar that conforms to the min and max of a file
+#
+# $Id: grd2map2,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $ 
+#
+pname=`basename $0`
+if [ $# -lt 1 ];then
+    echo $pname: file.grd cmap sctitle colorb proj ann title scalespc inv pb coff hlabel
+    echo
+    echo plots grd file file.grd using grdimage with colormap cmap
+    echo 
+    echo file.grd has to be specified, rest is optional but has to be given
+    echo in the exact order. Parameter list follow, last item is default value.
+    echo
+    echo "cmap:    colormap, if absent or not found, will create new, \"\""
+    echo "sctitle: title for the colorbar scale, \"\""
+    echo "colorb:  1 or 0, show colorbar, 1"
+    echo "proj:    map projection, -JN170/7i"
+    echo "ann:     map annotation, -Ba60f30 for -JQ, \"\" else"
+    echo "title:   plot title, \"\""
+    echo "scalspc: colorscale annotation spacing, -1 means automatic, -1"
+    echo "inv:     invert the auto generated colorscale, seis, \"\""
+    echo "pb:      plot plate boundaries, 1: nuvel 2: bird, 2"
+    echo "coff:    use clipped colorbar at coff times the max value, 0.9"
+    echo "hlabel:  use huge labels, 2"
+    echo "addvel:  1: add velocities from vt.grd and vp.grd"
+    echo "         2: add velocities from vt.comp.grd and vp.comp.grd"
+    echo "wpdf:    1: produce a PDF white background color 2: produce a png 3: produce a PNG with white labels"
+    echo "gview:   use grdview instead of grdimage, good for PDF (2: 3-D)"
+    echo "cmax:    use maximum and minimum instead of creating a zero symmetric colorbar (0)"
+    echo "mrob:    mask regions outside plate boundaries"
+    echo "shade:   1: use gradient for shading else: use file"
+    echo "stitle:  subtitle"
+    echo "with_ends:  psscale flags"
+    echo "land_outline: coastlines (1)"
+    exit
+fi
+#
+# first argument is grd file
+colormap=${2-""}
+# label for colorbar
+scaletitle=${3-""}
+# colorbar?
+cb=${4-1}
+proj=${5--JN180/7i}
+if [ `echo $proj | gawk '{split($1,a,"/");if(substr(a[1],3,1)=="Q")\
+    print(1);else print(0)}'` -eq 1 ];then
+    # annotation for linear plot
+    ann=${6--Ba60f30/a30f15WeSn}
+else
+    # annotation else
+    ann=${6-""}
+fi
+# plot title
+title=${7-""}
+# -1 for automatic spacing
+scalespacing=${8--1}
+# invert the defautl colorscale?
+invert=${9-""}
+# show plate boundaries? 1: nuvel 2: bird
+plateboundaries=${10-1}
+# for colorscale
+cutoff=${11-1.0}
+# use huge labels
+hugelabels=${12-2}
+# add velocities from vp.grd vt.grd 
+addvel=${13-0}
+# 0: regular, 1: white background PDF, 2: png, 3: png, white, transparent
+wpdf=${14-0}
+# use grdview instead
+gview=${15-0}
+#
+color_max=${16-1}
+#
+mrob=${17-0}
+# shade the grid file 0: no 1: by gradient else: use file
+shade=${18-0}
+stitle=${19-""}
+with_ends=${20-"-E"}
+land_outline=${21-1}
+
+grd2map  $1 "$colormap" "$scaletitle" $cb $proj "$ann" "$title" \
+    $scalespacing "$invert" $plateboundaries \
+    $cutoff $hugelabels $addvel $wpdf $gview $color_max $mrob $shade "$stitle" "$with_ends" $land_outline
+

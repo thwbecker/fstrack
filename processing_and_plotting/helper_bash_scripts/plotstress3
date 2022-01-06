@@ -1,0 +1,103 @@
+#!/bin/bash
+# plot a vector field that is given as phi and theta components
+pquakes=0
+threeplots=0
+vecinc=2
+vecsize='-Q0.01/0.04/0.03'
+ann='-Ba5f1/a5f1WesN'
+#check for files
+sp=${1-sp.grd}
+st=${2-st.grd}
+vscale=${3-0.05}
+psfile=`echo $sp | gawk '{print(substr($1,1,length($1)-4))}'`.2.ps
+if [ -s $sp ]
+then 
+    if [ -s $st ]
+    then
+	echo $0: using $sp and $st
+    else
+	echo $0: can not find $st
+	exit
+    fi
+else
+    echo $0: can not find $sp
+    exit
+fi
+grdmath $sp  1.0e6 DIV = /tmp/$sp.vx.grd
+grdmath $st -1.0e6 DIV = /tmp/$sp.vy.grd
+
+west=275
+east=305
+south=-50
+north=0
+reg=-R$west/$east/$south/$north
+vecsize='-Q0.009/0.04/0.03'
+proj='-Jq290/0.15 -P'
+
+grdmath /tmp/$sp.vx.grd /tmp/$sp.vy.grd R2 SQRT = /tmp/$sp.tmp.abs
+max=`grd2max /tmp/$sp.tmp.abs`
+rm /tmp/$sp.tmp.abs
+
+echo $0: maximum horizontal traction: $max
+     if [ `echo $vscale | gawk '{if($1==0)print(1); else print(0);}'` -eq 1 ]
+     then
+	vscale=`echo $max | gawk '{print(0.4/$1)}'`
+	echo $0: adjusting  vscale: $vscale
+	adjust=1
+     else
+	echo $0: using vscale: $vscale
+	adjust=0
+     fi
+
+# seafloor age
+#agecpt=$HOME/tcltk/igmt_develop/colormaps/seafloor_age.cpt
+#grdimage /wrk/arthur/becker/global_data/seafloor_age/globalage_1.4.grd \
+#    -C$agecpt -V \
+#    $reg $proj -K > $psfile
+
+#grdmath  /wrk/arthur/becker/gd/crust/3smac_derived/isostat_model/dsxx.grd 1e6 DIV = tmp.grd
+#grd2xyz tmp.grd | surface $reg -I0.25 -T1 -Ll`grd2min tmp.grd` -Lu`grd2max tmp.grd` -Gtmp.grd 
+#grdimage  tmp.grd\
+#    -Cstress.cpt -V $reg $proj -K > $psfile
+#rm tmp.grd
+
+
+# draw coastlines and plate boundaries for first plot
+#pscoast $reg $proj -K -G200/200/200 -A70000 -Dc -Ba60/a30:."max $max":  $offset1 > $psfile
+pscoast $reg $proj -K -G200/200/200  -K -Dc  $offset1 > $psfile
+#
+# topography
+#
+grdraster 1 $reg  -Gtmp.grd
+grdcontour tmp.grd $proj $reg -S -O -K  -C1500 -W2 >> $psfile
+
+#psxy $HOME/tcltk/igmt_develop/nuvel.yx -:   \
+#	    -M $reg $proj  -O -K   -W.25/0/0/255  >> $psfile
+
+cat /wrk/arthur/becker/gd/plate_boundaries/nuvel.types.gmt | \
+    gawk '{if(substr($3,1,4)=="-W3/")printf("%s %s -W10/%s\n",$1,$2,substr($3,5,length($3)));\
+	else print($0);}' | \
+    psxy -M  $proj $reg -K -O >> $psfile
+
+
+if [ $pquakes -eq 1 ]
+then
+    gawk '{if(($1!="#")&&($1!=""))print($7,$6,$9*0.0005*8.5)}' \
+	 /wrk/arthur/becker/global_data/quakes/usgs_neic.dat | \
+	  psxy  $reg $proj -O  -G255/0/255  -K -Sc   >> $psfile
+fi
+
+grdvector /tmp/$sp.vx.grd /tmp/$sp.vy.grd  -T \
+    $reg $proj -I$vecinc $vecsize -S`echo $vscale |awk '{print(1/(($1!=0)?$1:1))}'` -G255/0/255 -O  -K >> $psfile
+
+echo `echo $west | gawk '{print($1*1.02)}'` `echo $south | gawk '{print($1*0.94)}'` 10 0 0 0 0 "10 MPa" \
+	| psvelo -Se$vscale/0.95/12 \
+    -G255/0/255 -W6/255/0/255 -O -K $reg $proj >> $psfile
+
+#psscale -Cstress.cpt -D2.0/-0.2/4/0.15h -B10/:"@~Dt@-@~rr@-@+avg@+ MPa": -E  -O -K >> $psfile
+
+psbasemap $proj $reg -O  $ann >> $psfile
+
+ps2epsi $psfile
+echo $0: output in $psfile
+#rm /tmp/$sp.vx.grd /tmp/$sp.vy.grd

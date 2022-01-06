@@ -1,0 +1,524 @@
+#!/bin/bash 
+#
+# plot global GMT netcdf grd files using a colorbar that is symmetric about zero
+#
+# $Id: grd2map,v 1.7 2012/06/03 13:07:25 twb Exp becker $ 
+#
+pname=`basename $0`
+if [ $# -eq 0 ];then
+    echo $pname: file.grd/nc cmap sctitle colorb proj ann title scalespc inv pb coff hlabel
+    echo
+    echo plots netcdf file file.grd/nc using grdimage with colormap cmap
+    echo 
+    echo file.grd has to be specified, rest is optional but has to be given
+    echo in the exact order. Parameter list follow, last item is default value.
+    echo
+    echo "cmap:    colormap, if absent or not found, will create new, \"\""
+    echo "sctitle: title for the colorbar scale, \"\""
+    echo "colorb:  1 or 0, show colorbar, 1"
+    echo "proj:    map projection, -JN170/7"
+    echo "ann:     map annotation, -Ba60f30 for -JQ, \"\" else"
+    echo "title:   plot title, \"\""
+    echo "scalspc: colorscale annotation spacing, -1 means automatic, -1, can also be orig"
+    echo "inv:     invert the auto generated colorscale, seis, \"\""
+    echo "pb:      plot plate boundaries, 1: nuvel 2: bird, 2"
+    echo "coff:    use clipped colorbar at coff times the max value, 1.0"
+    echo "hlabel:  use huge labels, 2"
+    echo "addvel:  1: add velocities from vt.grd and vp.grd"
+    echo "         2: add velocities from vt.comp.grd and vp.comp.grd"
+    echo "wpdf:    1: produce a PDF white background color 2: produce a png 3: produce trans a PNG with white labels"
+    echo "gview:   use grdview instead of grdimage, good for PDF (2: 3-D)"
+    echo "cmax:    use maximum and minimum instead of creating a zero symmetric colorbar (0)"
+    echo "mrob:    1: mask regions outside plate boundaries 2: mask continental regions"
+    echo "shade:   1: use gradient for shading else: use file"
+    echo "stitle:  sub title" > /dev/stderr
+    echo "with_ends:  end flags for psscale" > /dev/stderr
+    echo "land_outline:  1/0" > /dev/stderr
+    exit
+fi
+#
+# first argument is grd file
+colormap=${2-""}
+# label for colorbar
+scaletitle=${3-""}
+# colorbar?
+cb=${4-1}
+proj=${5--JN180/7i}
+#proj=${5--JN0/7}
+proj_width=`echo $proj | gawk '{if(substr($1,3,1)=="M"){print(substr($1,4));}else{split($1,a,"/");print(a[2]);}}'`
+
+
+if [ `echo $proj | gawk '{split($1,a,"/");if((substr(a[1],3,1)=="Q")||(substr($1,3,1)=="M"))\
+    print(1);else print(0)}'` -eq 1 ];then
+    # annotation for linear plot
+    ann=${6--Ba60f30/a30f15WeSn}
+else
+    # annotation else
+    ann=${6-""}
+fi
+# plot title
+title=${7-""}
+# -1 for automatic spacing
+scalespacing=${8--1}
+# invert the defautl colorscale?
+invert=${9-""}
+# show plate boundaries? 1: nuvel 2: bird
+plateboundaries=${10-1}
+# for colorscale
+cutoff=${11-1.0}
+# use huge labels, 0: small 1: very big 2: pretty good
+hugelabels=${12-2}
+# add velocities from vp.grd vt.grd 
+addvel=${13-0}
+# 0: regular, 1: white background PDF, 2: png, 3: png, white
+wpdf=${14-0}
+# use grdview instead
+gview=${15-0}
+# make the colorbar conform to the maximum rather than symmetric
+cmax=${16-0}
+# 1: mask regions outside plate boundaries 2: mask continents
+mask_rob=${17-0}
+# shade the grid file 0: no 1: by gradient else: use file
+shade=${18-0}
+#
+# subtitle
+stitle=${19-""}
+# 
+# psscale flags
+with_ends=${20-"-E"}
+#with_ends=${20-""}
+# plot outlines of land
+land_outlines=${21-1}
+
+gmt4=`echo $GMTHOME | gawk '{if(match($1,"4.5"))print(1);else print(0)}'`
+#
+#
+# other paratmeters
+#
+# hotspots?
+hotspots=0
+# for velocity plots
+usepsxyforvel=1
+
+#
+# plate boundary color
+#
+#ncol=0/0/0
+#ncol=darkblue
+ncol=darkgreen
+#	    ncol=255
+
+#
+# is this a depth
+#
+depth=`echo $title | gawk '{if($1=="z" && $2=="=")print($3)}'`
+
+use_font=Palatino-Roman
+#gmtset ANNOT_FONT_PRIMARY $use_font ANNOT_FONT_SECONDARY $use_font HEADER_FONT $use_font LABEL_FONT $use_font
+
+if [ `echo $depth | gawk '{if($1!="")print(1);else print(0)}'` -eq 1  ];then
+    add_rum=0
+    #add_seis=1
+    add_seis=0
+    echo $0: detected depth $depth add_rum $add_rum add_seis $add_seis > /dev/stderr
+
+else
+    add_rum=0
+    add_seis=0
+fi
+
+# 
+#
+# velocity parameters
+#
+#vecsize='0.03/0.08/0.04'
+vecsize='0.025/0.06/0.03'
+
+#first_vel_color=0/250/20
+#first_vel_color=0/0/0
+#first_vel_color=254/164/0
+first_vel_color=white
+sec_vel_color=128
+fixscaling=0 
+addzerocontour=0 # add a zero contour
+#
+#
+# modify the bounding box
+adapt_region=0
+#
+#
+#
+tmpn=/tmp/$USER.$HOST.$$.grd2map
+trap "rm -f $tmpn* ; exit" 0 1 2  15
+
+tmpf=$tmpn.lkdsajflksajf
+#
+if [ -s $1.grd ];then
+    name=$1.grd
+else
+    if [ -s $1 ];then
+	name=$1
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+echo $pname: file: $name > "/dev/stderr"
+echo $pname: colormap: $colormap  > "/dev/stderr"
+echo $pname: scaletitle: $scaletitle  > "/dev/stderr"
+echo $pname: colorbar: $cb > "/dev/stderr"
+echo $pname: projection: $proj  > "/dev/stderr"
+echo $pname: annotation: $ann  > "/dev/stderr"
+echo $pname: title: $title  > "/dev/stderr"
+echo $pname: scale spacing: $scalespacing > "/dev/stderr"
+echo $pname: invert: $invert > "/dev/stderr"
+echo $pname: plate boundaries: $plateboundaries > "/dev/stderr"
+echo $pname: cutoff: $cutoff > "/dev/stderr"
+echo $pname: huge labels: $hugelabels > "/dev/stderr"
+echo $pname: addvel: $addvel > "/dev/stderr"
+echo $pname: wpdf: $wpdf > "/dev/stderr"
+echo $pname: gview: $gview > "/dev/stderr"
+echo $pname: colorbar max: $cmax > "/dev/stderr"
+echo $pname: mask regions outside plate boundaries: $mask_rob > "/dev/stderr"
+echo $pname: shade: $shade > "/dev/stderr"
+echo $pname: stitle: $stitle > "/dev/stderr"
+echo $pname: with_ends: $with_ends > "/dev/stderr"
+echo $pname: land_outline: $land_outlines > "/dev/stderr"
+#
+#if [ $hugelabels -eq 1 ];then	# very big 
+#    gmtset ANOT_FONT_SIZE         28p
+#    gmtset LABEL_FONT_SIZE        38p
+#elif [ $hugelabels -eq 2 ];then
+#    gmtset ANOT_FONT_SIZE         16p
+#    gmtset LABEL_FONT_SIZE        24p
+#fi
+
+
+range=`grdinfo $name | grep zmin | gawk '{printf("min=%g max=%g\n",$3,$5)}'`
+cstep=`grdinfo $name | grep zmin | gawk '{printf("%g\n",int(($5-$3)/10))}'`
+maxps=`grd2absmax $name`
+
+if [ -s $colormap.cpt ];then
+    cmp=-C$colormap.cpt
+else
+    cmp=$tmpn.col.cpt
+    if [ $cmax  -eq 1 ];then	# make symmetric
+	dmin=`grd2min $name`
+	dmax=`grd2max $name`
+    else
+	dmax=`grd2absmax $name`
+	dmin=-$dmax
+    fi
+    # limit range by cutoff?
+    srange=`echo $dmin $dmax | gawk '{xmin=$1;xmax=$2;dx=xmin-xmax;if(sqrt(dx*dx)<1e-6){xmin-=.5;xmax+=.5;};\
+	r1=xmin*co;r2=xmax*co;mr=(r1+r2)/2.;dr=(r2-r1)/2.;if(dr==0)r=1;printf("%0g/%0g/%0g",mr-dr,mr+dr,dr/10)}' co=$cutoff` 
+    echo $pname: creating colorscale with minimum $dmin maximum $dmax, $srange  > "/dev/stderr"
+    if [[ $wpdf -eq 1  || $wpdf -eq 3 ]];then # transparent
+	#
+	#makecpt  -Cwysiwyg  $invert -T$srange > $cmp
+	makecpt  -Cspectral -Do  $invert -T$srange > $cmp
+    else
+	# regular
+	#makecpt  -Chaxby   $invert -T$srange > $cmp
+	makecpt  -Cvik   $invert -T$srange > $cmp
+#	makecpt  -Cseis  $invert -T$srange > $cmp
+#	makecpt  -Cpolar -Z  $invert -T$srange > $cmp
+    fi
+    #-modifycptends $cmp 2> /dev/null
+    cmp=-C$cmp
+fi
+if [ -s $name ];then
+	if [ $adapt_region -eq 1 ];then
+	    # determine region
+	    reg=`grd2reg $name`
+	else # world
+	    if [ `echo $proj | gawk '{if(substr($1,3,1)=="M")print(1);else print(0)}'` -eq 1 ];then
+		w=-180; e=180; s=-70; n=70
+		echo $0: switching region for Mercator > "/dev/stderr"
+		ann=-Ba60f10wESn
+	    else
+		w=0; e=360; s=-90; n=90
+	    fi
+	    reg=-R$w/$e/$s/$n
+	fi
+	echo $pname: region: $reg > "/dev/stderr"
+	
+
+
+	if [ $mask_rob -eq 1 ];then # mask regions outside plate boundaries
+	    grdclip $HOME/CITCOM/fulltest/weak.grd -Sa.5/NaN -G$tmpn.mask
+	    grdmath $tmpn.mask 0 MUL 1 ADD = $tmpn.mm
+	    grdmath $tmpn.mm $name MUL = $tmpf
+	    rm $tmpn.mask $tmpn.mm
+	elif [ $mask_rob -eq 2 ];then # mask regions outside plate boundaries
+	    inc=`grd2inc $name`
+	    grdcut -fg $HOME/plates/paleo_spreading/ocean_for_gsh.1.grd  $reg -G$tmpn.1
+	    grdsample -Ql $tmpn.1 $inc -G$tmpn.2
+	    grdmath $tmpn.2 0 NAN 1 ADD 2 DIV $name MUL = $tmpf
+	    rm $tmpn.1 $tmpn.2
+	else
+	    cp $name $tmpf
+	fi
+	name_wo_suffix=${name%.*}
+	
+	ofile=$name_wo_suffix.ps
+	pngout=$name_wo_suffix.png
+	gifout=$name_wo_suffix.gif
+	epsiout=$name_wo_suffix.epsi
+	pdfout=$name_wo_suffix.pdf
+	offset=`echo $proj | gawk '{split($1,a,"/");if(substr(a[1],3,1)=="Q"||substr($1,3,1)=="M")print("-Y.75i -X1i");else print("-Y.5i -X.5i")}'` 
+	proj="$proj -P"
+	if [ `echo $shade | gawk '{if($1==0)print(0);else print(1)}'` -eq 1 ];then
+	    psi="-I"
+	    if [ $gview -ne 0 ];then
+		echo $0: shade $shade does not work with $gview
+		gview=0
+	    fi
+	    if [ `echo $shade | gawk '{if($1==1)print(1);else print(0)}'` -eq 1 ];then
+		temp_shade_filename=$tmpn.shade
+		remove_sf=1
+		azi=65
+		grdgradient $tmpf -A$azi -V -G$temp_shade_filename -Nt
+		echo $0: using gradient shading with azimuth $azi > "/dev/stderr"
+	    else
+		temp_shade_filename=$shade
+		if [ ! -s $shade ];then
+		    echo $0: error: shade file $shade not found
+		    exit
+		fi
+		remove_sf=0
+		echo $pname: using shading from file $shade > "/dev/stderr"
+	    fi
+	    grdimage $tmpf  $reg $proj $cmp  -I$temp_shade_filename -K  $offset > $ofile
+	    if [ $remove_sf -eq 1 ];then
+		rm $temp_shade_filename
+	    fi
+	else
+	    psi=""
+	    if [ $gview -eq 0 ];then
+		grdimage  $tmpf $proj  $reg $cmp   -Sl -K  $offset > $ofile
+	    elif [ $gview -eq 1 ];then
+		grdview -Qs70 $tmpf  $proj  $reg $cmp    -K  $offset > $ofile
+	    elif [ $gview -eq 2 ];then
+		grdview -Qs70 -E30/60 $tmpf $proj  $reg $cmp    -K  $offset > $ofile
+	    fi
+	fi
+	if [ `echo $title | gawk '{if($1=="")print(0);else print(1);}'` -eq 1 ];then
+	    echo $pname: adding title $title proj_width $proj_width > "/dev/stderr"
+	    yl=`echo $proj | gawk '{if(substr($1,3,1)=="M")print(0.6);else print(0.55)}'`
+	    echo 0. $yl 24 0 31 ML "$title" | \
+		pstext -R0/1/0/1 -JX$proj_width  -O -K -N  >> $ofile
+	fi
+	if [ `echo $stitle | gawk '{if($1=="")print(0);else print(1);}'` -eq 1 ];then
+	    echo $pname: adding subtitle $stitle > "/dev/stderr"
+	    echo 0. 0.5 18 0 29 ML "$stitle" | \
+		pstext -R0/1/0/1 -JX$proj_width  -O -K -N  >> $ofile
+	fi
+	if [ $addzerocontour -eq 1 ];then
+	    echo $0: adding zero contour
+	    echo 0 > $tmpn.cont
+	    grdcontour $tmpf -C$tmpn.cont -O -K -Q5 -W2 $reg $proj >> $ofile
+	fi
+	add_cont=0
+	if [ $add_cont -eq 1 ];then
+	    cat <<EOF > $tmpn.cont
+-6 C
+-3 A
+0 C
+3 A
+6 C
+
+EOF
+	    grdcontour $tmpf -C$tmpn.cont -O -K -Q5 -W2 $reg $proj >> $ofile
+	    #grdcontour $datadir/crust/3smac_derived/craton.0.25.grd -C0.5 -O -K -Q5 -W10,black $reg $proj >> $ofile
+	fi
+	if [ $land_outlines -eq 1 ];then
+	    pscoast $reg $proj -O  -W0.5 -Dc -A90000 -K $ann >> $ofile
+#	    pscoast $reg $proj -O -W3/128 -Di -A60000 $ann -K  >> $ofile
+
+	else
+	    if [ `echo $ann | gawk '{if($1!="")print(1);else print(0)}'` -eq 1 ];then
+		psbasemap $reg $proj -O $ann -K >> $ofile
+	    fi
+	fi
+
+	if [ $cb -ne 0 ];then
+	    if [ `echo $scalespacing | gawk '{if(match($1,"-1"))print(1);else print(0)}'` -eq 1 ];then
+		if [ `echo $maxps | gawk '{if($1==0)print(1);else print(0)}'` -eq 1 ];then
+		    scalespacing=0.5
+		else
+		    if [ $hugelabels -eq 1 ];then
+			scalespacing=`echo $maxps | gawk '{if(sqrt($1*$1)<1e-4)x=1;else x=$1;dx=x/6.0;f=0.00005;i=0;while(f<dx){i++;if(i%2==1)f*=2.0;else f*=5.0;}print(f/2);}'`
+		    elif [ $hugelabels -eq 2 ];then
+			scalespacing=`echo $maxps | gawk '{if(sqrt($1*$1)<1e-4)x=1;else x=$1;dx=x/6.0;f=0.02;i=0;while(f<dx){i++;if(i%2==1)f*=2.0;else f*=5.0;}print(f/2);}'`		    
+		    else
+			scalespacing=`echo $maxps | gawk '{if(sqrt($1*$1)<1e-4)x=1;else x=$1;dx=x/6.0;f=0.00005;i=0;while(f<dx){i++;if(i%2==1)f*=2.0;else f*=5.0;}print(f/2);}'`
+		    fi
+		fi
+		echo $pname: abs max in data: $maxps, scale spacing: $scalespacing > "/dev/stderr"
+	    fi
+	    echo $pname: scale title: $scaletitle spacing: $scalespacing  > "/dev/stderr"
+	    if [ $gmt4 -eq 1 ];then
+		psc_loc=-D`echo $proj | gawk '{split($1,a,"/");if(substr(a[1],3,1)=="Q")l=0.15;else if(substr($1,3,1)=="M")l=-.8;else l=0;printf("%gi/%gi",a[2]+0.1+l,a[2]/7*1.75)}'`/3.5i/0.18i
+	    else
+		psc_loc=-Dx`echo $proj | gawk '{split($1,a,"/");if(substr(a[1],3,1)=="Q")l=0.15;else if(substr($1,3,1)=="M")l=-.8;else l=0;printf("%g/%g",a[2]+0.1+l,a[2]/7/3.5)}'`+w3/0.18
+	    fi
+	    if [ $with_ends = "-E" ];then
+		new_ends=+e
+	    elif [ $with_ends = "-Ef" ];then
+		new_ends=+ef
+	    elif [ $with_ends = "-Eb" ];then
+		new_ends=+eb
+	    else
+		new_ends=""
+	    fi
+	    if [ $scalespacing = orig ];then
+		if [ $gmt4 -eq 1 ];then
+		    psscale  $psi $cmp $psc_loc -O -K -B/:"$scaletitle": $with_ends  >> $ofile
+		else
+		    psscale  $psi $cmp $psc_loc$new_ends -O -K -B/:"$scaletitle":   >> $ofile
+		fi
+	    else
+		if [ $gmt4 -eq 1 ];then
+		    psscale  $psi $cmp $psc_loc -O -K -B$scalespacing/:"$scaletitle": $with_ends  >> $ofile
+		else
+		    psscale  $psi $cmp $psc_loc$new_ends -O -K -B$scalespacing/:"$scaletitle":   >> $ofile
+		fi
+	    fi
+	fi
+
+
+	if [ $plateboundaries -eq 1 ];then # nuvel
+	# Add NUVEL1 plate boundaries to the plot.
+	    if [ -s pb.dat ];then
+		echo $0: WARNING: plotting pb.dat file!
+		psxy pb.dat -m  $reg  $proj  -O -K   -W1/$ncol  >> $ofile
+		
+	    else
+		psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -m -: \
+		    $reg  $proj  -O -K   -W1,$ncol  >> $ofile
+	    fi
+	    
+        elif [ $plateboundaries -eq 2 ];then # bird
+	    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+		$reg -fg  $proj  -O -K   -Wthin,$ncol  >> $ofile
+	    
+
+	fi
+	if [ -s tmp.prof ];then
+	    psxy tmp.prof $reg $proj -O -K -W5,magenta >> $ofile
+	fi
+	if [ $add_rum -eq 1 ];then
+	    if [ -s $datadir/rum/all.mid.$depth.gmt ];then
+		psxy $reg $proj -O -K -W1,blue \
+		    $datadir/rum/all.mid.$depth.gmt  -m >> $ofile
+
+	    fi
+	fi
+	if [ $add_seis -eq 1 ];then
+	    d1=`echo $depth | gawk '{print($1-25)}'`
+	    d2=`echo $depth | gawk '{print($1+25)}'`
+
+	    gawk -v d1=$d1 -v d2=$d2 '{if(($3>=d1) && ($3<=d2))print($1,$2,$4/300)}' \
+		$datadir/quakes/engdahl/EHB.xyzmw | \
+		psxy $reg $proj -Sc -Gred -W0.5  -O -K >> $ofile
+
+	fi
+	
+	if [ $addvel -ne 0 ];then
+	    if [[ ! -s vt.grd || ! -s vp.grd ]];then
+		echo $pname: not all velocity files found
+		exit
+	    fi
+	    grdmath vt.grd NEG = $tmpn.vy
+	    if [ $addvel -eq 2 ];then
+		if [[ ! -s vp.comp.grd || ! -s vt.comp.grd ]];then
+		    echo $pname: vt.comp.grd not found
+		    exit
+		fi
+
+		grdmath vt.comp.grd NEG = $tmpn.comp.vy
+	 
+	    fi
+	    if [ $usepsxyforvel -eq 1 ];then
+		spxmode=2
+		#
+		grdmath vp.grd $tmpn.vy R2 SQRT = $tmpn.abs
+		max=`grd2max $tmpn.abs`
+		mean=`grd2geo_mean $tmpn.abs`
+		if [ $fixscaling -ne 0 ];then
+		    maxfs=$fixscaling
+		else
+		    maxfs=`echo $mean | gawk '{printf("%5.2lf",$1/.2)}'`
+		fi
+		scaling=`echo $maxfs  | gawk '{print(($1))}'`
+		echo $pname: vel max: $max, scaling $scaling, maxfs: $maxfs
+		if [ $spxmode -eq  1 ];then
+		    grdmath vp.grd $tmpn.vy ATAN2 R2D = $tmpn.azi
+		    grd2xyz $tmpn.azi > $tmpn.a
+		    grd2xyz -Z $tmpn.abs | gawk '{print($1/s);}' s=$scaling > $tmpn.b
+		    paste $tmpn.a $tmpn.b | \
+			awk '{l=($2>0)?($2):(-$2);l=int(l)+1;l*=2;\
+                		if((NR%l==0)&&($1!=360))print($0)}' > $tmpn.c
+		else
+		    pts=-1
+		    zcat $datadir/sphere_points/npoints.$pts.lonlat.gz | grdtrack -nl  -Gvt.grd -fg > $tmpn.1
+		    zcat $datadir/sphere_points/npoints.$pts.lonlat.gz | grdtrack -nl  -Gvp.grd -Z -fg > $tmpn.2
+		    paste $tmpn.1 $tmpn.2 | \
+			gawk '{print($1,$2,atan2($4,-$3)*57.2957795130823,sqrt($3**2+$4**2)/s)}' s=$scaling > \
+			$tmpn.c
+		fi
+		echo $0: WARNING: clipping velocities
+		gawk '{if($4>0.01)print($0)}' $tmpn.c | psxy $reg $proj -SV$vecsize -G$first_vel_color -O  -W0.5 -K >> $ofile
+		#psxy $tmpn.c $reg $proj -SV$vecsize -G$first_vel_color -O  -W0.5 -K >> $ofile
+	    else
+		grdvector vp.grd $tmpn.vy -T $reg \
+		    "-Q"$vecsize"n5" $proj -S5 -I15 -O -K -G$first_vel_color \
+		    >> $ofile
+		if [ $addvel -eq 2 ];then
+		    grdvector vp.comp.grd $tmpn.comp.vy -T $reg \
+			-Q$vecsize $proj -S5 -I15 -O -K -G$sec_vel_color \
+			>> $ofile
+		fi
+
+	    fi
+
+	    lreg=-R0/1/0/1
+	    lproj=-JX`echo $proj_width`
+	    yl=0.02
+	    vls=2
+	    echo 0.06 $yl 90 $vls | gawk '{print($1,$2,$3,$4/scale)}' scale=$scaling | \
+		psxy $lreg $lproj -O -K -SV$vecsize -N >> $ofile
+	    echo 0.05 $yl 12 0 29 RM "$vls" | pstext $lreg $lproj -N -O -K >> $ofile
+	fi
+	if [ $hotspots -eq 1 ];then
+	    gawk '{if($1!="#"){x=$5;if(x<0)x+=360;print(x,$4)}}' $HOME/progs/src/igmt_develop/hotspots.dat | \
+		psxy $reg $proj -Sc.075 -Gorange -W0.5 -O -K >> $ofile
+
+	fi
+
+	echo 1000 1000 0.1 | psxy -O -Sa $reg $proj >> $ofile
+
+	modifybb $ofile
+
+	if [ $wpdf -eq 1 ];then
+	    epstopdf $ofile; rm $ofile
+	    echo $pname: output $pdfout
+	elif [[ $wpdf -eq 2 || $wpdf -eq 3 ]];then
+	    make_transparent $ofile  1 > "/dev/stderr"
+	    #/usr/bin/convert $trans -quality 100 $ofile $pngout
+	    rm $ofile
+	    #echo $pname: output in $pngout> "/dev/stderr"
+	else
+	    echo $pname: Output $ofile > "/dev/stderr"
+	fi
+else
+	echo $name not found.
+	exit
+fi
+
+
+#gmtset ANOT_FONT_SIZE         14p  LABEL_FONT_SIZE        24p  BASEMAP_FRAME_RGB 0/0/0 ANNOT_FONT_PRIMARY Helvetica ANNOT_FONT_SECONDARY Helvetica HEADER_FONT Helvetica LABEL_FONT Helvetica
+
+
+rm .gmt* 2> /dev/null

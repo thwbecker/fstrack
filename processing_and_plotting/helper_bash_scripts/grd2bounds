@@ -1,0 +1,33 @@
+#!/bin/bash
+#
+# determine geoegraphic range of grd file for GMT
+# output is in E W S N
+#
+# $Id: grd2bounds,v 1.1 2002-10-21 16:48:10-07 tbecker Exp $
+#
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+
+if [ $# -gt 1 ]
+then
+    if [ $2 -eq 1 ]
+    then
+	xmin=$3
+	xmax=$4
+	ymin=$5
+	ymax=$6
+	echo -R$xmin/$xmax/$ymin/$ymax
+    else
+	echo `grdinfo -C $name | gawk '{print($2,$3,$4,$5)}'`
+    fi
+else	
+    echo `grdinfo -C $name | gawk '{print($2,$3,$4,$5)}'`
+fi

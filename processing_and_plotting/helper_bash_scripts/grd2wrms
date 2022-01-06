@@ -1,0 +1,37 @@
+#!/bin/bash
+#
+# calculates the weighted RMS of a grid
+#
+# defined as   sqrt(\sum x_i^2 * w_i/\sum w_i)
+#
+# $Id: grd2wrms,v 1.2 2007/01/09 00:02:40 becker Exp becker $
+#
+tmpd=`mktemp -d`
+trap "rm -rf $tmpd" 0 1 2  15
+
+if [ -s $1 ];then
+    name=$1
+else
+    if [ -s $1.grd ];then
+	name=$1.grd
+    else
+	echo $1 or $1.grd are nonexistent.
+	exit
+    fi
+fi
+cp $name $tmpd/tmp.grd
+
+cd $tmpd
+gmtset D_FORMAT %20.15e
+
+inc=`grd2inc tmp.grd`
+reg=`grd2reg tmp.grd`
+grdmath $inc $reg  Y COSD = tmp.w
+
+grdmath tmp.grd 2 POW tmp.w MUL = tmp.s
+
+s=`grd2sum tmp.s`
+sw=`grd2sum tmp.w`
+echo $s $sw | gawk '{printf("%.16e\n",sqrt($1/(($2!=0.0)?($2):(1.0))))}'
+
+gmtset D_FORMAT %lg

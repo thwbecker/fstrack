@@ -1,0 +1,66 @@
+#!/bin/bash
+#
+# plot finite strain in ISA format
+#
+depth=${1-100}
+ofile=isa.$depth.ps
+
+reg=-R0/360/-70/70
+proj=-JM7
+
+tmpn=/tmp/$USER.$HOST.$$.pstr
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+if [ ! -s tracer.f.s.$depth.dat ];then
+    echo $0: tracer.f.s.$depth.dat not found
+    exit
+fi
+gcoff=0.1
+#gcoff=1e5
+gawk '{if(($10==1)&&($12<gcoff))print($1,$2,$4,$5,$6,$7,$8,$9)}' \
+    gcoff=$gcoff  tracer.f.s.$depth.dat > $tmpn.selected
+
+if [ `lc $tmpn.selected` -le 0 ];then
+    echo $0: no valid ISA points selected!
+    foundvalid=0
+else
+    foundvalid=1
+    gawk '{print($3,$4,$5,$6,$7,$8)}' $tmpn.selected  |  \
+	eigen3ds | gawk \
+            '{e3=$1;e3r=$2;e3t=$3;e3p=$4;\
+	    e2=$5;e2r=$6;e2t=$7;e2p=$8;\
+	    e1=$9;e1r=$10;e1t=$11;e1p=$12;\
+            if((e2==0)||(e1/e2<0)){\
+             print(0,0);\
+            }else {\
+	      e1h=sqrt(1.0-e1r*e1r);\
+	      print(atan2(e1p,-e1t)*57.29578,e1h*0.05);\
+            }}' > $tmpn.data
+    gawk '{print($1,$2)}'  $tmpn.selected > $tmpn.xy
+    if [ `lc $tmpn.xy` -ne `lc $tmpn.data` ];then
+	echo $0: error, file length mismatch
+	exit
+    fi
+    paste $tmpn.xy $tmpn.data > $tmpn.eigen.ev
+    minmax $tmpn.eigen.ev
+fi
+#
+# plot fast orientations
+#
+echo 1000 1000 | mypsxy  -Sa0.1 -P $reg $proj -K > $ofile
+pscoast $reg $proj -G200 -Dc -A40000 -K -O -Ba60f15/a30f15WeSn \
+    >> $ofile
+psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W3 -: $reg $proj -O -K >> $ofile
+gawk '{print($1,$2,$7,0.05)}' tracer.f.e.$depth.dat | \
+    mypsxy -SV-0.008/0/0 $reg $proj -G200/0/0 -K -O >> $ofile
+if [ $foundvalid -eq 1 ];then
+    mypsxy $tmpn.eigen.ev -SV-0.012/0/0 $reg $proj -G0 -O >> $ofile
+else
+    echo 1000 1000 | mypsxy  -Sa0.1 -P $reg $proj -O >> $ofile
+fi
+
+echo $0: output in $ofile
+#
+# plot gamma factor
+#
+

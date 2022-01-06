@@ -1,0 +1,14 @@
+#!/bin/bash
+for f in err ert erp ett etp epp; do
+	if [ -s $f.grd ];then
+	    grd2map $f
+	else
+	    echo can not find $f.grd
+	    exit
+	fi
+done
+
+
+epsmerge --orientation Landscape --print -x 3 -y 2 -par \
+	err.ps ert.ps erp.ps ett.ps etp.ps epp.ps > strainc.ps
+echo $0: output in strainc.ps

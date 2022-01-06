@@ -1,0 +1,72 @@
+#!/bin/bash
+#
+# given a file with 
+#
+# lon1 lat1 lon2 lat2
+# lon2 lat2 lon3 lat3
+# lon3 lat3 ...
+# ...       lonn latn
+#
+#
+# patch together swath profiles
+#
+# output file is 
+#
+# L lon lat min max mean median std N
+#
+# along swath, where N is the number of points used for each segment
+#
+pfile=${1-ppoints.dat}		# file with profile points in them
+dem_file=${2-$datadir//etopo2/etopo2.grd} # netcdf grd file with DEM
+out_file=${3-swath.out}			  # output
+#
+greg=${4-""}			# cut the DEM, which can speed things up, "" is use whole thing
+dx_min=1			# resolution, in km (segments should not be smaller than that)
+tmpn=/tmp/$USER.$HOST.$$.ps
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+half_width=75			# half width of swath in km
+delta_l=5			# spacing along profile, in km
+#
+if [ ! -s $pfile ];then
+    echo $0: points file $pfile not found
+    exit
+fi
+if [ ! -s $dem_file ];then
+    echo $0: dem file $dem_file not found
+    exit
+fi
+
+
+np=`lc $pfile`
+lstart=0
+i=1
+while [ $i -le $np ];do		# loop through the steps
+    oneline $i  $pfile > $tmpn.dat
+    read x1[$i] y1[$i] x2[$i] y2[$i]  < $tmpn.dat
+    #
+    # profile points, which could be plotted
+    project -G$dx_min -Q -C${x1[$i]}/${y1[$i]} -E${x2[$i]}/${y2[$i]} > $tmpn.$i.prof
+    # length of this segment
+    L[$i]=`minmax -C $tmpn.$i.prof | gawk '{print($6)}' `
+
+    echo $0: working on segment $i: ${x1[$i]} ${y1[$i]} to ${x2[$i]} ${y2[$i]} L: ${L[$i]} km
+
+    # get this swath
+    # swath.$i.output L min max mean median std N
+
+    plot_swath ${x1[$i]} ${y1[$i]} ${x2[$i]} ${y2[$i]} $tmpn.swath.out $tmpn.swath.box \
+	"$greg" $dem_file $delta_l $half_width
+    #
+    # convert the x axis, and append
+    #
+    gawk -v l=$lstart '{print(l+$1,$2,$3,$4,$5,$6,$7,$8,$9)}' $tmpn.swath.out >> $tmpn.tswath.out
+    lstart=`echo $lstart ${L[$i]} | gawk '{print($1+$2)}'`
+    ((i=i+1))
+done
+
+echo $0: range of combined swath
+
+cp $tmpn.tswath.out $out_file
+minmax $out_file

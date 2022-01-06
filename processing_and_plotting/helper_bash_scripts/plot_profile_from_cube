@@ -1,0 +1,109 @@
+#!/bin/bash
+# plot profile through tomography model in GMT Cube format
+dv=${1-dv}		# GMT cube, without the .nc
+                        # e.g. as created from make_cube_from_tomo_grids 
+lon=${2-0}		# center of profile
+lat=${3-0}
+azi=${4-70}			# azimuth of profile
+hl=${5-3500}			# profile half length km
+
+
+oview=1				# 1: overview map
+addslices=1			# map view slice
+
+lspc=2;label="@~d@~v@-S@- [%]"	# for colorbar
+
+xinc=10				# spacing of profile
+zinc=$xinc				# depth spacing
+zbot=1200				# maximum depth of profile
+
+keep=1				# keep the profile grid
+tmpn=`mktemp`
+trap "rm -f $tmpn*" EXIT
+if [ ! -s $dv.nc ];then
+    echo $0: GMT cube file $dv.nc not found
+    exit
+fi
+grdinfo -C -Q $dv.nc | gawk '{print($6,$7)}' > $tmpn.dat # check bounds of cube
+read zmin zmax < $tmpn.dat
+echo $0: working on $dv.nc zmin $zmin zmax $zmax prof: $lon $lat azi $azi hl $hl
+if [ $zmax -lt $zbot ];then
+    echo $0: error zbot $zbot
+    exit
+fi
+project -C$lon/$lat -Q -L-$hl/$hl -G$xinc -A$azi > $tmpn.prof # make profile
+if [ $keep -eq 1 ];then
+    ogrid=$dv.p.$lon.$lat.$azi.$hl.grd
+else
+    ogrid=$tmpn.grd
+fi
+if [[ ! -s $ogrid ]];then	# extract a profile
+    grdinterpolate $dv.nc -G$ogrid -E$tmpn.prof -T$zmin/$zbot/$zinc
+else
+    echo $0: reusing $ogrid
+fi
+#grdinfo $ogrid
+
+ofile=$dv.p.$lon.$lat.$azi.$hl.ps
+grd2cpt $ogrid -Cturbo -D -T= -E21 -I > $tmpn.cpt
+# set the region to what should be the grid dimensions
+reg=-R-$hl/$hl/$zmin/$zbot
+scale=0.0015
+proj="-Jx"$scale"/-"$scale
+# slice plot
+grdimage $ogrid -C$tmpn.cpt  $reg $proj \
+	 -Ba500f50:"distance along profile [km]":/a200f50:"depth [km]":WEsN -K -P > $ofile
+for zl in 410 660 ;do
+    cat <<EOF | psxy $reg $proj -O -K -W1,- >> $ofile
+-$hl $zl
+$hl $zl
+EOF
+done
+psscale -Dx5/-.2/5/.2h -C$tmpn.cpt -B$lspc/:"$label": -O -K >> $ofile
+if [ $oview -ne 0 ];then
+    #preg=`minmax $tmpn.prof -I1`
+    preg=-R-35/35/-15/15
+    gproj=-JOA$lon/$lat/$azi/5 
+    pscoast -Di $preg $gproj -W0.5 -S200 -K -O -Y3  >> $ofile
+    psbasemap $preg $gproj "-Tdg"$lon/$lat"+w1i+f+l,,,N" -O -K \
+	      -Ba10g20f1WesN >> $ofile
+    psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+	 $preg  $gproj -fg -O -K   -W1,darkorange  >> $ofile
+	    
+    psxy $preg $gproj -O -K -W3,blue $tmpn.prof >> $ofile
+fi
+if [ $addslices -ne 0 ];then
+    i=1
+    for z in 100 1100;do
+	grdinterpolate $dv.nc -G$tmpn.$i.grd -T$z & # extract layer
+	zs[$i]=$z
+	((i=i+1))
+    done
+    ((n=i-1))
+    wait
+    preg=-Rg
+    gproj=-JG$lon/$lat/2
+    for i in `seq $n`;do
+	if [ $i -eq 1 ];then
+	    off="-X5.5"
+	else
+	    off=-X2.2
+	fi
+	grdimage $preg $gproj $off $tmpn.$i.grd -Bg60 \
+		 -C$tmpn.cpt -O -K >> $ofile
+	pscoast -Dl -A9000 $preg $gproj -W0.5  -K -O  >> $ofile
+	psxy $datadir/plate_boundaries/bird_PB2002/PB2002_tdiddy.gmt  -m  \
+	     $preg  $gproj -fg -O -K   -W0.5,darkorange  >> $ofile
+	psxy $preg $gproj -O -K -W2,blue $tmpn.prof >> $ofile
+	echo 0.5 1.1 14 0 31 MC "${zs[$i]} km" | \
+	    pstext -R0/1/0/1 -JX2 -O -K -N >> $ofile
+    done
+
+fi
+echo 1000 -1000 0.1 | psxy $reg $proj -Sa -O >> $ofile
+psconvert $ofile -A+m0.1 -Tf 			# convert to PDF
+psconvert $ofile -A+m0.1 -Tg 			# convert to PNG
+rm $ofile
+    
+
+

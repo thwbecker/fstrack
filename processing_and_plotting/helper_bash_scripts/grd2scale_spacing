@@ -1,0 +1,10 @@
+#!/bin/bash
+g=${1-tmp.grd}
+n=${2-1}
+
+grd2minmax $g | gawk -v n=$n '{
+                  range=$2-$1;
+                  dx=10**(int(log(range)/log(10)-0.5))/n;
+                  rn=range/dx;if(rn<2.2)dx/=2;
+                  print(dx);
+                  }'

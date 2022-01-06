@@ -1,0 +1,276 @@
+#!/bin/bash
+datas=${1-"pbo mine"}		# this will plot mine.gps on top of pbo.gps
+type=${2-sss}
+inc=${3-0.1}
+pint=${4-0}			# plot interpolated?
+ptypes=${5-"1 2 3"}		# 0: merc 1: oblique merc 2: zoom in 1 3: zoom in 2 4: poster
+reduce=${6-0}			# 1: remove half nuvel, 0: plot in original reference frame
+preg=${7-""}		# 
+
+azi=140;
+pt=""
+
+
+tmpn=/tmp/$USER.$HOST.$$.pgv
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+for ptype in $ptypes;do
+
+#    pscadd="-N1/5/50 -N2/1/50 -T234/40/.75"		# borders
+    pscadd="-N1/5/50 -N2/1/50 "		# borders
+    scale=30			# velocity scale
+
+    gcol1=red			# first color
+    gcol2=orange			# second color
+
+    vsize=0.05/0.06/0.06		# vector size
+    tsize=-12			# label size
+
+    addquakes=0
+    nuv_col=-W5/blue		# nuvel PB
+    sci_col=-W1/darkgreen		# scitex faults
+    psvlloc="236 38"
+    if [ $ptype -eq 0 ];then	# merc
+	siglevel=0.95			# for error bars
+	if [ $preg -eq "" ];then
+	    reg=-R234/248/31/45
+	else
+	    reg=$preg
+	fi
+
+	proj=-JM7;ann=-Ba2f.2
+	pt="-P"
+	gmtset BASEMAP_TYPE plain
+
+    elif [ $ptype -eq 1 ];then	# oblique 
+	siglevel=0.95			# for error bars
+	proj=-JOa240/35.1/$azi/14
+	reg=-R-8/5.25/-1.5/5.5
+	ann="-Ba2f.2g5WeSn "
+	psvlloc="236 38"
+	pt="-P"
+    elif [ $ptype -eq 2 ];then # zoom in  1
+	siglevel=0.95			# for error bars
+    	proj=-JOa244/33.5/$azi/8
+	reg=-R-2/2./-2/1.7
+	ann=-Ba1f.1g1WeSn
+	psvlloc="243 32"
+	pt="-P"
+    elif [ $ptype -eq 3 ];then			# zoom in 2
+	siglevel=0.95			# for error bars
+	proj=-JOa238/35.1/$azi/8
+	reg=-R-2.5/2.5/0/2.25
+	ann=-Ba1f.1g1WeSn
+	psvlloc="237 37"
+	pt="-P"
+    elif [ $ptype -eq 4 ];then			  # 
+	siglevel=0.95			# for error bars
+	proj=-JOa240/35.1/$azi/72 # poster
+	reg=-R-8/5.5/-1.25/5.25
+	ann=-Ba1f.1g2WESN
+	gmtset PAPER_MEDIA dj755
+	pscadd="-N1/10/255 -N2/5/255"		# borders
+	vsize=0.075/0.1/0.1		# vector size
+	tsize=18
+	scale=8
+	nuv_col=-W10/0/0/255
+	sci_col=-W2/0/255/255
+	pt="-P"
+#	addquakes=1
+    fi
+
+
+
+    greg=-R210/300/15/60		# grid region
+
+    ndata=`echo $datas | gawk '{print(NF)}'` # number of files
+    if [ $ndata -gt 1 ];then
+	echo $0: combining
+	ofilep=`echo $datas | gawk '{printf("vel.%s_%s",$1,$2)}'`
+    else
+	echo $0: single file
+	ofilep=vel.$datas
+    fi
+
+
+
+    dc=1
+    for data in $datas;do
+
+#
+# cut gps
+#
+	gmtselect $greg $data.gps > $tmpn.gps
+	echo $0: data set $dc out of $ndata pint $pint 
+	if [ $pint -eq 1 ];then
+	    echo $0: interpolation file vx.$data.$type.$inc.grd
+	fi
+#
+# number of selected gps sites
+	ngps=`lc $tmpn.gps`
+
+	if [[ $pint -eq 1 &&  -s  vx.$data.$type.$inc.grd  ]];then
+	    usegrids=1
+	else
+	    usegrids=0
+	    inc=0.25
+	fi
+
+    #
+    # remove half nuvel1-a PAC-NAM?
+    #
+	if [ $reduce -eq 1 ];then
+#  NUVEL1-A
+	    rpole="-1.01299 4.8352 -5.62473"
+# half NUVEL1-A
+	    if [ ! -s hrot.vx.$inc.grd  ];then
+		create_grid_rvec `echo $rpole | gawk '{print($1/2,$2/2,$3/2)}'` \
+		    $greg -I$inc hrot.vx.$inc.grd hrot.vy.$inc.grd
+		
+	    else
+		echo $0: reusing hrot.vx.$inc.grd 
+	    fi
+	fi
+	
+	if [ $usegrids -eq 1 ];then
+	    if [ $ndata -ne 1 ];then
+		echo $0: error cannot use grids for more than one data file
+		exit
+	    fi
+	    echo $0: using gridded velocities
+	    if [ $ptype -gt 1 ];then
+		ofile=$ofilep.$type.$inc.int.$ptype.ps
+	    else
+		ofile=$ofilep.$type.$inc.int.ps
+	    fi
+
+	    
+	    if  [ $reduce -eq 1 ];then
+		greg=`grd2reg vx.$data.$type.$inc.grd`
+		for t in vx vy;do
+		    grdcut hrot.$t.$inc.grd $greg -G$tmpn
+		    grdmath  $t.$data.$type.$inc.grd $tmpn SUB = $tmpn.$t
+		done
+		rm $tmpn
+	    else
+		for t in vx vy ;do
+		    cp  $t.$data.$type.$inc.grd $tmpn.$t
+		done
+	    fi
+	    
+	    grdmath  $tmpn.vx $tmpn.vy  R2 SQRT = $tmpn.grd
+	    makecpt -T0/40/1 -Cgray > $tmpn.cpt
+	    
+	    grdimage $tmpn.grd -C$tmpn.cpt -K $proj $reg $ann $pt  > $ofile
+	    pscoast $pscadd -O -K $proj $reg -W2/0/0/200 -Df >> $ofile
+	    
+	    grdvector $tmpn.vx $tmpn.vy $reg $proj -O -S$scale \
+		-Q0.015/0.05/0.04 -G200/0/0 -K -I0.5 -T >> $ofile
+	    rm $tmpn.grd $tmpn.cpt $tmpn.v?
+
+	else
+	    #
+	    # spotted data
+	    #
+	    echo $0: using original data after selection
+	    if [ $dc -eq 1 ];then
+		if [ $ptype -gt 1 ];then
+		    ofile=$ofilep.$ptype.ps
+		else
+		    ofile=$ofilep.ps
+		fi
+		topo=1
+		if [ $topo -eq 1 ];then
+		    grdimage $proj $reg $datadir/etopo2/etopo2.grd  -Cmytopo.cpt $ann $pt -K > $ofile
+	#/home/geovault-00/data/srtm3/us/socal/socal.grd
+		    pscoast -K -O $pscadd $proj $reg -W2/0/0/0 -Df $pt >> $ofile
+		else
+		    psbasemap -K $proj $reg  $ann $pt > $ofile
+		    pscoast -K $pscadd -O $proj $reg -W2/0/0/0 -Df -K -S128 >> $ofile
+		fi
+	    fi
+	fi
+	if [ $dc -eq 1 ];then
+	    psxy $datadir/faults/scitex.faults -M $reg  $proj  -O -K   $sci_col  >> $ofile
+	    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx -M -: \
+		$reg  $proj  -O -K   $nuv_col  >> $ofile
+	    if [ $addquakes -eq 1 ];then # plot quakes
+		qf=$datadir/quakes/cali_merged/socal_hauksson_nocal_all_merged.4.aki 
+		echo $0: adding $qf
+		psmeca $qf -Sa.75/-1 $reg $proj -O -K -L0.5  -D-1e5/1e5  >> $ofile
+
+	    fi
+
+	fi
+
+
+	gawk '{print($1,$2)}' $tmpn.gps > $tmpn.loc
+	nloc=`lc $tmpn.loc`
+	if [ $dc -eq 1 ];then	# station locations
+	    psxy $tmpn.loc -O -K -Sc0.025 -W0.5 -G50/0/0 $reg $proj >> $ofile
+	    gcol=$gcol1
+	else			# second velocity
+	    gcol=$gcol2
+	    siglevel=0		# switch off error ellipses
+	    tsize=-5		# switch off labels
+	fi
+
+
+# half nuvel motions
+	grdtrack $tmpn.loc -Z -Ghrot.vx.$inc.grd > $tmpn.vx
+	grdtrack $tmpn.loc -Z -Ghrot.vy.$inc.grd > $tmpn.vy
+	paste $tmpn.vx $tmpn.vy > $tmpn.hnvel; rm $tmpn.v?
+	nn=`lc $tmpn.hnvel`
+
+	if [[ $ngps -ne $nn || $nn -ne $nloc ]];then
+	    
+	    echo $0: interpolation error
+	    echo $0: $nn $ngps $nloc
+	    exit
+	fi
+
+	if [ $reduce -eq 1 ];then
+	    echo $0: reducing by half nuvel velocities
+	    paste $tmpn.gps $tmpn.hnvel | \
+		gawk '{print($1,$2,$3-$(NF-1),$4-$(NF),$5,$6,$7,$8)}' > $tmpn.red.gps
+	    psvelo $tmpn.red.gps -Se`echo $scale | gawk '{print(1/$1)}'`/$siglevel/$tsize  \
+		-G$gcol -A$vsize -W0.5/0 -L0.5 -O -K $reg $proj >> $ofile
+	    rm $tmpn.red.gps
+	else
+	    echo $0: original
+#	    if [ $dc -eq 1 ];then
+	# half nuvel in background
+#		paste $tmpn.loc $tmpn.hnvel | gawk '{print($1,$2,$3,$4,0,0,1,$1,$2,"nuvel")}' | \
+#		    psvelo -Se`echo $scale | gawk '{print(1/$1)}'`/$siglevel/-24  \
+#		    -G128 -A$vsize -W0.5/0 -L0.5 -O -K $reg $proj >> $ofile
+#	    fi
+	    psvelo $tmpn.gps -Se`echo $scale | gawk '{print(1/$1)}'`/$siglevel/$tsize \
+		-G$gcol -A$vsize -W0.5/0 -L0.5 -O -K $reg $proj >> $ofile
+	fi
+	if [ $dc -eq 1 ];then	# label
+	    echo $0: adding label
+	    echo $psvlloc  0 20 1.41 1.41 0.01 "2 cm/yr" | \
+		psvelo  -Se`echo $scale | gawk '{print(1/$1)}'`/$siglevel/18 -G$gcol \
+		-A$vsize -N -W0.5/0 -L0.5  -O -K $reg $proj  >> $ofile
+	fi
+
+
+	if [ $dc -eq $ndata ];then	# end plot
+	    echo $0: finishing plot
+	    echo 100 1000 | psxy -O $reg $proj -Sa.1 >> $ofile
+	    eps2eps $ofile $tmpn.eps; mv $tmpn.eps $ofile
+	    cp $ofile $HOME/tmp/
+	    epstopdf $HOME/tmp/$ofile 
+	    echo $0: output in $ofile
+	fi
+	if [ $ptype -eq 0 ];then
+	    gmtset BASEMAP_TYPE fancy
+	fi
+
+	rm $tmpn.loc $tmpn.hnvel $tmpn.gps $tmpn.pbo  2> /dev/null
+	((dc=dc+1))
+    done				# end data loop
+done				# ptype loop
+gmtset PAPER_MEDIA letter+
+

@@ -1,0 +1,17 @@
+#!/bin/bash
+#
+# assuming a global grid, compute the median value
+#
+if [ ! -s $1 ];then
+    echo $0: input grid $1 not found 2> /dev/stderr
+    exit
+fi
+if [ $# -ne 1 ];then
+    echo 2> /dev/stderr
+    echo $0: usage 2> /dev/stderr
+    echo $0 file.grd 2> /dev/stderr
+    echo 2> /dev/stderr
+    exit
+fi
+zcat $datadir/sphere_points/npoints.9.lonlat.gz | \
+    grdtrack -G$1 -nl -fg -s -Z 2> /dev/null | gawk -f median.awk 

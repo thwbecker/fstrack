@@ -1,0 +1,28 @@
+#!/bin/bash
+grid=${1-tmp.grd}
+if [ ! -s $grid ];then
+    echo $0: cannot find $grid > /dev/stderr
+    exit
+fi
+nx=`grd2nx $grid`
+
+grd2xyz $grid | \
+    gawk -v nx=$nx  \
+	 'BEGIN{
+           i=0;mode=0;sum=0;
+          }
+          {
+           i++;
+           if(tolower($3)!="nan"){
+            sum += $3;
+            mode += $3*$1;
+           }
+           if(i==nx){
+            if(sum==0)
+              print($2,"NaN")
+            else
+             print($2,mode/sum);
+            mode=0;sum=0;
+            i=0;
+           }
+          }END{}'

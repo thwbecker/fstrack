@@ -1,0 +1,1083 @@
+#!/bin/bash
+#
+# plot the strains at each tracer locatiion, depending on the settings below
+# mostly, will plot horizontal projection of the largest axis of the 
+# finite strain ellipsoid
+#
+# $Id: plottracer_ellipse,v 1.3 2002/12/27 04:28:02 becker Exp becker $
+#
+depth=${1-es.avg}  # give depth or 'es.avg' 
+regional=${2-0} #  0: world wide coverage, plot world
+                #  1: regional file, plot that region 
+                #  2: global file, but focus on PAC 
+                #  3: global file, but focus on SAM 
+                # <0: global file, but cut out region -regional as in region_parameter
+suffix=${3-dat} # use t.1.dat, s.1.dat or the like
+plotages=${4-0} # plot age histograms
+title=${5-""}   # add plot title
+smooth=${6-0}   # 1: smooth the field and use for plotting, 2: only create 
+		#    interpolated grds
+usevel=${7-1}   # use a velocity field underneath the strain for comparison
+talk=${8-0}     # switch to color etc 1: slides 2: plain color
+ppi=${9-0}   # plot pi for ISA
+force_isa=${10-0} # force plot to assume ISA, regardless of name
+fixmaxs=0
+fixfrrscale=0
+# 1: use the Frr component for background. if set to 2, use topography, 
+# 3: contours 4: plot e1_h/e1_v
+usefrr=1
+if [ $talk -ge 1 ];then
+    #bgcolorscale=no_green
+    bgcolorscale=polar
+    if [ $talk -eq 1 ];then
+	gmtset BASEMAP_FRAME_RGB 255/255/255
+    fi
+else
+    bgcolorscale=lighter_gray
+fi
+# fraction of max
+coff=0.7;wctpends="-E"
+# calculate and/or use the smoothed Frr component as background
+calcfilteredrr=0
+usefiltered=0
+lmax=20 # spherical harmonic expansion for smoothing
+#
+# 
+pic=0.5 # cutoff for pi parameters
+
+#
+scdepth=`echo $depth | gawk '{i=split($1,a,".");print(a[i]);}'`
+if [ `echo $depth | gawk '{if(match($1,"dazi."))print(1);else print(0)}'` -eq 1 ];then
+    echo $0: can not plot from dazi file
+    exit
+fi
+#
+# if "depth" actually starts with es., then we expect  pre calculated directions instead
+#
+esformat=`echo $depth | gawk '{if(match($1,"es."))print(1);else print(0)}'`
+if [ $esformat -eq 1 ];then
+    echo $0: WARNING: expecting eigensytem format x y log\(e1/e2\)_h azi F_rr
+else
+    echo $0: assuming normal L matrix format
+fi
+#
+# use ISA format?
+useisa=`echo $suffix $force_isa | gawk '{if((match($1,"isa."))||($2 == 1))print(1);else print(0)}'`
+# is the backward depth advection, in this case, normalize strain
+is_bd=`echo $suffix | gawk '{if(match($1,"bd."))print(1);else print(0)}'`
+if [ $is_bd -eq 1 ];then
+    usefrr=4
+fi
+# use TI axis?
+tiformat=`echo $depth | gawk '{if(match($1,"ti."))print(1);else print(0)}'`
+
+if [ $tiformat -eq 1 ];then
+    echo $0: expecting TI format
+#
+# input file with x y z Brr Brt Brp Btt Btp Bpp ...
+# or es.avg format
+    file=tracer.$depth.$suffix
+else
+    echo $0: expecting FSE format
+#
+# input file with x y z Brr Brt Brp Btt Btp Bpp ...
+# or es.avg format
+    file=tracer.f.s.$depth.$suffix
+fi
+echo $0: using $file
+#
+#
+#
+
+# compare with surface waves?
+#swtype=$HOME/quakes/tomography/sw_ekstrom/R050
+swtype=xx
+# plot direction of local splitting at midpoint(1), 
+# at station(0), or at event (-1)
+mp=1
+# Ppol
+ppol=0
+#
+bgcol=`gmt_bgcol`
+if [ $regional -lt 0 ];then
+    # cut out a region
+    ((cut_region=-regional))
+    cut_region_name=`region_parameters $cut_region 7`
+    regional=1
+else
+    cut_region=0
+fi
+
+# different vector scale for regional or large scale plots
+# 
+if [ $regional -eq 1 ];then
+#    splittingdata=$datadir/splitting/all.table
+#    splittingdata=$datadir/splitting/all.1.allSm.avg.table
+#    splittingdata=$datadir/splitting/all.1.tele.avg.table
+    splittingdata=$datadir/splitting/all.0.5.tele.avg.table
+# silver and holt selection
+#    splittingdata=$datadir/splitting/selected.42.table
+
+#    splittingdata=$datadir/splitting/polet01.table
+#    splittingdata=xx
+
+    svectele="-SV-0.05/0.06/0.06 -G254/102/0 -W0.5/1/1/1" # teleseismic splitting
+    #    svectele="-SV-0.04/0.06/0.06 -G0 -W0.5" # teleseismic splitting
+    # green
+    #svecloc="-SV-0.035/0.04/0.04 -G0/200/0 -W0.125"      # local splitting
+    # orange
+    svecloc="-SV-0.03/0.03/0.03 -G254/222/000 -W0.125/1/1/1"      # local splitting
+    svecp="-SV-0.08/0./0. -G0/200/200 -W0.25/1/1/1"         # P_pol based
+    # scale for splitting
+    ssscale=0.2
+    locscale=1.0 # factor with which to scale local observations to SKS
+    velpar="-W8/200/0/0 -S10l"
+    cmisfit=1
+else
+#    splittingdata=$datadir/splitting/all.3.tele.avg.table
+    splittingdata=xxx
+#    svectele="-SV-0.03/0.0/0.0 -G250 -W0.25 "
+    svectele="-SV-0.03/0.0/0.0 -G176/036/164 -W0.25/1/1/1 "
+
+    svecloc="-SV-0.03/0./0. -G0/200/0"
+    svecp="-SV-0.04/0./0. -G0/0/200"
+    # scale for splitting
+    ssscale=0.1
+    velpar="-W3/200/0/0 -S20l"
+
+    cmisfit=0
+fi
+if [ $usevel -eq 1 ];then
+    velocitymodel=$datadir/plates/hs2_nuvel.nnr.vx.0.25.-1.grd 
+#    velocitymodel=$datadir/plates/hs2_nuvel.vx.0.25.-1.grd 
+else
+    velocitymodel=xxx
+fi
+if [ ! -s $file ];then
+    if [ -s $file.gz ];then
+	gunzip $file.gz
+    else
+	echo $0: can not find $file or $file.gz
+	pwd
+	exit
+	
+    fi
+else
+    echo $0: reading $file
+fi
+# bounding box for landscape
+#bb="100 10 590 755"
+# bounding box for portrait
+bb="20 40 755 515"
+show_legend=1
+show_horizontal=0 # horizontal component of strain ellipsoid
+if [ $regional -eq 0 ];then # world
+    ginc=1
+    greg=-R0/360/-90/90
+    velinc=-I10
+    if [ $talk -ge 1 ];then
+	reg=-R-15/345/-90/90
+#	proj=-JN165/9
+	proj=-JN30/9
+#	ann=""
+	ann="-Bg30/g20weSn"
+	bb="80 40 755 450"
+    else
+	reg=-R0/360/-70/70
+	proj=-JM9
+	reg=-R0/360/-90/90
+	proj=-JN0/9
+
+	ann=-Ba60f30/a30f30WesN
+    fi
+    # for labels
+    lp=-JX9/4.5
+    lr=-R0/1/0/1
+    px1=0.5; px2=.75; px3=.8;py=-0.0275; 
+    offset="-X1.25 -Y1.5"
+    if [ $usefrr -eq 3 ];then
+       pscoastres="-Dc -A30000 -S200 -G150"
+    else
+       pscoastres="-Dc -A30000 -W4/1/1/1"
+    fi
+    scale=0.12  # general strain scale
+    psscalegeom=4.5/-.4/6/0.2h
+    stickvec="-SV-0.03/0/0 -G200 -W0.5/1/1/1"
+    if [ $talk -eq 0 ];then
+	stickvec_eigen="-SV-0.032/0.0/0.00 -G255 -W1/1/1/1"
+	stickvec_eigen_empty="-SV-0.032/0.0/0.00  -W1/1/1/1"
+    else
+	stickvec_eigen="-SV-0.032/0.0/0.00 -W1/1/1/1 -G248/254/000"
+	stickvec_eigen_empty="-SV-0.032/0.0/0.00 -W1/1/1/1 "
+    fi
+    useellipses=0 # plot ellipses/scale linearly?
+    swinc=-I5
+    produce_ps=0
+    eachf=0
+elif [[ $regional -eq 1 && $cut_region -eq 0 ]];then # regional file, not from global
+    velinc="-I1"
+    ginc=0.125
+#    ginc=0.25
+#    ginc=0.5
+    greg=`minmax -I$ginc -L $file`
+    reg=$greg
+    proj=-JM5
+    psscalegeom=5.3/1.5/3./.15
+    offset="-Y1.25  -P"
+    # for labels
+    lp=-JX5/5
+    lr=-R0/1/0/1
+    px1=0.25; px2=.5; px3=.75;py=-0.04; 
+
+    ann=-Ba5f1WesN
+    scale=0.25 # general scale 
+    stickveccol=254/114/000
+    stickvec="-SV-0.04/0.0/0.00 -G200 -W0.5/1/1/1"
+    #stickvec_eigen="-SV-0.04/0.0/0.00 -G0 -W0.5"
+    #stickvec_eigen="-SV-0.04/0.0/0.00 -G0 -W0.5"
+    if [ $talk -eq 1 ];then
+	stickvec_eigen="-SV-0.06/0.0/0.00 -G000/200/100 -W0.5"
+	stickvec_eigen_empty="-SV-0.06/0.0/0.00  -W0.5"
+    else
+	stickvec_eigen="-SV-0.04/0.0/0.00 -G000/152/100 -W0.5"
+	stickvec_eigen_empty="-SV-0.04/0/0  -W0.5/0/100/66"
+    fi
+#    stickvec_eigen="-SV-0.07/0.0/0.00 -G0/0/250 -W0.5/1/1/1"
+    #stickvec_eigen="-SV-0.05/0.0/0.00 -G248/254/000 -W0.5/1/1/1"
+    useellipses=0 # plot ellipses/scale linearly?
+    swinc=-I1
+#    usefrr=0;
+    usefrr=2
+    show_legend=1
+    produce_ps=0
+    show_horizontal=0
+    if [ $usefrr -eq 3 ];then
+       pscoastres="-Df  -G150 "
+    else
+       pscoastres="-Df  -W1"
+    fi
+    eachf=0
+elif [[ $regional -eq 1 && $cut_region -ne 0 ]];then 
+    # 
+# cut region from world wide coverage
+    # 
+    velinc=-I2
+    ginc=`region_parameters $cut_region 5`
+    greg=`region_parameters $cut_region 3`
+    reg=$greg
+    proj=`region_parameters $cut_region 4`
+    if [ $cut_region -eq 31 ];then
+	psscalegeom=6.5/1.5/3./.15
+    else
+	psscalegeom=5.3/1.5/3./.15
+    fi
+    offset="-Y1.25  -P"
+    # for labels
+    lp=-JX7;lr=-R0/1/0/1
+    px1=0.25; px2=.5; px3=.75;py=-0.04; 
+    ann=`region_parameters $cut_region 6`
+    scale=0.25 # general scale 
+    stickveccol=254/114/000
+    stickvec="-SV-0.04/0.0/0.00 -G200 -W0.5/1/1/1"
+    if [ $talk -eq 1 ];then
+	stickvec_eigen="-SV-0.06/0.0/0.00 -G000/200/100 -W0.5"
+    else
+	stickvec_eigen="-SV-0.04/0.0/0.00 -G000/152/100 -W0.5"
+    fi
+    useellipses=0 # plot ellipses/scale linearly?
+    swinc=$ginc
+#    usefrr=2			# topo?
+    usefrr=1
+    show_legend=1
+    produce_ps=0
+    show_horizontal=0
+    pcsr=`region_parameters $cut_region 13`
+    if [ $usefrr -eq 3 ];then
+       pscoastres="$pscr  -G150 "
+    else
+       pscoastres="$pscr -W1"
+    fi
+    if [ $cut_region -eq 31 ];then
+	eachf=2
+    else
+	eachf=-10
+    fi
+elif [ $regional -eq 2 ];then # world type, but focus on pacific
+    velinc=-I5
+    scale=0.12  # general strain scale
+    stickvec="-SV-0.025/0.0/0.00 -G200 -W0.5"
+    stickvec_eigen="-SV-0.025/0.0/0.00 -G50"
+    useellipses=0 # plot ell/scale linearly
+    ginc=1
+    reg=-R135/300/-65/65
+    greg=$reg
+    proj=-JQ217.5/8
+    offset=""
+
+    # for labels
+    lp=-JX8/8
+    lr=-R0/1/0/1
+    px1=0.25; px2=.5; px3=.75;py=-1.2; 
+
+    ann=-Ba20f5WesN
+    pscoastres="-Dc -G200"
+    psscalegeom=4.5/-.5/6/0.2h
+    swinc=-I5
+    produce_ps=0
+    usefrr=0
+    bb="0 0 580 680"
+    show_horizontal=0
+    if [ $usefrr -eq 3 ];then
+       pscoastres="-Di  -S200 -G150"
+    else
+       pscoastres="-Di  -W1"
+    fi
+elif [ $regional -eq 3 ];then # world type, but focus on Africa
+    velinc=-I3
+    scale=0.12  # general strain scale
+    psscalegeom=4.5/-.6/6/0.2h
+    stickvec="-SV-0.025/0.0/0.00 -G200 -W0.5"
+    stickvec_eigen="-SV-0.025/0.0/0.00 -G50"
+    ginc=1
+    useellipses=0 # plot ellipses / scale linearly
+    reg=-R-60/120/-65/65
+    greg=$reg
+    proj=-JQ90/8
+    # for labels
+    lp=-JX8/8
+    lr=-R0/1/0/1
+    px1=0.25; px2=.5; px3=.75;py=-1.2; 
+    offset=""
+    ann=-Ba20f5WesN
+    pscoastres="-Dc -G200"
+    bb="90 30 580 670"
+    usefrr=0
+    produce_ps=0
+elif [ $regional -eq 4 ];then # world type, but focus on Asia
+    velinc=-I3
+    ginc=1
+    greg=-R0/360/-90/90
+    reg=-R60/120/15/60
+    proj=-JH90/7
+    # for labels
+    lp=-JX7/7
+    lr=-R0/1/0/1
+    px1=0.25; px2=.5; px3=.75;py=-1.2; 
+
+    offset="-X1.25 -Y1.5"
+    ann=-Ba10f2/a10f2WesN
+    usefrr=2
+    if [ $usefrr -eq 3 ];then
+       pscoastres="-Di  -S200 -G150"
+    else
+       pscoastres="-Di  -W1"
+    fi
+    scale=0.04
+    psscalegeom=4.5/-.6/6/0.2h
+    stickvec="-SV-0.017/0/0 -G0"
+    stickvecbu="-SV-0.02/0/0 -G0"
+    useellipses=0 # plot ell/ scale lins
+    swinc=-I2
+    produce_ps=0
+    bb="110 60 540 610"
+elif [ $regional -eq 5 ];then # world type, but focus on Australia
+    velinc=-I2
+    scale=0.12  # general strain scale
+    psscalegeom=4.5/-.6/6/0.2h
+    stickvec="-SV-0.025/0.0/0.00 -G200 -W0.5"
+    stickvec_eigen="-SV-0.025/0.0/0.00 -G50"
+    ginc=1
+    useellipses=0
+    reg=-R90/170/-50/0
+    greg=$reg
+    proj=-JQ130/7
+    # for labels
+    lp=-JX8/8
+    lr=-R0/1/0/1
+    px1=0.25; px2=.5; px3=.75;py=-1.2; 
+    offset=""
+    ann=-Ba20f5WesN
+    pscoastres="-Dc -G200"
+    bb="30 30 600 450"
+    usefrr=0
+    produce_ps=0
+fi
+if [ $useisa -eq 0 ];then
+    fstick=`echo $scale | gawk '{print($1)}'`
+else
+    fstick=`echo $scale | gawk '{print($1*0.5)}'`
+fi
+if [ $useisa -eq 1 ];then
+    echo $0: WARNING: expecting ISA format
+    if [[ $usefrr -ne 2  ]];then
+	usefrr=0
+    fi
+    if [ $regional -eq 0 ];then
+	usefrr=0
+    fi
+fi
+if [ $tiformat -eq 1 ];then
+    usefrr=0
+fi
+# grids from surface waves for fast directions
+gccompare=0
+gcreg=-R0.5/359.5/-89.5/89.5
+gcinc=-I1
+# ps file names
+pssuffix=`echo $suffix | gawk '{if(length($1)<=3)\
+    print("ps");else printf("%sps",substr($1,1,length($1)-3))}'`
+if [ $cut_region -eq 0 ];then
+    namepart=$depth.$pssuffix
+else
+    namepart=$depth.$cut_region_name.$pssuffix
+    odfile=fast.$depth.$cut_region_name.$suffix # for data
+fi
+ofile=tellipse.$namepart
+ohfile=thisto.$namepart
+oagefile=age.$namepart
+pisafile=pisa.$namepart
+#
+tmpn=/tmp/$USER.$HOST.$$.pstr
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+
+
+if [ `echo $depth | gawk '{if($1=="avg")print(1);else print(0)}'` -ne 1 ];then
+    if [ $plotages -eq 1 ];then
+	if [ $tiformat -eq 1 ];then
+	    echo $0: error, cannot use ages from TI file format
+	    exit
+	fi
+	if [ $useisa -eq 1 ];then
+	    echo $0: error, can not plot age and use ISA format
+	    exit
+	fi
+	lagemin=0;lagemax=45
+	# histogram of ages, depths, and distances
+	gawk '{print($10)}' $file  | \ # age
+	    pshistogram -JX6/2. -P -R$lagemin/$lagemax/0/20 -L1 -G100 -W1 -C -Z1 -K \
+		-Ba10f2:"age [Ma]":/a5f1:"N/N@-0@- [%]":WeSn > $ohfile
+	gawk '{print($11)}' $file  | \ # vertical distance travelled
+	    pshistogram -JX6/2. -P -R-200/200/0/55 -L1 \
+		-G100 -W10 -C -Z1 -K -O -Y3 \
+		-Ba100f20:"@~D@~z [km]":/a10f2:"N/N@-0@- [%]":WeSn >> $ohfile
+	gawk '{print($12)}' $file  | \ # horizontal distance travelled 
+	    pshistogram -JX6/2. -P -R0/3500/0/28 -L1 -G100 -W50 -C -Z1 -O -Y3 \
+		-Ba1000f200:"@~D@~x [km]":/a10f2:"N/N@-0@- [%]":WeSn >> $ohfile
+	gawk '{print($1,$2,$10)}' $file | \
+	    surface -G$tmpn.age.grd $reg -I$ginc -Lld -Lud -L
+	makecpt -T$lagemin/$lagemax/2.5 -C$bgcolorscale -I > $tmpn.age.cpt
+	grdimage $tmpn.age.grd -C$tmpn.age.cpt $proj $ann -K $offset > $oagefile
+	psscale -C$tmpn.age.cpt -N50 -D$psscalegeom   \
+		-B10/:"[Ma]": -O -K -L >> $oagefile
+	pscoast -Dc -A70000   $reg $proj -W1/50/250/50 -K -O >> $oagefile
+	psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+	    -M -W7 -: $reg $proj -O >> $oagefile
+	modifybb $oagefile 125 50 590 760
+    echo $0: output in $ohfile and $oagefile
+    fi
+fi
+if [ $produce_ps -eq 1 ];then 
+    gmtset PAPER_MEDIA letter
+    pt=""
+
+else
+    gmtset PAPER_MEDIA letter+
+    pt="-P"
+
+fi
+echo 1000 1000 | mypsxy -Sa0.1 $reg $proj  $ann  -K $offset $pt > $ofile
+#
+# generate horiztontal component $tmpn.ev file  which is 
+#       in   format e1 e2 azi lon lat log(e1/e2)
+# and      horizontal projection of largest eigenvector file
+# $tmpn.eigen.ev 
+# which is in format lon lat azi log(e_1h/e2), in the case of TI format, it's
+#                    lon lat azi ani_hor
+if [ $esformat -eq 0 ] ;then
+    if [ $useisa -eq 0 ];then
+	if [ $tiformat -eq 0 ];then
+	#
+        # get major axis from horizontal elements of L
+        # go from x y z Lrr Lrt Lrp Ltt Ltp Lpp to exx exy eyy
+        # and calculate the eigenvectors of the horizontal part
+	#
+	    gawk '{print($9,-$8,$7,$1,$2)}' $file | \
+		gawk -f calcms.awk | \
+		gawk '{if(($2==0)||($1/$2<0)){print("e1/e2 < 0 or e2=0!") > "/dev/stderr";\
+               print($1,$2,$3,$4,$5,0);}\
+             else print($1,$2,$3,$4,$5,log($1/$2))}' > $tmpn.hor.ev
+	else
+	    rm $tmpn.hor.ev 2> /dev/null
+	    # TI format
+	    gawk '{if($7>0){print($1,$2,atan2($6,-$5)*57.2957795130823,sqrt(1.0-$4*$4)*$7)}}' $file > \
+		$tmpn.eigen.ev
+	fi
+    else 
+	#
+        # ISA format
+	#  1   2  3 4  5  6  7     8
+	# lon lat z er et ep exist pi
+	#
+	# those with existing limit
+	# output converted to 
+	#
+	# e1 e2 azi lon lat log(e1/e2)
+	#
+	gawk '{if($7 && ($8<pic))print(1,0,atan2($6,-$5)*57.2957795130823,$1,$2,.5)}' pic=$pci $file | \
+	    gawk '{print($1,$2,$3,$4,$5,0.5)}' > $tmpn.hor.ev
+	#
+	# those without
+	gawk '{if(!$7)print($1,$2)}'  $file > $tmpn.nisa.dat
+	#
+	# those with limit, but higher gamma rates
+	gawk '{if($7 && ($8>=pic))print($1,$2)}' pic=$pic $file > $tmpn.isahg.dat
+	#
+	# all valid gamma values
+	gawk '{if($7)print($8)}' $file  | gawk -f minmaxmeanstd.awk  > $tmpn.piex
+	read pisa_min pisa_max pisa_std < $tmpn.piex
+	echo $0: min/max/mean/std of all valid pi values: \
+	    $pisa_min $pisa_max $pisa_std 
+	if [ $ppi -eq 1 ];then
+	    echo $0: plotting pi values
+	    program="nearneighbor -S150k -N2 -V -Lg"
+	    #program="surface  -Lg -Llu -Lld"
+	    gawk '{if($10)print($1,$2,$8)}' $file | \
+		$program -G$tmpn.pisa.grd -I$ginc   $reg
+	    makecpt -T-1/2/.2 -C$bgcolorscale  > $tmpn.pisa.cpt
+	    modifycptends $tmpn.pisa.cpt
+	    grdimage $tmpn.pisa.grd -C$tmpn.pisa.cpt -P $proj \
+		$ann -K $offset > $pisafile
+	    psscale -C$tmpn.pisa.cpt -E -N50 -D$psscalegeom   \
+		-B1/:"@~P@~": -O -K -L >> $pisafile
+	    pscoast $pscoastres  $reg $proj -K -O >> $pisafile
+	    psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+		-M -W7 -: $reg $proj -O >> $pisafile
+	fi
+    fi
+    if [ $tiformat -eq 0 ];then # regular
+	if [ $useisa -eq 0 ];then
+	    if [ $is_bd -eq 0 ];then
+		if [ $useellipses -eq 1 ];then
+		    echo $0: sticks scale linearly with e1
+		else
+		    echo $0: sticks scale logarithmically with e1/e2
+		fi
+    # and the horizontal projection of the largest eigenvector
+		gawk '{print($4,$5,$6,$7,$8,$9)}' $file | eigen3ds | \
+		    gawk --assign uselinear=$useellipses \
+		    '{e3=$1;e3r=$2;e3t=$3;e3p=$4;\
+         	    e2=$5;e2r=$6;e2t=$7;e2p=$8;\
+	            e1=$9;e1r=$10;e1t=$11;e1p=$12;\
+                   if((e2==0)||(e1/e2<0)){\
+                   print(0,0);\
+                  }else {\
+                  if(uselinear)\
+	          e1h=e1/e2*sqrt(1.0-e1r*e1r);\
+                 else\
+	          e1h=log(e1/e2)*sqrt(1.0-e1r*e1r);\
+	        print(atan2(e1p,-e1t)*57.29578,e1h);\
+               }}' > $tmpn.data
+	    else
+	    # backward depth
+		if [ $useellipses -eq 1 ];then
+		    echo $0: error, backward depth mode does not work with backward depth
+		    exit
+		fi
+		echo $0: using normalized stick lengths for backward depths
+		gawk '{print($4,$5,$6,$7,$8,$9)}' $file | eigen3ds | \
+		    gawk --assign uselinear=$useellipses \
+		    '{e3=$1;e3r=$2;e3t=$3;e3p=$4;\
+         	    e2=$5;e2r=$6;e2t=$7;e2p=$8;\
+	            e1=$9;e1r=$10;e1t=$11;e1p=$12;\
+                   if((e2==0)||(e1/e2<0)){\
+                   print(0,0);\
+                  }else {\
+                  if(uselinear)\
+	          e1h=e1/e2*sqrt(1.0-e1r*e1r);\
+                 else\
+	          e1h=log(e1/e2)*sqrt(1.0-e1r*e1r);\
+	        print(atan2(e1p,-e1t)*57.29578,0.5,e1h);\
+               }}' > $tmpn.data
+		echo $0: log strain extrema: `gawk '{print($3)}' $tmpn.data | minmax -C`
+		gawk '{print($1,$2)}' $tmpn.data > $tmpn.2.data
+		mv $tmpn.2.data $tmpn.data
+	    fi
+	    gawk '{print($1,$2)}' $file > $tmpn.xy
+	else
+	#
+        # ISA format
+	# those with existing ISA limit and small gamma
+	#
+	    gawk '{if($7 && ($8<pic))print($4,$5,$6)}' pic=$pic $file | \
+	    gawk '{e1r=$1;e1t=$2;e1p=$3;\
+             e1h=sqrt(1.0-e1r*e1r);\
+	     print(atan2(e1p,-e1t)*57.29578,e1h);\
+            }' > $tmpn.data
+	    gawk '{if($7&& ($8<pic))print($1,$2)}' pic=$pic $file > $tmpn.xy
+	#
+	# those without
+	    gawk '{if(!$7)print($1,$2)}'  $file > $tmpn.nisa.dat
+        # those with limit, but higher gamma rates
+	    gawk '{if($7 && ($8>=pic))print($1,$2)}' pic=$pic $file > $tmpn.isahg.dat
+	fi
+	if [ `lc $tmpn.xy` -ne `lc $tmpn.data` ];then
+	    echo $0: error, file length mismatch
+	    exit
+	fi
+	paste $tmpn.xy $tmpn.data > $tmpn.eigen.ev
+	echo $0: produced horizontal eigensystem from tensor file
+    else
+	# TI format
+	if [ $useellipse -eq 1 ];then
+	    echo $0: error: cannot plot ellipses from Ti file
+	    exit
+	fi
+	echo $0: using horizontal anistropy from TI file
+    fi
+else
+    # eigensystem was calculated before, 
+    # ie. input format is
+    # lon lat e1 azi
+    #
+    if [ $useellipses -eq 0 ];then
+	if [ $useisa -eq 0 ];then
+		# regular
+	    echo $0: using log e1/e2 from $file
+	    gawk '{print($1,$2,$3,$4)}' $file > $tmpn.eigen.ev
+	else # ISA format
+	    echo $0: using ISA format log e1/e2 from $file
+	    echo $0: only for those values that had averages assigned
+	    gawk '{print($1,$2,$3,$4)}' $file > $tmpn.eigen.ev
+	fi
+    else
+	echo $0: can not used precalculated strains from $file
+	echo $0: for the linear scaling selected by useellipses: $useellipses
+    fi
+fi
+if [ $fixmaxs -ne 1 ];then
+    minmax -C $tmpn.eigen.ev | gawk '{print($7,$8)}' > $tmpn.minmax
+    read mins maxs < $tmpn.minmax
+    echo $0: mins: $mins maxs: $maxs
+fi
+#
+# do calculations for background, mostly F_rr component
+#
+if [[ $usefrr -eq 1 || $usefrr -eq 3 ]];then
+    if [ $esformat -eq 0 ];then
+	# err component from tensor file
+	gawk '{print($1,$2,$4-1.)}' $file | \
+	    surface $greg -I$ginc -G$tmpn.r.grd -L
+    else
+	# err component from eigensystem file
+	gawk '{print($1,$2,$5-1.)}' $file | \
+	    surface $greg -I$ginc -G$tmpn.r.grd -L
+    fi
+    #gawk '{print($4,$5,$6,$7,$8,$9)}' $file | eigen3ds | \
+    #    gawk '{print($9*$10)}' > $tmpn.data
+    #paste $tmpn.xy $tmpn.data | \
+    #    surface $greg -I$ginc -G$tmpn.r.grd -L
+    if [ $calcfilteredrr -eq 1 ];then
+	shana $lmax $tmpn.r > rr.$lmax.ab 2> /dev/null
+	    echo $0: lmax $lmax filtereed Lrr output in rr.$lmax.ab
+    fi
+    if [[ $calcfilteredrr -eq 1 && $usefiltered -eq 1 ]];then
+	    cat rr.$lmax.ab | shsyn 1 1 $tmpn.rr 2> /dev/null
+	    mv $tmpn.rr.grd $tmpn.r.grd
+    fi
+    errmax=`grd2absmax $tmpn.r.grd`
+elif [ $usefrr -eq 2 ];then
+    # use topography
+    echo $0: using topography
+    grdcut $datadir/etopo2/etopo2.grd $reg -G$tmpn.r.grd
+elif [ $usefrr -eq 4 ];then # vertical/horizontal component of fast axes
+    if [ $esformat -ne 0 ];then
+	echo $0: usefrr: $usefrr not prepared for eigensystem file
+	exit
+    fi
+    gawk '{print($4,$5,$6,$7,$8,$9)}' $file | eigen3ds | \
+	gawk '{e3=$1;e3r=$2;e3t=$3;e3p=$4;\
+	    e2=$5;e2r=$6;e2t=$7;e2p=$8;\
+	    e1=$9;e1r=$10;e1t=$11;e1p=$12;\
+	    e1r2 = e1r*e1r;
+	    e1h=sqrt(1.0-e1r2);\
+	    tmp=e1/e2;if(tmp<0)printf("error, e1/e2: %g\n",tmp) > "/dev/stderr";\
+	    print(sqrt(e1r2))}' > $tmpn.data
+    gawk '{print($1,$2)}' $file > $tmpn.xy
+    paste $tmpn.xy $tmpn.data  | surface $greg -I$ginc -G$tmpn.r.grd -L -Lld -Lud
+    #shana 12 $tmpn.r | abconvert 0 8 > $HOME/tmp/er.12.ab
+    echo $0: using abs radial  component of largest stretching
+    echo $0: minmax: `grd2minmax $tmpn.r.grd`
+fi
+if [ $fixfrrscale -eq 0 ];then
+    if [[ $usefrr -eq 1 || $usefrr -eq 3 ]];then
+    	mymakecpt7 $tmpn.r.grd $coff 11 -C$bgcolorscale > $tmpn.cpt
+    elif [[ $usefrr -eq 4 ]];then
+    	makecpt -T0/1.0/0.1  -C$bgcolorscale > $tmpn.cpt
+    elif [ $usefrr -eq 2 ];then
+	echo $0: creating topography colorscale
+	#mymakecpt4 $tmpn.r.grd $coff -Chot > $tmpn.cpt
+	mymakecpt4 $tmpn.r.grd $coff -Cgray > $tmpn.cpt
+
+    fi
+else
+    if [ $usefrr -eq 2 ];then
+	echo $0: creating topography colorscale
+	mymakecpt $tmpn.r.grd -Csealand > $tmpn.cpt
+    else
+	makecpt -T-$maxfrr/$maxfrr/0.2 -Chot > $tmpn.cpt
+	modifycptends  $tmpn.cpt
+    fi
+fi
+#
+# plot the background
+#
+#
+if [[ $usefrr -eq 1 || $usefrr -eq 4 ]];then #Delta F_rr or e1r/e1h
+    grdimage $reg $proj $tmpn.r.grd -C$tmpn.cpt -O -K $ann >> $ofile
+    pscoast $pscoastres  $reg $proj -K -O >> $ofile
+#    grdcontour  $reg $proj $tmpn.r.grd   -O -K -W5 -At -C1000 >> $ofile 
+    pssc=`echo $errmax $coff | gawk '{dx=$1*$2/6.0;f=0.00005;i=0;while(f<dx){i++;if(i%2==1)f*=2.0;else f*=5.0;}print(f);}'`
+    if [ $usefrr -eq 1 ];then
+	mypsscale -C$tmpn.cpt -N50 -D$psscalegeom   $wctpends\
+			-B$pssc/:"@~D@~@%5%L@%%@-rr@-@~": -O -K -L  >> $ofile
+	
+    elif [ $usefrr -eq 4 ];then
+#	psscale -C$tmpn.cpt -N50 -D$psscalegeom  -E \
+#	    -B.2/:"log(@~l@~@-1@-/@~l@~@-2@-) e@-r@-/e@-h@-": -O -K -L >> $ofile
+	psscale -C$tmpn.cpt -N50 -D$psscalegeom   $wctpends\
+	    -B.2/:"|e@-r@-|": -O -K -L >> $ofile
+    else
+	echo $0: error usefrr: $usefrr
+	exit
+    fi
+elif [ $usefrr -eq 2 ];then # topography
+    # shade 
+    grdgradient $tmpn.r.grd -A45 -G$tmpn.shade.grd -Nt 
+    grdimage $reg $proj $tmpn.r.grd -C$tmpn.cpt -O -K -I$tmpn.shade.grd $ann >> $ofile
+    pscoast $pscoastres   $reg $proj -K -O >> $ofile
+    pssc=`echo $errmax | gawk '{dx=$1/6.0;f=0.00005;i=0;while(f<dx){i++;if(i%2==1)f*=2.0;else f*=5.0;}print(f);}'`
+    #psscale -C$tmpn.cpt -N50 -D$psscalegeom  $wctpends -B2000/:"m": -O -K -L >> $ofile
+elif [ $usefrr -eq 3 ];then # Delta F_rr contours
+    pscoast $pscoastres  $reg $proj -K -O >> $ofile
+    grdcontour  $reg $proj $tmpn.r.grd  -O -K -W5/70  \
+	-At -C1000 -T >> $ofile 
+else
+    pscoast $pscoastres  $reg $proj -K -O >> $ofile
+fi
+if [ $regional -eq 1 ];then
+    gawk '{x=$2;y=$1;if(y==">")print(">");\
+		else {if(x<0)x+=360.0;print(x,y);}}' \
+		$HOME/progs/src/igmt_develop/nuvel.yx | \
+		mypsxy -M -W7  $reg $proj -K -O >> $ofile
+    
+#    gawk '{if(z==$3){if($3!=zold||FILENAME!=fn){\
+#	print(">");zold=$3;fn=FILENAME}print($1,$2);}}' \
+#	z=$scdepth  $HOME/quakes/rum_data/Contours/*.slb | \
+#	mypsxy $reg $proj -O -K -W10ta -M >> $ofile
+
+else
+     psxy $datadir/plate_boundaries/nuvel_without_greenwich_crossing.yx \
+		-: -M -W7/100/50/50  $reg $proj -K -O >> $ofile
+fi
+each=`lc $tmpn.eigen.ev | \
+    gawk '{print(int($1/(1700+((r==1)?(500):(0)))+0.5)+2)}'\
+    r=$regional`
+echo $0: each: $each 
+((each=each+eachf))
+if [ $each -lt 1 ];then
+    each=1
+fi
+if [ $useellipses -eq 1 ];then
+    # plot ellipses based on the horizontal part
+    gawk --assign maxs=$maxs --assign scale=$scale --assign fstick=$fstick \
+	'BEGIN{f=fstick/maxs;}{if($4>1&&$4<359)
+	if(NR%i==0)print($4,$5,$3,$1*f,$2*f)}' \
+	i=$each $tmpn.hor.ev | \
+	    mypsxy -SE-1  -W1/0/0/0 $reg $proj -O -K  >> $ofile
+elif [ $useellipses -eq 3 ];then
+    if [ $esformat -eq 1 ];then
+	echo $0: can not use psmeca from eigensystem format file
+	exit
+    fi
+    # pscoupe moment tensor: orig: x y z err ert erp ett etp epp
+    # coupe: X, Y, depth, mrr, mtt, mff, mrt, mrf, mtf, exp, newx, newy, event_title
+    gawk '{print($1,$2,$3,$4-1,$7-1,$9-1,$5,$6,$8,4,$1,$2,"")}' $file | \
+	psmeca $reg $proj -O -K -Sd.1 -G100 -W.25 >> $ofile
+fi
+if [[ $gccompare -eq 1 && $regional -ne 1 ]];then
+    sinc=-I10
+    # create grids
+    gawk '{f=$3*0.017453293;print($1,$2,-cos(f),sin(f))}' $tmpn.eigen.ev \
+	    > $tmpn.vtvp.dat
+    gawk '{print($1,$2,$3)}' $tmpn.vtvp.dat | blockmean -R0/360/-90/90 $sinc |\
+	surface -R0/360/-90/90 $sinc -Gvec_t.grd -L 
+    gawk '{print($1,$2,$4)}' $tmpn.vtvp.dat | blockmean -R0/360/-90/90 $sinc |\
+	surface -R0/360/-90/90 $sinc -Gvec_p.grd -L
+    shana 20 vec_p > fdir.pt.ab 2> /dev/null
+    grdmath vec_p.grd vec_t.grd -1 MUL ATAN2 = $tmpn.hdir.grd
+    grdsample $gcreg $gcinc $tmpn.hdir.grd -Ghdir.grd
+    rm vec_p.grd vec_t.grd 
+    echo $0: output in hdir.grd and fdir.pt.ab
+fi
+if [ -s $velocitymodel ];then
+    echo $0: plotting velocity model $velocitymodel orientations
+    sfile=`echo $velocitymodel | \
+             gawk '{sub("vx","vy");print($0);}'`
+    if [ $talk -eq 0 ];then
+	grdvector $velocitymodel $sfile $reg   $proj -T \
+	    $velpar  $velinc -O -K >> $ofile
+    else # color for talk
+	grdvector $velocitymodel $sfile $reg   $proj -T \
+	    -W6/200/0/0 -S20l $velinc -O -K >> $ofile
+    fi
+fi
+
+#
+# sticks of max extensional direction for horiztontal strain
+#
+# can be smoothed (smooth=1), if smooth=2, only produce grd but use original 
+# for plotting
+#
+#
+# these sticks scale with logarithmic strain, if no ellipses are plotted
+# and linearly if ellipses are shown
+#
+if [ $smooth -gt 0 ];then # generate an interpolated grd file with directions
+    gawk --assign maxs=$maxs --assign fstick=$fstick \
+	'BEGIN{fac=fstick/maxs;}{\
+	f=$4*fac;\
+	f2=0.0174532925199433*$3;print($1,$2,f*sin(f2),f*cos(f2))}' \
+	$tmpn.eigen.ev > $tmpn.2.ev
+    gawk '{print($1,$2,$3)}' $tmpn.2.ev | \
+	surface -R0/360/-90/90 -I2.5 -Gvec_p.grd 
+    gawk '{print($1,$2,-$4)}' $tmpn.2.ev | \
+	surface -R0/360/-90/90 -I2.5 -Gvec_t.grd 
+fi
+if [ $smooth -eq 1 ];then # smooth this interpolated field and use for plotting
+    shana 20 vec_p 0 > $tmpn.pt.ab
+    cat $tmpn.pt.ab | shsyn 10 1 3
+    grdmath vec_p.grd vec_t.grd -1 MUL ATAN2 R2D = $tmpn.dir
+    grdmath 90 $tmpn.dir SUB = $tmpn.theta
+    grdmath vec_p.grd vec_t.grd R2 SQRT = $tmpn.amp
+    rm vec_p.grd vec_t.grd 
+    grdvector $tmpn.amp $tmpn.theta \
+	-A $reg $proj \
+	 -E -T  -W5/200/0/0 -K -O >> $ofile
+else
+    if [ $show_horizontal -eq 1 ];then
+	echo $0: adding horizontal component
+	gawk --assign maxs=$maxs --assign fstick=$fstick --assign i=$each \
+	    'BEGIN{fac=fstick/maxs;}{\
+		if(NR%i==0){f=$6*fac;print($4,$5,$3,f)}}'  $tmpn.hor.ev | \
+	    mypsxy $stickvec $reg $proj -O -K  >> $ofile
+    fi
+    #
+    #
+    # HERE IS WHERE WE ACTUALLY PLOT THE FAST AXES
+    #
+    #
+    gawk --assign maxs=$maxs --assign fstick=$fstick --assign i=$each \
+	'BEGIN{fac=fstick/maxs;}{\
+	    if(NR%i==0){f=$4*fac;print($1,$2,$3,f)}}'  $tmpn.eigen.ev | \
+	mypsxy $stickvec_eigen $reg $proj -O -K  >> $ofile
+    if [ $cut_region -ne 0 ];then
+	# extract the data
+	echo $0: writing data to $odfile
+	gmtselect $reg  $tmpn.eigen.ev > $odfile
+    fi
+    if [ -s $tmpn.nisa.dat ];then # those ISA values without limit
+	echo $0: `lc $tmpn.nisa.dat` tracers out of `lc $file` did not have a ISA limit
+	gawk --assign i=$each '{if(NR%i==0){print($1,$2)}}'  $tmpn.nisa.dat |\
+	    mypsxy $proj $reg -O -K  -Sc0.05 -W0.5 -G200 >> $ofile
+    fi
+    if [ -s $tmpn.isahg.dat ];then # those ISA values with limit but high gamma
+	echo $0: `lc $tmpn.isahg.dat` tracers had ISA limit but gamma higher than cutoff $gco
+	gawk --assign i=$each '{if(NR%i==0){print($1,$2)}}'  $tmpn.isahg.dat |\
+	    mypsxy $proj $reg -O -K  -Sc0.05 -G200/0/0 >> $ofile
+    fi
+    if [ $show_legend -eq 1 ];then
+	# stick legend
+	echo $px1 $py $maxs | gawk --assign maxs=$maxs \
+		--assign fstick=$fstick  \
+	    '{fac=fstick/maxs;print($1,$2,90,fac*$3)}' | \
+	    mypsxy $stickvec_eigen $lr $lp -O -K  -N >> $ofile
+	pyp=`echo $py | gawk '{print($1-0.02)}'`
+	maxss=`echo $maxs | gawk '{printf("%5.2f",$1)}'`
+	if [ $useellipses -eq 1 ];then
+	    sslabel="e@+@~z@~@+ = $maxss" # linear scaling
+	else
+	    if [ $is_bd -eq 1 ];then # constant
+		if [ $useisa -eq 0 ];then
+		    sslabel="@~z@~ = const" # log scaling
+		    
+		else
+		    echo $0: error: is_bd: $is_bd useisa: $useisa
+		    exit
+		fi
+	    else
+		if [ $useisa -eq 0 ];then
+		    if [ $tiformat -eq 1 ];then
+			sslabel="@~d@~@-KR@- = $maxss %" # percent anisotropy
+		    else
+			sslabel="@~z@~@-FSE@- = $maxss" # log scaling for FSE
+		    fi
+		else
+		    sslabel="ISA axis" # log scaling
+		fi
+	    fi
+	fi
+	echo $px1 $pyp 12 0 0 TC "$sslabel" | \
+	    pstext $lr $lp -O -K  -N -G$bgcol >> $ofile
+    fi
+fi
+if [[ -s $swtype.2pazi.grd && -s $swtype.2pam.grd ]];then
+    # compare with surface wave observation
+    echo $0: comparing with $swtype.2pazi.grd
+    grdmath $swtype.2pazi.grd SIN $swtype.2pam.grd MUL = $tmpn.vx
+    grdmath $swtype.2pazi.grd COS $swtype.2pam.grd MUL = $tmpn.vy
+    grdvector $tmpn.vx $tmpn.vy $swinc -E \
+	$reg $proj -T -S5 -O -K -W4/100/0/0 >> $ofile
+    # numerical comparison
+    grdmath $swtype.2pazi.grd R2D = $tmpn.azi.deg.grd
+    gawk '{print($1,$2,$3)}' $tmpn.eigen.ev > tmp.1.dir
+    gawk '{print($1,$2,$3)}' tmp.1.dir | \
+	grdtrack -G$tmpn.azi.deg.grd > tmp.2.dir
+fi
+if [ -s $splittingdata ];then
+    echo $0: adding splitting measurements from $splittingdata
+    # splitting data is supposed to be in 
+    # stn      lat           lon       phi     dphi dt ddt SKS/S/P(1/2/3)  mlat mlon
+    # format
+    #
+    # local
+    gawk --assign mp=$mp 'BEGIN{mpo=(mp==1)?10:((mp==-1)?7:0);}{\
+	    if($8==2){amp=$6*scl*ls;\
+	    if(amp!=0){print($(3+mpo),$(2+mpo),$4,amp);}}}' scl=$ssscale \
+	    ls=$locscale\
+	$splittingdata | gmtselect -L $reg > $tmpn.localS.dat
+    mypsxy $tmpn.localS.dat $reg $proj   -O -K $svecloc   >> $ofile
+    if [ `lc $tmpn.localS.dat` -ge 1 ];then
+	# local label
+	scaledelt=1.5
+	echo $px2 $py $scaledelt 90 | \
+	    gawk '{amp=$3*scl*ls;if(amp!=0){print($1,$2,$4,amp)}}' scl=$ssscale \
+		ls=$locscale| \
+		mypsxy $lr $lp   -O -K $svecloc -N  >> $ofile
+	pyp=`echo $py | gawk '{print($1-0.02)}'`
+	if [ $mp -eq -1 ];then lsname="event"; elif [ $mp -eq 1 ];then 
+	    lsname="midpoint"; else lsname="station";fi
+	echo $px2 $pyp 12 0 0 TC "@~d@~t@-S@- = $scaledelt s ($lsname)" | \
+	    pstext $lr $lp -O -K  -N -G$bgcol >> $ofile
+    fi
+    if [ $ppol -eq 1 ];then
+	#
+	# Ppol
+	gawk --assign mp=$mp 'BEGIN{mpo=(mp==1)?10:((mp==-1)?7:0);}{\
+		if($8==3){amp=$6*scl/3.;\
+		if(amp!=0){print($(3+mpo),$(2+mpo),$4,amp);}}}' scl=$ssscale \
+	    $splittingdata | gmtselect -L $reg > $tmpn.ppol.dat
+	mypsxy $tmpn.ppol.dat $reg $proj   -O -K $svecp   >> $ofile
+	if [ `lc $tmpn.ppol.dat` -ge 1 ];then
+	    # ppol label
+	    scaledelt=3.0
+	    echo $px2 $py $scaledelt 90 | \
+		gawk '{amp=$3*scl/3.;if(amp!=0){print($1,$2,$4,amp)}}' scl=$ssscale | \
+		    mypsxy $lr $lp   -O -K $svecp -N  >> $ofile
+	    pyp=`echo $py | gawk '{print($1-0.02)}'`
+	    echo $px2 $pyp 12 0 0 TC "@~d@~@-Ppol@- = $scaledelt deg" | \
+		pstext $lr $lp -O -K  -N -G$bgcol >> $ofile
+	fi
+    fi
+    # tele
+    gawk '{if($8==1){amp=$6*scl;\
+	    if(amp!=0){print($3,$2,$4,amp)}}}' scl=$ssscale \
+	$splittingdata | gmtselect -L $reg > $tmpn.Stele
+    mypsxy $tmpn.Stele $reg $proj   -O -K $svectele   >> $ofile
+    #
+    # tele label
+    #
+    scaledelt=1.5
+    echo $px3 $py $scaledelt 90 | \
+	gawk '{amp=$3*scl;if(amp!=0){print($1,$2,$4,amp);}}' scl=$ssscale | \
+	    mypsxy $lr $lp   -O -K $svectele -N  >> $ofile
+    pyp=`echo $py | gawk '{print($1-0.02)}'`
+    echo $px3 $pyp 12 0 0 TC "@~d@~t@-SKS@- = $scaledelt s" | \
+	pstext $lr $lp -O -K  -N -G$bgcol >> $ofile
+
+    #    gawk '{if($8==1){azi=360.0+$4;\
+    #	while(azi>=360)azi-=360.0;\
+    #	amp=$6;
+    #	print($13,$12,azi,amp)}}' $splittingdata | sort -n -r +3 | \
+    #	awk '{amp=$4/2*0.4;if(amp!=0){print($1,$2,$3,amp)}' | \
+    #	mypsxy $reg $proj -O -K $svectele >> $ofile
+	
+    # end of shear wave splitting plot
+    #
+    # replot eigenaxes
+    #
+    gawk --assign maxs=$maxs --assign fstick=$fstick --assign i=$each \
+	'BEGIN{fac=fstick/maxs;}{\
+	    if(NR%i==0){f=$4*fac;print($1,$2,$3,f)}}'  $tmpn.eigen.ev | \
+	mypsxy $stickvec_eigen_empty $reg $proj -O -K  >> $ofile
+    if [[ $cmisfit -eq 1 && -s $tmpn.Stele ]];then
+    # compute misfit with teleseismic 
+	gawk '{print($1,$2,sin($3/57.2957795130823))}' $tmpn.eigen.ev | \
+	    surface $reg -I0.5 -G$tmpn.ex.grd 
+	gawk '{print($1,$2,cos($3/57.2957795130823))}' $tmpn.eigen.ev | \
+	    surface $reg -I0.5 -G$tmpn.ey.grd
+	gawk '{print($1,$2)}' $tmpn.Stele | grdtrack -G$tmpn.ex.grd -Z > $tmpn.tx
+	gawk '{print($1,$2)}' $tmpn.Stele | grdtrack -G$tmpn.ey.grd -Z > $tmpn.ty
+	malpha=`paste $tmpn.Stele $tmpn.tx $tmpn.ty | \
+	    gawk '{na=atan2($5,$6)*57.2957795130823;if(na<0)na+=360;\
+                   print($1,$2,$3,na)}' | gawk -f cdirdiff.awk | gawk -f wmean.awk | \
+                   gawk '{printf("%.1f",$1)}'`
+
+	echo 0.5 $pyp 12 0 0 MC "@~\341Da@~@-SKS@-@~\361@~: $malpha @+o@+" | \
+	    pstext $lr $lp -O -K  -N -G$bgcol >> $ofile
+
+    fi
+fi
+if [ `echo $title | gawk '{print(length($0))}'` -gt 0 ];then
+    echo -0.1 1.2 22 0 3 ML "$title" | \
+	pstext -N $lp $lr  -O >> $ofile
+    usetitle=1
+else
+    echo 1000 1000 | psxy -Sa.1 $reg $proj -O >> $ofile
+    usetitle=0
+fi
+if [ $regional -eq 1 ];then # regional plot
+    if [ $cut_region -eq 0 ];then
+	namecode=$ofile
+    else
+	namecode=$cut_region_name
+    fi
+    bb=`echo $namecode $usefrr $usetitle | gawk '{\
+        if(match($1,"JAP"))print("40 40 440 460");\
+	else if(match($1,"PHI"))print("30 50 440 485");\
+        else if(match($1,"HAW"))print("35 40 590 375"); \
+        else if(match($1,"ANT"))print("35 40 600 580"); \
+        else if(match($1,"LAU"))print("30 30 510 440"); \
+        else if(match($1,"AFA"))print("30 30 590 1040"); \
+        else if(match($1,"EFL"))print("35 45 600 660"); \
+	else if(match($1,"NVD"))print("35 45 590 705"); \
+	else if(match($1,"ICE"))print("35 45 590 670"); \
+	else if(match($1,"SAM"))print("30 35 500 600"); \
+	else if(match($1,"SAF")){if($3==1)print("25 45 450 540");else{
+if($2!=1)print("30 45 442 490");else print("30 30 510 490");}} \
+	else if(match($1,"EPR")){if($2==0)print("35 55 442 365");else print("35 55 510 365");} \
+        else print("30 30 550 600");}'`
+    modifybb $ofile $bb 2> /dev/null
+
+    bbtofront $ofile
+else # world plot of sorts
+    if [ $produce_ps -eq 0 ];then # adjust EPS file
+	bbtofront $ofile
+	modifybb $ofile $bb 2> /dev/null
+    fi
+fi
+echo $0: output in $ofile 
+gmtset PAPER_MEDIA letter+ BASEMAP_FRAME_RGB 0/0/0
+
+
+
+gzip -f $file

@@ -1,0 +1,475 @@
+#!/bin/bash
+#
+# plots the correlation coefficient for two spherical harmonic models as
+# a function of depth and degree
+#
+# if not in present folder, will use those in $datadir/tomography/models
+#
+file1=$1			# model 1, full model name
+file2=$2			# model 2
+title_string=${3-corr}			# title, m1 vs m2
+rmsf1=${4-1.0}			# scaling factors
+rmsf2=${5-1.0}			# 
+weighted=${6-0}			# weighted
+shift=${7-0}			# shift
+stretch=${8-1}			# stretch
+cmp=${9-$datadir/tomography/correlations/corr.cpt}
+small_plot=${10-0}		# small plot
+upper_mantle_only=${11-0}	# 0: whole mantle 1: restrict to upper mantle? 2: upper mantle log scale  3: 50...500 4: 50...350 
+llmax=${12-20}			# maximum degree to use
+add_title=${13-""}		# to put on left of label on top
+#
+
+col1=darkorange			# for RMS
+col2=darkred
+#col3=magenta			# for correlations
+col3=darkcyan
+col4=darkgreen
+#col4=darkorange
+
+
+lw=3
+
+
+if [ `echo $cmp | gawk '{if(match($1,"corr.7"))print(1);else print(0)}'` -eq 1 ];then
+    psc_spc=0.01
+else
+    psc_spc=0.2
+fi
+
+if [ $# -lt 2 ];then
+    echo $0 file1 file2 [ filename rms_fac_1 rms_fac_2 weighted shift stretch ]
+    echo calculates correlation of two spherical harmonic model files
+    echo as a function of depth and degree l
+    exit
+fi
+
+if [ ! -s $file1 ];then
+    file1=$HOME/data/tomography/models/$file1
+fi
+if [ ! -s $file2 ];then
+    file2=$HOME/data/tomography/models/$file2
+fi
+is_gsh1=`echo $file1 | gawk '{if(substr($1,length($1)-3)==".gsh")print(1);else print(0)}'`
+is_gsh2=`echo $file2 | gawk '{if(substr($1,length($1)-3)==".gsh")print(1);else print(0)}'`
+if [ $is_gsh1 -ne $is_gsh2 ];then
+    echo model type mismatch
+    exit
+fi
+is_gsh=$is_gsh1
+
+if [ $is_gsh -eq 1 ];then
+    deg_label="degree, l@-GSH@-"
+    #deg_label="l"
+    echo switching to GSH
+    extract_layer=extract_layer_gsh
+    extract_model_depths=extract_model_depths_gsh
+    cmodelcorr=cmodelcorr_gsh
+else
+    deg_label="degree, l"
+    extract_layer=extract_layer
+    cmodelcorr=cmodelcorr
+    extract_model_depths=extract_model_depths
+fi
+
+
+tmpn=/tmp/$USER.$HOST.$$.corr
+trap "rm -f $tmpn.* ; exit" 0 1 2  15
+
+
+is_xi=`echo $file1 $file2 | gawk '{if(match($0,"xi"))print(1);else print(0)}'`
+if [ $is_xi -eq 1 ];then	# radial
+    echo $0: determined radial anisotropy model
+    if [ $is_gsh -eq 1 ];then
+	echo error, cannot mix gsh wiht xi
+	exit
+    else
+	xvlabel="@~dx@~"
+    fi
+else
+    if [ $is_gsh -eq 1 ];then
+	echo $0: determined GSH model
+	xvlabel="|@~2y@~| [%]"
+    else
+	xvlabel="@~d@~v@-rms@- [%]"
+    fi
+fi
+zmin=50
+
+y_r8=280
+y_r20=320
+if [ $upper_mantle_only -eq 0 ];then
+    title_label_y=-420
+    dz=50
+#    dz=25
+#    dz=100
+    zmax=2800;zann=a500f100
+    zlog=""
+    zl1=2000;zl2=1600
+    y_r8=280
+    y_r20=700
+elif [ $upper_mantle_only -eq 1 ];then
+    #title_label_y=-25
+    title_label_y=-100
+    #dz=25
+    dz=10
+    zmax=700;
+    zann=a100f20;zlog=""
+    zl1=600;zl2=550
+elif [ $upper_mantle_only -eq 2 ];then
+    title_label_y=-25
+    #dz=25
+    dz=10
+    zmax=700;
+    zann=a2f3;zlog="l"
+    zl1=600;zl2=400
+elif [ $upper_mantle_only -eq 3 ];then
+    title_label_y=-25
+    zmin=50
+    dz=10
+    zmax=500;
+    zann=a100f20;zlog=""
+    zl1=450;zl2=400
+elif [ $upper_mantle_only -eq 4 ];then
+    title_label_y=-25
+    zmin=20
+    dz=10
+    zmax=350;
+    zann=a100f20;zlog=""
+    zl1=250;zl2=300
+    title_label_y=-40
+fi
+
+
+
+rmsshade=0
+sigma=0.95
+
+zmax1=`$extract_model_depths  $file1  | gawk '{if(NR==1)print($2)}'`
+zmax2=`$extract_model_depths  $file2  | gawk '{if(NR==1)print($2)}'`
+
+#zmax=`echo $zmax1 $zmax2 $zmax | gawk '{if($1<$2)l=$1;else l=$2;if(l<$3)print(l);else print($3)}' `
+
+
+#
+xscl1=5
+yscl1=$xscl1
+xscl2=`echo $xscl1 | gawk '{print($1/4)}'`
+xscl3=`echo $xscl1 | gawk '{print($1/4)}'`
+offset1=5.2
+offset2=-6.65
+zlim1=`echo $zmax | gawk '{print($1*1.05263)}'`
+zlim2=`echo $zmax | gawk '{print($1/2)}'`
+#
+
+echo "$title_string" | gawk '{print($1,$3)}' > $tmpn.dat
+read m1 m2 < $tmpn.dat
+echo $0: title $title_string models $m1 $m2
+
+out=corr.$m1.$m2.eps
+#
+# call the cmodelcorr program
+#
+if [ ! -s $file1  ];then
+    echo $0: $file1  not found
+    exit
+fi
+if [ ! -s $file2  ];then
+    echo $0: $file2  not found
+    exit
+fi
+
+
+$cmodelcorr $file1 $file2 $zmin $zmax $dz $shift $stretch | \
+    gawk '{gsub("inf","nan");gsub("-inf","nan");print($0)}' | \
+    gawk '{if($1!="#")print($0)}' > $tmpn.dat
+#
+lmax=$llmax
+echo $0: using $file1 $file2 lmax $lmax
+
+cmpw=$HOME/quakes/tomography/correlations/corrw.cpt
+cmprms=$HOME/quakes/tomography/correlations/rms.cpt
+#
+# rms in cols 2 and 3
+#
+#gawk '{if($2!=0)r1=$2;else r1="NaN";if($3!=0)r2=$3;else r2="NaN";\
+#	print(1,$1,r1*f1);print(2,$1,r2*f2);}' f1=$rmsf1 f2=$rmsf2 $tmpn.dat 
+#exit
+gawk '{if($2!=0)r1=$2;else r1="NaN";if($3!=0)r2=$3;else r2="NaN";\
+	print(1,$1,r1*f1);print(2,$1,r2*f2);}' f1=$rmsf1 f2=$rmsf2 $tmpn.dat |\
+    xyz2grd -R1/2/$zmin/$zmax -I1/$dz -Grms.grd 
+# 4, 5, and 6
+# total correlation, l_max=8, and l_max=20 correlation
+gawk '{if($2!=0 && $3!=0){\
+	print(0,$1,$4);print(1,$1,$4);\
+	print(2,$1,$5);print(3,$1,$5);\
+	print(4,$1,$6);print(5,$1,$6);\
+	}else{\
+	print(0,$1,"NaN");print(1,$1,"NaN");\
+	print(2,$1,"NaN");print(3,$1,"NaN");\
+	print(4,$1,"NaN");print(5,$1,"NaN");\
+	}}' $tmpn.dat |\
+    xyz2grd -R0/5/$zmin/$zmax -I1/$dz -G$tmpn.tcorr.grd 
+#
+# total weighted correlation, field 7
+#
+gawk '{if($2!=0 && $3!=0){print(0.5,$1,$7);print(1.5,$1,$7);}else{print(0.5,$1,"NaN");print(1.5,$1,"NaN");}}' $tmpn.dat |\
+    xyz2grd -R.5/1.5/$zmin/$zmax -I1/$dz -Gtcorrw.grd 
+if [ ! -s r_vs_depth/ ];then
+    echo $0: skipping r_vs_depth output
+else
+    # write t_corr, t_8, and t_20 to file
+    fffname=`echo $m1 $m2 | gawk '{printf("./r_vs_depth/r.%s.%s.dat",$1,$2)}'`
+    gawk '{if($2!=0 && $3!=0){print($1,$4);}else{print($1,$4,$5,$6);}}' $tmpn.dat > $fffname
+fi
+# correlation as a function of l
+gawk '{if($2!=0 && $3!=0){for(i=8;i<=NF;i++)print(i-7,$1,$i)}else{for(i=8;i<=NF;i++)print(i-7,$1,"NaN")}}' $tmpn.dat |\
+    xyz2grd -R1/$lmax/$zmin/$zmax -I1/$dz -G$tmpn.corr.grd 
+
+calc_sig=0
+if [ $calc_sig -eq 1 ];then
+# obtain r for significance of sigma as a function of DOF(l)
+    gawk --assign lmax=$lmax --assign sigma=$sigma -v is_gsh=$is_gsh \
+	'BEGIN{for(l=1;l<=lmax;l++)printf("p_student_lmax %i %g %i\n",-l,sigma,(is_gsh)?2:0)}' > $tmpn.bat
+    chmod +x $tmpn.bat
+    sigrs=`$tmpn.bat | gawk '{printf("%g:",$1)}'`
+# create correlation grid that is scaled by sigma significance level
+    grd2xyz $tmpn.corr.grd | gawk '{split(sfs,sf,":");print($1,$2,$3/sf[$1])}' sfs=$sigrs | \
+	xyz2grd -R1/$lmax/$zmin/$zmax -I1/$dz -G$tmpn.corrw.grd 
+fi
+#
+# obtain mean r, mean r_8, and mean r_20  weighted by radius^2
+#
+grd2xyz $tmpn.tcorr.grd | gawk '{if($1==0 && tolower($3)!="nan"){n++;lt[n]=$3;ltr[n]=6371.-$2;}\
+				 if($1==2 && tolower($3)!="nan"){m++;l8[m]=$3}\
+				 if($1==4 && tolower($3)!="nan"){o++;l20[o]=$3}}END{
+				if((n==m)&&(m==o))for(i=1;i<=n;i++)print(ltr[i]*ltr[i],lt[i],l8[i],l20[i]);}'  | \
+				    gawk -f wmean.awk | \
+				    gawk '{printf("%6.2f %6.2f %6.2f",$1,$2,$3)}' > score.dat
+
+echo $0: correlation/rms/score in corr.grd/rms.grd/score.dat
+#
+# from now plotting
+#
+if [ $lmax -lt $llmax ];then
+    plmax=`echo $lmax | gawk '{print($1+0.5)}'`
+else
+    plmax=`echo $llmax | gawk '{print($1+0.5)}'`
+fi
+plmaxh=`echo $plmax | gawk '{print($1/2)}'`
+proj1=-JX$xscl1/-$yscl1$zlog
+if [ $is_gsh -eq 1 ];then
+    reg1=-R1.5/$plmax/$zmin/$zmax 
+else
+    reg1=-R0.5/$plmax/$zmin/$zmax 
+fi
+modela=`echo $m1 | gawk '{print(toupper($1))}'`
+modelb=`echo $m2 | gawk '{print(toupper($1))}'`
+
+title=`echo $modela $modelb | gawk -v col1="$col1" -v col2="$col2" '{printf("@;%s;%s@;; vs. @;%s;%s@;;",col1,$1,col2,$2)}'`
+
+
+#
+# main l vs. z plot for r
+#
+string="@%3%$add_title@%% $title, @~\341@~r@-20@-@~\361@~="`cat score.dat | gawk '{print($3)}'`", @~\341@~r@-8@-@~\361@~="`cat score.dat | gawk '{print($2)}'`
+echo $0: projection is $proj1, region: $reg1 title: $string
+
+#gmtset LABEL_FONT_SIZE        18p
+psc_loc=-Dx2.5/5.72/3/.18h
+
+if [ $small_plot -eq 1 ];then
+    if [ $weighted -eq 1 ];then
+	grdimage $tmpn.corrw.grd $proj1 $reg1 -Sn -Y1.5 -X3 \
+	    -Bf1a2:"$deg_label":/$zann:"depth [km]":SnWe -C$cmpw  -K -P > $out
+	#psscale -Eb $psc_loc -C$cmpw -B$psc_spc/:"correlation": -O -K >> $out
+	psscale $psc_loc -C$cmpw -B$psc_spc/:"correlation": -O -K >> $out
+    else
+	#	grdimage $tmpn.corr.grd  $proj1 $reg1 -Sn -Y1.5 -X3 \
+	grdview -Qs70 $tmpn.corr.grd  $proj1 $reg1 -Sn -Y1.5 -X3 \
+	    -Bf1a2:"$deg_label":/$zann:"depth [km]":SnWe -C$cmp   -K -P > $out
+	#psscale -Eb $psc_loc -C$cmp -B$psc_spc/:"correlation": -O -K >> $out
+	psscale $psc_loc -C$cmp -B$psc_spc/:"correlation": -O -K >> $out
+    fi
+    #echo 0.5 -0.1 18 0 0 MC "$string" | pstext -N $proj1 -R0/1/0/1 -O >> $out
+
+    echo 1000 1000  | psxy $proj1 -R0/1/0/1 -O -Sa.2 >> $out
+    modifybb $out 
+    
+else
+#    gmtset ANOT_FONT_SIZE         24p
+#    gmtset LABEL_FONT_SIZE        32p
+
+    if [ $weighted -eq 1 ];then
+	grdimage $tmpn.corrw.grd $proj1 $reg1 -Sn -Y1.5 -X3 \
+	    -Bf1a2:"$deg_label":/$zann:"depth [km]":weSn -C$cmpw -P -K > $out
+    else
+	grdimage $tmpn.corr.grd  $proj1 $reg1 -Sn -Y1.5 -X3 \
+	    -Bf1a2:"$deg_label":/$zann:"depth [km]":weSn -C$cmp  -K -P > $out
+    fi
+#
+# title
+#
+    
+    echo $0: score `cat score.dat` 
+    echo $0: title $string
+    #psbasemap  $proj1 $reg1 -B:."$string": -O -K >> $out
+    echo $title_label_y
+    echo -8 $title_label_y  26 0 29 ML "$string" | \
+	pstext $proj1 $reg1 -N -O -K >> $out
+#
+#
+#
+# scale
+#
+#mypsscale -C$cmp  -N50 -O -K -D2.5/5.9/6/0.25h -B0.2/:"r": -E-1 >> $out
+
+    #mypsscale -C$cmp -N50 -O -K -E-1 -D2.5/5.7/6/0.15h -B0.25/:"r":  >> $out
+    #psscale -C$cmp -Eb -N50 -O -K -D2.5/5.5/6/0.15h -B$psc_spc/:"r":  >> $out
+
+    psscale -C$cmp  -O -K -Dx2.5/5.5/6/0.15h -B$psc_spc/:"r":  >> $out
+
+    # rms plot to the right
+#
+
+
+    if [ $rmsshade -eq 1 ];then
+	reg2=-R1/2/$zmin/$zmax
+	proj2=-JX$xscl2/-$yscl1$zlog
+	if [ $is_xi -eq 1 ];then
+	    grdimage rms.grd $proj2 $reg2 \
+		-Ba0.02f.002:"$xvlabel":/$zann:"depth [km]":ESn -C$cmprms -X$offset1 -O -K >> $out
+	else
+	    grdimage rms.grd $proj2 $reg2 \
+		-Ba2f3:"$xvlabel":/$zann:"depth [km]":ESn -C$cmprms -X$offset1 -O -K >> $out
+	fi
+    else
+	
+	#
+        # RMS plot on right
+	# 
+	
+	if [ $is_xi -eq 1 ];then
+	    proj2=-JX`echo $xscl2`/-$yscl1$zlog
+	    xann=a0.02f0.002
+	else
+	    proj2=-JX`echo $xscl2`l/-$yscl1$zlog 
+	    xann=a2f3
+	fi
+	if [ $is_xi -eq 1 ];then
+	    reg2=-R`grd2xyz rms.grd | gawk '{if($3!=0)print($3)}'  | gawk -f minmax.awk | gawk '{printf("%.6e/%.6e",0,$2)}'`/$zmin/$zmax
+	else
+	    #reg2=-R`grd2xyz rms.grd | gawk '{if($3!=0)print($3)}'  | gawk -f minmax.awk | gawk '{printf("%.6e/%.6e",$1,$2)}'`/$zmin/$zmax
+	    reg2=-R0.1/5/$zmin/$zmax
+	fi
+
+	xla1=`grd2xyz rms.grd | gawk '{if($3!=0 && $1==1)print($3)}'  | gawk -f min.awk | gawk '{if($1<2.5)print($1);else print(2.5)}'`
+	xla2=`grd2xyz rms.grd | gawk '{if($3!=0 && $1==2)print($3)}'  | gawk -f min.awk | gawk '{if($1<2.5)print($1);else print(2.5)}'`
+	echo $xla
+
+#reg2=-R0.05/5/$zmin/$zmax
+	grd2xyz rms.grd | gawk '{if($1==1 && $3!=0)print($3,$2)}' | \
+	    psxy -W$lw,$col1 $proj2 $reg2 -B$xann:"$xvlabel":/$zann:"z [km]":EnwS -X$offset1 -O -K >> $out
+
+
+	grd2xyz rms.grd | gawk '{if($1==2 && $3!=0)print($3,$2)}' | psxy -W$lw,$col2 $proj2 $reg2 -O -K >> $out
+    fi
+    if [ `echo $rmsf1 | gawk '{if($1==1.0)print(0);else print(1)}'` -eq 1 ]; then
+#    echo 1.25 $zlim2 16 0 0 C "@~\264@~$rmsf1" | \
+#	pstext -N $proj2 $reg2 -G255/0/0 -K -O >> $out
+	echo $0: WARNING: model 1 scaling is $rmsf1
+    fi
+    if [ `echo $rmsf2 | gawk '{if($1==1.0)print(0);else print(1)}'` -eq 1 ]; then
+#    echo 1.75 $zlim2 16 0 0 C "@~\264@~$rmsf2" |  \
+#	pstext -N $proj2 $reg2  -G255/0/0 -K -O >> $out
+	echo $0: WARNING: model 2 scaling is $rmsf2
+    fi
+    if [ $rmsshade -eq 1 ];then
+	echo 1.5 -$zmax > $tmpn.tt.dat; echo 1.5 0 >> $tmpn.tt.dat
+	psxy $tmpn.tt.dat $proj2 $reg2 -K  -O >> $out
+	echo 1.25 $zlim1 16 0 31 MR "$modela" | pstext -N $proj2 $reg2 -K  -O >> $out
+	echo 1.75 $zlim1 16 0 31 MR "$modelb" | pstext -N $proj2 $reg2 -K -O >> $out
+    else
+	echo $xla1 $zl1 18 30 31 ML "$modela" | \
+	    pstext -N $proj2 $reg2 -K  -O -F+f$col1 -Gwhite -t45+f >> $out
+	echo $xla2 $zl2 18 30 31 ML "$modelb" | \
+	    pstext -N $proj2 $reg2 -K -O  -F+f$col2 -Gwhite -t45+f >> $out
+    fi
+
+
+#
+# total r plot to the left
+#
+    
+    proj3=-JX$xscl3/-$yscl1$zlog
+    #reg3=-R`grd2xyz $tmpn.tcorr.grd | gawk '{if($3!="NaN")print($3)}' | gawk -f minmax.awk | gawk '{if($1>0)x=0;else x=$1;printf("%g/%g",x,1)}'`/$zmin/$zmax
+    reg3=-R-.2/1/$zmin/$zmax
+
+
+# r_20
+    grd2xyz $tmpn.tcorr.grd | gawk '{if($1==4 && $3!="NaN")print($3,$2)}' > $tmpn.r20
+ # r_8
+    grd2xyz $tmpn.tcorr.grd | gawk '{if($1==2 && $3!="NaN")print($3,$2)}' > $tmpn.r8
+
+    psbasemap $proj3 $reg3 -Bf.1a.5:"r@+tot@+":/$zann:"z [km]":WeSn -X$offset2  -O -K >> $out
+    cat <<EOF | psxy $proj3 $reg3 -W1 -O -K   >> $out
+0 $zmin
+0 $zmax
+EOF
+
+    if [ $is_gsh -eq 1 ];then
+	sig_95_20=0.066
+	sig_95_8=0.158
+    else
+	sig_95_20=0.093
+	sig_95_8=0.219
+    fi
+    # significance
+    # 0.95 for l=20
+    cat <<EOF | psxy $proj3 $reg3 -W.5,$col3,- -O -K -m >> $out
+$sig_95_20 $zmin
+$sig_95_20 $zmax
+>
+-$sig_95_20 $zmin
+-$sig_95_20 $zmax
+EOF
+        # 0.95 for l=8
+    cat <<EOF | psxy $proj3 $reg3 -W.5,$col4,- -O -K -m  >> $out
+$sig_95_8 $zmin
+$sig_95_8 $zmax
+>
+-$sig_95_8 $zmin
+-$sig_95_8 $zmax
+EOF
+
+    cp $tmpn.r20 $HOME/tmp/r20.dat
+    cp $tmpn.r8 $HOME/tmp/r8.dat
+    
+    psxy $tmpn.r20 $proj3 $reg3 -W$lw,$col3 -O -K  >> $out
+    psxy $tmpn.r8  $proj3 $reg3 -W$lw,$col4 -O -K   >> $out
+
+# for all density models, put labels on right hand side...
+    echo 0.5 $y_r20 22 0 29 ML "r@-20@-" | \
+	pstext -F+f$col3 $proj3 $reg3 -Gwhite  -t45+f  -O -K  >> $out
+    echo 0.5 $y_r8  22 0 29 ML "r@-8@-" | \
+	pstext -F+f$col4 $proj3 $reg3 -Gwhite  -t45+f -O -K  >> $out
+
+    echo 1000 1000 | psxy $proj3 $reg3 -O >> $out
+
+    modifybb $out  
+
+
+#    gmtset ANOT_FONT_SIZE         14p
+#    gmtset LABEL_FONT_SIZE        24p
+
+
+fi
+echo $0: output in $out
+
+#epstopdf $out
+#rm $out
+#echo $0: output in $title_string.pdf
+
+
+
+
