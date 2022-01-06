@@ -1,0 +1,29 @@
+#!/bin/bash
+
+n=0
+
+reg=`minmax -I5 hist.$n.dat`
+proj=-JM7 
+
+ofile=tracer.$n.ps
+
+pscoast $reg $proj -K -Dc -G128  -P -Ba30f5 > $ofile
+# TI
+paste hist.$n.dat tid.$n.dat | gawk '{print($1,$2, atan2($7,-$6)*57.2957795,sqrt(1-$5**2)*$8/s)}' s=10 | \
+    mypsxy -SV-0.05/0/0 $reg $proj -G0 -O -K >> $ofile
+# FSE
+cat seval.$n.dat | gawk '{print($2,$3, atan2($10,-$9)*57.2957795,sqrt(1-$8**2)*$5/s)}' s=10 | \
+    mypsxy -SV-0.1/0/0 $reg $proj -O -K >> $ofile
+#cat strain.$n.dat | gawk '{print($2,$3,$4,$5,$6,$7)}'  | eigen3ds | \
+#	gawk '{e3=$1;e3r=$2;e3t=$3;e3p=$4;e2=$5;e2r=$6;e2t=$7;e2p=$8;e1=$9;e1r=$10;e1t=$11;e1p=$12;\
+#                   if((e2==0)||(e1/e2<0)){print(0,0);}else {xi=log(e1/e2);zeta=log(e2/e3);maxs=(xi>zeta)?(xi):(zeta);\
+#	          e1h=xi*sqrt(1.0-e1r*e1r);print(atan2(e1p,-e1t)*57.29578,e1h);}}' > tmp.2
+#paste hist.$n.dat tmp.2 | gawk '{print($1,$2,$4,$5)}' | \
+#    mypsxy -SV-0.05/0/0 $reg $proj -O -K >> $ofile;rm tmp.2
+
+
+echo 1000 1000 | psxy $reg $proj -O >> $ofile 
+echo $0: output in $ofile
+
+
+
