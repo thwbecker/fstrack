@@ -21,10 +21,11 @@ BEGIN{
       if($col > max){
 	max=$col;
 	if(print_col != 0){
-	    if(print_col < 0)
+	    if(print_col != 0){
 		x = $0;
-	    else
+	    }else{
 		x = $(pcol);
+	    }
 	}
       }
     }
@@ -33,6 +34,7 @@ BEGIN{
 END{
   if(print_col == 0)
       print(max);
-  else
+  else{
       print(max,x);
+  }
 }
