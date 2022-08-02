@@ -1,7 +1,0 @@
-#!/bin/bash
-
-../../bin/i686/tensor_phase 
-sav2splitting hex_dip.sav 0 0 350 > my.dat
-
-gnuplot compare.gpl
-

@@ -45,19 +45,19 @@ $(ODIR)/libvera.dfast.a: $(VERA_LIB_OBJS_DFAST)
 
 tensor_phase: $(ODIR)/tensor_phase.o $(ODIR)/libvera.a
 	$(F77) $(ODIR)/tensor_phase.o $(FFLAGS)  -L$(ODIR)/ \
-	-o $(BDIR)/tensor_phase -lvera
+	-o $(BDIR)/tensor_phase -lvera $(LDFLAGS)
 
 c6x6to81_dens: c6x6to81_dens.F $(ODIR)/libvera.a
 	$(F77) $(FFLAGS) c6x6to81_dens.F  -L$(ODIR)/ \
-		-o $(BDIR)/c6x6to81_dens -lvera
+		-o $(BDIR)/c6x6to81_dens -lvera $(LDFLAGS)
 
 c6x6to81_dens_stream: c6x6to81_dens.F $(ODIR)/libvera.a
 	$(F77) $(FFLAGS) c6x6to81_dens.F -DSTREAM -L$(ODIR)/ \
-		-o $(BDIR)/c6x6to81_dens_stream -lvera
+		-o $(BDIR)/c6x6to81_dens_stream -lvera $(LDFLAGS)
 
 cijkl2sav: cijkl2sav.f90 $(ODIR)/libvera.a
 	$(F90) $(F90FLAGS) cijkl2sav.f90  -L$(ODIR)/ \
-		-o $(BDIR)/cijkl2sav -lvera
+		-o $(BDIR)/cijkl2sav -lvera $(LDFLAGS)
 
 
 

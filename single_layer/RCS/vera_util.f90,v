@@ -2,7 +2,7 @@ head	1.8;
 access;
 symbols;
 locks
-	becker:1.8; strict;
+	twb:1.8; strict;
 comment	@# @;
 
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-ver=${1-0.5.1}
+ver=${1-0.5.6}
 date=`date '+%m%d%y'`
 
 owd=`pwd`
@@ -20,7 +20,7 @@ for t in fstrack d-rex d-rex/test_output_V1/ \
     mkdir -p $odir/$t
     cd $HOME/progs/src/$t
     cp COPYRIGHT COPYING *.awk *.F *.f90 *.f *.c *.h *.sav \
-	predict_splitting makefile Makefile  $odir/$t/
+	oneline predict_splitting makefile Makefile  $odir/$t/
     cd $odir
     rm $t/*~
 done
@@ -60,5 +60,4 @@ cd $HOME/public_html/software/
 ln -sf fstrack-$ver.$date.tgz  fstrack-recent.tgz
 
 rm -rf $odir
-
 

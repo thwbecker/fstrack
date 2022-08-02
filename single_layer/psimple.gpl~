@@ -1,8 +1,0 @@
-! sav2splitting ../tensors/vera_examples/hex_NSfast_10perc.sav 4 10 > tmp.dat
-
-set term post color solid 24
-set xlabel 'backazimuth [deg]'
-set ylabel 'fast azimuth [deg]'
-
-plot 'tmp.dat' using 2 : 5 title 'hexagonal, dipping 10^o' w l lw 5
-

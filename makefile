@@ -21,7 +21,8 @@ BDIR = bin/$(ARCH)/
 
 #
 # GMT and netcdf libs
-GMTLIBS = -L$(GMTHOME)/lib/ -lgmt -lpsl -L$(NETCDFDIR)/lib/ -lnetcdf 
+#GMTLIBS = -L$(GMTHOME)/lib/ -lgmt -lpsl -L$(NETCDFDIR)/lib/ -lnetcdf
+GMTLIBS = -L$(GMT4HOME)/lib/ -lgmt -L$(NETCDFDIR)/lib/ -lnetcdf 
 #
 # EISPACK
 EISLIBS = -L../eispack/$(ARCH)/ -lmyeis
@@ -118,7 +119,7 @@ AOBJS = $(ODIR)/calc_isa.o $(ODIR)/advect.o \
 AOBJS_DEBUG = $(AOBJS:.o=.dbg.o)
 AOBJS_DFAST = $(AOBJS:.o=.dfast.o)
 #
-INCLUDES = -I$(GMTHOME)/include/ -I$(NETCDFDIR)/include/ \
+INCLUDES = -I$(GMT4HOME)/include/ -I$(NETCDFDIR)/include/ \
 	$(DREX_INCLUDE) $(VERA_INCLUDES) $(PREM_DEFINES) $(GGRD_INCLUDES)
 #
 # p,T models

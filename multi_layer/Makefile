@@ -66,7 +66,6 @@ dbg_libs: $(ODIR)/libref_fft.dbg.a $(ODIR)/libref_general.dbg.a $(ODIR)/libanica
 progs: anicake anicake.dbg spectoseis spectoseis_stream \
 	skssplit_xcorr skssplit_xcorr_stream 
 
-
 sac_progs: sac_vera_split sac_vera_split_dbg
 
 clean:
@@ -117,22 +116,22 @@ $(ODIR)/libref_fft.dbg.a: $(DBG_FFT_OBJS)
 #
 skssplit_xcorr: $(ODIR)/skssplit_xcorr.o $(ODIR)/vera_xcorr.o $(ODIR)/vera_split.o 
 	$(F90) $(ODIR)/skssplit_xcorr.o $(ODIR)/vera_xcorr.o $(ODIR)/vera_split.o -o \
-	$(BDIR)/skssplit_xcorr $(F90LDFLAGS)
+	$(BDIR)/skssplit_xcorr $(F90LDFLAGS) $(LDFLAGS)
 skssplit_xcorr_stream: $(ODIR)/skssplit_xcorr.stream.o $(ODIR)/vera_xcorr.o  $(ODIR)/vera_split.o 
 	$(F90) $(ODIR)/skssplit_xcorr.stream.o $(ODIR)/vera_xcorr.o $(ODIR)/vera_split.o -o \
-	$(BDIR)/skssplit_xcorr_stream $(F90LDFLAGS)
+	$(BDIR)/skssplit_xcorr_stream $(F90LDFLAGS) $(LDFLAGS)
 #
 # reflectivity code 
 #
 anicake: $(ODIR)/anicake.o $(ODIR)/libref_general.a $(ODIR)/libanicake.a $(ODIR)/libref_fft.a
 	$(F90)  $(ODIR)/anicake.o -o $(BDIR)/anicake \
-	-L$(ODIR)/ -lref_general -lanicake -lref_fft  $(F90LDFLAGS)
+	-L$(ODIR)/ -lref_general -lanicake -lref_fft  $(F90LDFLAGS) $(LDFLAGS)
 
 
 anicake.dbg: $(ODIR)/anicake.dbg.o $(ODIR)/libref_general.dbg.a \
 	$(ODIR)/libanicake.dbg.a  $(ODIR)/libref_fft.dbg.a
 	$(F90)  $(ODIR)/anicake.dbg.o -o $(BDIR)/anicake.dbg \
-	-L$(ODIR)/ -lref_general.dbg -lanicake.dbg -lref_fft.dbg  $(F90LDFLAGS)
+	-L$(ODIR)/ -lref_general.dbg -lanicake.dbg -lref_fft.dbg  $(F90LDFLAGS) $(LDFLAGS)
 
 #
 # seismogram generation
@@ -143,27 +142,27 @@ spectoseis: $(ODIR)/spectoseis_driver.o $(ODIR)/filter.o $(ODIR)/libref_fft.a \
 	$(ODIR)/spectoseis.o
 	$(F90) $(ODIR)/spectoseis.o $(ODIR)/spectoseis_driver.o \
 		$(ODIR)/filter.o -o $(BDIR)/spectoseis \
-		-L$(ODIR)/ -lref_fft	$(F90LDFLAGS)
+		-L$(ODIR)/ -lref_fft	$(F90LDFLAGS) $(LDFLAGS)
 #
 # stream I/O version
 spectoseis_stream: $(ODIR)/spectoseis_driver.stream.o \
 	$(ODIR)/filter.o $(ODIR)/libref_fft.a $(ODIR)/spectoseis.o
 	$(F90) $(ODIR)/spectoseis_driver.stream.o $(ODIR)/spectoseis.o \
 		$(ODIR)/filter.o -o $(BDIR)/spectoseis_stream \
-		-L$(ODIR)/ -lref_fft	$(F90LDFLAGS)
+		-L$(ODIR)/ -lref_fft	$(F90LDFLAGS) $(LDFLAGS)
 
 sac_vera_split: $(ODIR)/vera_xcorr.o $(ODIR)/vera_split.o $(ODIR)/sac_vera_split.o \
 	$(ODIR)/menke_distaz.o
 	$(F90) $(ODIR)/vera_xcorr.o $(ODIR)/vera_split.o $(ODIR)/sac_vera_split.o \
 	-L$(SACAUX)/../lib/ 	$(ODIR)/menke_distaz.o \
-	-o  $(BDIR)/sac_vera_split -lsacio $(F90LDFLAGS)  -lm
+	-o  $(BDIR)/sac_vera_split -lsacio $(F90LDFLAGS)  $(LDFLAGS) -lm
 
 sac_vera_split.dbg: $(ODIR)/vera_xcorr.dbg.o $(ODIR)/vera_split.dbg.o $(ODIR)/sac_vera_split.dbg.o \
 	$(ODIR)/menke_distaz.dbg.o
 	$(F90) $(ODIR)/vera_xcorr.dbg.o $(ODIR)/vera_split.dbg.o \
 	$(ODIR)/sac_vera_split.dbg.o \
 	-L$(SACAUX)/../lib/ 	$(ODIR)/menke_distaz.o \
-	-o  $(BDIR)/sac_vera_split.dbg -lsacio $(F90LDFLAGS)  -lm
+	-o  $(BDIR)/sac_vera_split.dbg -lsacio $(F90LDFLAGS)  $(LDFLAGS) -lm
 
 #
 # extended source format
