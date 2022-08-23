@@ -27,6 +27,7 @@ int main(int argc, char **argv)
   my_boolean warned = FALSE;
   /* for sensitityv */
   model= (struct mod *)calloc(1,sizeof(struct mod));
+  model->verbose = TRUE;
   /* for density */
   prem= (struct prem_model *)calloc(1,sizeof(struct prem_model));
 

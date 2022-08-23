@@ -212,8 +212,8 @@ void read_sw_sens(struct mod *model)
   model->swsens=(struct swss *)malloc(N_SW_SENS*sizeof(struct swss));
   if(!model->swsens)
     MEMERROR("");
-
-  fprintf(stderr,"\nWARNING\nLove kernels not implemented yet\n\n");
+  if(model->verbose)
+    fprintf(stderr,"\nWARNING\nLove kernels not implemented yet\n\n");
 
   for(i=0;i < N_SW_SENS;i++){
     model->swsens[i].p = p[i];	/* period */
@@ -251,11 +251,12 @@ void read_sw_sens(struct mod *model)
     }
     fclose(in);
   }
-  fprintf(stderr,"read_sw_sens: initialized %i sensitivity kernels with ",
-	  N_SW_SENS);
-  for(i=0;i < N_SW_SENS;i++)
-    fprintf(stderr,"%gs (%i) ",model->swsens[i].p,model->swsens[i].n);
-  fprintf(stderr," periods\n");
+  if(model->verbose){
+    fprintf(stderr,"read_sw_sens: initialized %i sensitivity kernels with ",N_SW_SENS);
+    for(i=0;i < N_SW_SENS;i++)
+      fprintf(stderr,"%gs (%i) ",model->swsens[i].p,model->swsens[i].n);
+    fprintf(stderr," periods\n");
+  }
   
   model->sw_sens_init = TRUE;
 }

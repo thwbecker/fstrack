@@ -52,6 +52,7 @@ $Id: sav2decompose.c,v 1.16 2016/09/05 04:44:47 becker Exp $
 			   24: best-fit hex in original system, short output format
 
 			   17: print best-fit orthorhombic, SCC system
+			   27: print best-fit orthorhombic, SCC system, short output format
 
 			   18: print tensor in SCC reference frame
 
@@ -92,7 +93,10 @@ $Id: sav2decompose.c,v 1.16 2016/09/05 04:44:47 becker Exp $
 #define SAV2DMODE_BESTFIT_HEX 16
 #define SAV2DMODE_BESTFIT_HEX_SHORT 24
 #define SAV2DMODE_BESTFIT_ORTH 17
+
 #define SAV2DMODE_SCC 18
+#define SAV2DMODE_SCC_SHORT 27
+
 #define SAV2DMODE_COMPUTE_LOVE 22
 #define SAV2DMODE_FULL_DECOMPOSE 23
  
@@ -231,6 +235,7 @@ int main(int argc, char **argv)
   case SAV2DMODE_BESTFIT_HEX:
   case SAV2DMODE_BESTFIT_HEX_SHORT:
   case SAV2DMODE_BESTFIT_ORTH:
+  case SAV2DMODE_SCC_SHORT:
   case SAV2DMODE_SCC:		/* all of these need to read in the tensor */
     /*  */
     if(verbose)
@@ -379,15 +384,20 @@ int main(int argc, char **argv)
 	print_6by6_nice(cbfort,stdout);fprintf(stderr,"\n");
 	break;
       case SAV2DMODE_SCC: /* print tensor in SCC frame */
+      case SAV2DMODE_SCC_SHORT:
 	for(i=0;i<36;i++)
 	  cbfort[i] = ciso[i]+chex[i]+ctet[i]+cort[i]+ctri[i]+cmon[i];
-	fprintf(stderr,"reassembled (SCC):\n"); /* rotated */
-	print_6by6_nice(cbfort,stderr);fprintf(stderr,"\n");
-
-	fprintf(stderr,"scc (SCC):\n"); /* rotated */
-	print_6by6_nice(sav_scc,stdout);fprintf(stderr,"\n");
+	if(mode == SAV2DMODE_SCC_SHORT){
+	  fprintf(stdout,"%g %g %g\t",xloc[0],xloc[1],xloc[2]);
+	  print_sym_6by6(cbfort,stdout);fprintf(stdout,"\n");
+	}else{
+	  fprintf(stderr,"reassembled (SCC):\n"); /* rotated */
+	  print_6by6_nice(cbfort,stderr);fprintf(stderr,"\n");
+	  
+	  fprintf(stderr,"scc (SCC):\n"); /* rotated */
+	  print_6by6_nice(sav_scc,stdout);fprintf(stderr,"\n");
+	}
 	break;
-	
       case SAV2DMODE_COMPUTE_LOVE: /* compute the Love parameters for an equivalent 
 				      VTI medium
 				   */
