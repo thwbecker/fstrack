@@ -175,7 +175,7 @@ tools: lpo_tools average_tracers  average_rphi_tracers \
 #
 # seismic anisotropy interpretation tools
 seis_tools: sav2cijkl sav2splitting fazi2splitstat \
-	sav2decompose cijklrotate sav2rotate \
+	sav2decompose cijklrotate sav2rotate sav2max_ani \
 	plot_kernel split_fit
 #
 # debugging programs
@@ -334,6 +334,12 @@ sav2afactor: $(LIBS) $(ODIR)/sav2afactor.o $(PREM_OBJS)
 	-o $(BDIR)/sav2afactor -L$(ODIR)/  -lpt $(PREM_OBJS) \
 	 -lmiscio -llinalg  $(DREX_LIBS) $(EISLIBS)  $(MATHLIBS) $(FTRN_LIB) $(LDFLAGS) 
 
+sav2max_ani: $(LIBS) $(ODIR)/sav2max_ani.o $(PREM_OBJS)
+	$(CC) $(ODIR)/sav2max_ani.o \
+	-o $(BDIR)/sav2max_ani -L$(ODIR)/  -lpt $(PREM_OBJS) \
+	 -lmiscio -llinalg  $(DREX_LIBS) $(EISLIBS)  $(MATHLIBS) $(FTRN_LIB) $(LDFLAGS) 
+
+
 cvec2ellipsoid: $(ODIR)/cvec2ellipsoid.o 
 	$(CC) $(ODIR)/cvec2ellipsoid.o  $(INCLUDES) \
 			-o $(BDIR)/cvec2ellipsoid -L$(ODIR)/ -llinalg $(FTRN_LIB) $(LDFLAGS) 
@@ -380,6 +386,8 @@ sav2rotate: $(LIBS) $(ODIR)/sav2rotate.o
 		-o $(BDIR)/sav2rotate -L$(ODIR)/   -lpt \
 		-llinalg $(VERA_LIBS) $(DREX_LIBS)  -lmiscio -llinalg \
 		$(EISLIBS)  $(MATHLIBS) $(FTRN_LIB) $(LDFLAGS)
+
+
 
 plot_kernel: $(LIBS) $(ODIR)/plot_kernel.o 
 	$(CC) $(INCLUDES) $(ODIR)/plot_kernel.o  \
