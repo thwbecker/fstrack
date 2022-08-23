@@ -71,7 +71,7 @@ int main(int argc, char **argv)
     xi_max=0;
     Phi_max=0;
     Xi_max=0;
-    da = 5;
+    da = 3;
     for(alpha=0;alpha<360;alpha+=da)
       for(beta=0;beta<90;beta+=da)
 	for(gamma=0;gamma<90;gamma+=da){
@@ -91,7 +91,7 @@ int main(int argc, char **argv)
 	  if(Xi>Xi_max)Xi_max=Xi;
 	  if(Phi>Phi_max)Phi_max=Phi;
 	}
-    printf("%10.5f %10.5f %10.5f\n",Phi_max,xi_max,Xi_max);
+    printf("%10.3f %10.3f %10.3f\n",Phi_max,xi_max,Xi_max);
     n++;
   }
   free(model);
