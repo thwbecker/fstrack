@@ -1,0 +1,196 @@
+#!/bin/bash
+model=${1-pmDsmean_nt}		# model
+strain=${2-2}			# strain
+sav=${3-"savd"}			# type
+#
+# plot the scatter of hex factors
+#
+emin=-0.19;emax=0.07
+rreg=-R$emin/$emax/-0.09/0.06	# eps gamma 
+rred=-R$emin/$emax/-0.35/0.07	# eps delta
+
+annp=a0.05f0.01
+ofile=hex.$model.s.$strain.$sav.ps
+grep -v \# hexfac.dat > tmp.hex
+ns=`lc tmp.hex`
+proj1=-Jx20			# projection for eps-gamma
+proj2=-Jx20/13		# projection for eps-delta
+#
+lp=-JX5/2.5			# labels
+size=0.15
+ssym="-Sc0.005 -G128 "
+#
+# straining trends
+#
+sifile1=$datadir/flow_field/finite_strain/test_kr_convergence/slip_system_0/sdec.1.0.3.70
+sifile1_line=-W8/0
+#sifile2=$datadir/flow_field/finite_strain/test_kr_convergence/slip_system_0/sdec.3.0.3.70
+sifile2=xx
+sifile2_line=-W8/50to
+# bilinear
+bl_line=-W10/50t10_10_10_10:10
+#
+# scatter from model
+#
+# make summed data grids
+for t in gamma delta;do
+    f=$datadir/flow_field/finite_strain/$model/results/scatter.s.$strain.$sav.$t.grd
+    if [ ! -s $f ];then
+	echo $0: scatter file $f not found, run plot_tens_decom
+	exit
+    fi
+    # normalize for use
+    max=`grd2max $f`
+    grdmath $f $max DIV = hc.$t.grd
+
+done
+
+# compute fitting parameters
+echo $0: gamma fits 
+grd2xyz -S hc.gamma.grd | gawk '{if($1<=-0.03)print($1,$2,$3,$3)}' | \
+    fitxyee 2> /dev/null | gawk '{printf("%g pm %g\t %g pm %g\n",$1,$3,$2,$4)}'
+grd2xyz -S hc.gamma.grd | gawk '{if($1>-0.03)print($1,$2,$3,$3)}' | \
+    fitxyee 2> /dev/null | gawk '{printf("%g pm %g\t %g pm %g\n",$1,$3,$2,$4)}'
+
+echo $0: delta fits 
+grd2xyz -S hc.delta.grd | gawk '{if($1<=-0.03)print($1,$2,$3,$3)}' | \
+    fitxyee 2> /dev/null | gawk '{printf("%g pm %g\t %g pm %g\n",$1,$3,$2,$4)}'
+grd2xyz -S hc.delta.grd | gawk '{if($1>-0.03)print($1,$2,$3,$3)}' | \
+    fitxyee 2> /dev/null | gawk '{printf("%g pm %g\t %g pm %g\n",$1,$3,$2,$4)}'
+
+
+# compute bilinear misfits
+echo $0: gamma misfit
+grd2xyz -S hc.gamma.grd | gawk -f eg.bl.awk  | \
+    gawk '{d=$2-$3;if(d<0)d=-d;print($4,d)}' | gawk -f wmean.awk
+echo $0: delta misfit
+grd2xyz -S hc.delta.grd | gawk -f ed.bl.awk  | \
+    gawk '{d=$2-$3;if(d<0)d=-d;print($4,d)}' | gawk -f wmean.awk
+
+runfit=0
+if [ $runfit -eq 1 ];then
+# quadratic fit to eps-gamma
+    cat $datadir/flow_field/finite_strain/tmp.scatter.gamma.*  | \
+	polyfit > tmp.$$.dat
+    read a0 sa0 a1 sa1 a2 sa2 < tmp.$$.dat ; rm tmp.$$.dat 
+# linear fit to eps-gamma
+    cat $datadir/flow_field/finite_strain/tmp.scatter.gamma.*  | \
+	fitxyee 1 > tmp.$$.dat
+    read la lb lsiga lsigb lchi2 lq n lchi2_hat < tmp.$$.dat
+fi
+
+makecpt -T0/1/0.01 -Clighter_gray | gawk '{if($1=="N")print("N 255 255 255");else print($0)}' > hc.cpt
+#makecpt -T0/1/0.01 -Ccool > hc.cpt
+
+#
+# eps - gamma
+#
+reg=$rreg;proj=$proj1
+grdimage hc.gamma.grd -Chc.cpt \
+    $reg $proj -B$annp:"@~e@~":/$annp:"@~g@~":WeSn -P -K > $ofile
+# bilinear fit
+#psxy eg.bl.dat -M $reg $proj -O -K $bl_line >> $ofile
+gawk 'BEGIN{for(x=-0.17;x<=0.08;x+=0.001)print(x)}' | \
+    gawk -f eg.bl.awk | \
+    psxy  -M $reg $proj -O -K $bl_line >> $ofile
+psscale -N50 -Chc.cpt \
+    -D5.3/-0.4/2/.2h -O -K -B0.2/:"N/N@-max@-": >> $ofile
+
+if [ $runfit -eq 1 ];then
+#
+# best-fit
+#
+    echo $emin $emax $a0 $a1 $a2  | \
+	gawk '{er=$2-$1;de=er/1000;for(e=$1;e<=$2;e+=de){y=$3+$4*e+$5*e**2;print(e,y)}}' | \
+	psxy -W7/128 $reg $proj -O -K -N >> $ofile
+    echo $emin $emax $la $lb  | \
+	gawk '{er=$2-$1;de=er/1000;for(e=$1;e<=$2;e+=de){y=$3+$4*e;print(e,y)}}' | \
+	psxy -W7 $reg $proj -O -K -N >> $ofile
+fi
+#
+# straining trend
+#
+cat $sifile1.sav.dat | sav2decompose | gawk '{e=$9/$7;g=$10/$8;d=$11/$7;print(e,g)}' | \
+    psxy $sifile1_line $reg $proj -O -K -N >> $ofile
+ticksym="-Sd.1 -G255 -W1"
+# select \xi  increments
+lines=`gawk '{if($1>=x){x+=0.5;printf("%i ",NR);}}' $sifile1.dat`
+for l in $lines;do
+    oneline $l $sifile1.sav.dat | sav2decompose | gawk '{e=$9/$7;g=$10/$8;d=$11/$7;print(e,g)}' | \
+	psxy $ticksym $reg $proj -O -K -N >> $ofile
+done
+if [ -s $sifile2 ];then
+    cat $sifile2.sav.dat | sav2decompose | gawk '{e=$9/$7;g=$10/$8;d=$11/$7;print(e,g)}' | \
+	psxy $sifile2_line $reg $proj -O -K -N >> $ofile
+fi
+# depth dependent trend
+# old, Voigt
+sav2decompose 1 0.7 0 | gawk '{print($12,$13)}' | \
+    psxy -W6 $reg $proj -O -K -N >> $ofile
+# new, Voigt
+sav2decompose 14 0.7 0 | gawk '{print($12,$13)}' | \
+    psxy -W3 $reg $proj -O -K -N >> $ofile
+i=1
+while [ $i -le $ns ];do
+    sym=`picksymbol $i 0 8`
+    oneline $i tmp.hex > tmp.$$.dat
+    read name label eps gamma delta < tmp.$$.dat
+    # extract eps-gamma
+    echo $eps $gamma $size  | psxy $sym $reg $proj -O -K -N >> $ofile
+    # symbol for legend
+    lxy=`echo $i | gawk -f labelloc.awk`
+    echo $lxy $size | psxy -R0/1/0/1 $lp $sym -O -K -N >> $ofile
+    # sample name code
+    echo $lxy $label | \
+	gawk '{print($1,$2-0.1,14,0,0,"CM",$3)}' i=$i  | \
+	pstext -R0/1/0/1 $lp  -O -K -N >> $ofile 
+    rm tmp.$$.dat
+    ((i=i+1))
+done
+#
+# eps - delta
+#
+reg=$rred;proj=$proj2
+#psbasemap $reg $proj -Ba0.05f0.005:"@~g@~":/0.05f0.005:"@~d@~":wESn -O -K -X8 >> $ofile
+grdimage hc.delta.grd -Chc.cpt $reg $proj \
+    -B$annp:"@~e@~":/$annp:"@~d@~":wESn -O -K -X5.5 >> $ofile
+#psxy ed.bl.dat -M $reg $proj -O -K $bl_line >> $ofile
+gawk 'BEGIN{for(x=-0.17;x<=0.08;x+=0.001)print(x)}' | \
+    gawk -f ed.bl.awk | \
+    psxy -M $reg $proj -O -K $bl_line >> $ofile
+# slope = 1 trend
+gawk 'BEGIN{for(x=-0.15;x<=0.15;x+=0.05)print(x,-0.2+x)}' | \
+    psxy -W1ta $reg $proj -O -K -N >> $ofile
+
+cat $sifile1.sav.dat | sav2decompose | gawk '{e=$9/$7;g=$10/$8;d=$11/$7;print(e,d)}' | \
+    psxy $sifile1_line $reg $proj -O -K -N >> $ofile
+# select \xi  increments
+lines=`gawk '{if($1>=x){x+=0.5;printf("%i ",NR);}}' $sifile1.dat`
+for l in $lines;do
+    oneline $l $sifile1.sav.dat | sav2decompose | gawk '{e=$9/$7;g=$10/$8;d=$11/$7;print(e,d)}' | \
+	psxy $ticksym $reg $proj -O -K -N >> $ofile
+done
+if [ -s $sifile2 ];then
+    cat $sifile2.sav.dat | sav2decompose | gawk '{e=$9/$7;g=$10/$8;d=$11/$7;print(e,d)}' | \
+	psxy $sifile2_line $reg $proj -O -K -N >> $ofile
+fi
+# depth dependent trend
+# old, Voigt
+sav2decompose 1 0.7 0 | gawk '{print($12,$14)}' | \
+    psxy -W3 $reg $proj -O -K -N >> $ofile
+# new, Voigt
+sav2decompose 14 0.7 0 | gawk '{print($12,$14)}' | \
+    psxy -W6 $reg $proj -O -K -N >> $ofile
+i=1
+while [ $i -le $ns ];do
+    sym=`picksymbol $i 0 8`
+    oneline $i tmp.hex > tmp.$$.dat
+    # eps-delta 
+    gawk '{print($3,$5,s)}' s=$size tmp.$$.dat | psxy $sym $reg $proj -O -K -N >> $ofile
+    rm tmp.$$.dat
+    ((i=i+1))
+done
+echo 1000 1000 | psxy -Sa.1 $reg $proj -O >> $ofile
+modifybb $ofile 0 0 920 470 
+echo $0: output in $ofile
+

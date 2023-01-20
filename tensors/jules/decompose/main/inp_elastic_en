@@ -1,0 +1,5 @@
+1                           ** minerals number
+../data/enstatite.PT        ** elasticity (1)
+1D0                         ** volume fraction (1)
+0D0 0D0 0D0                 ** psi,theta,phi (1)
+en.out                      ** ouput file

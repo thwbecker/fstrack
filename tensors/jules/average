@@ -1,0 +1,8 @@
+#!/bin/bash
+abg="90 90 0"
+# voigt averages of samples
+cat enstatite.PT.sav | sav2rotate $abg > tmp.sav
+echo 0.3 `cat tmp.sav` > tmp.dat
+echo 0.7 `cat olivine.1500K.sav` >> tmp.dat
+gawk -f wmean.awk tmp.dat > avg.sav;rm tmp.dat tmp.sav
+

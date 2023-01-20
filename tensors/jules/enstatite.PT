@@ -1,0 +1,11 @@
+225E0  178E0  214E0 ** C11,C22,C33 (GPa)
+ 53E0   54E0   72E0 ** C23,C13,C12
+ 78E0   76E0   82E0 ** C44,C55,C66
+  0E0    0E0    0E0 ** C14,C15,C16
+  0E0    0E0    0E0 ** C24,C25,C26
+  0E0    0E0    0E0 ** C34,C35,C36
+  0E0    0E0    0E0 ** C56,C46,C45
+3.198E0             ** density (g/cm3)
+
+Enstatite - Room PT
+Bass 1995

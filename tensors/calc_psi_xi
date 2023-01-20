@@ -1,0 +1,9 @@
+#!/bin/bash
+#
+
+echo model         G/L xi=N/L Xi
+for t in kbbf-olivine kbbf-enstatite kbbf-avg estey_0.avg kr.ol kr.avg jules.ol \
+		      jules_assemblage kkol.atype ismain_spreading ismain_kimberlite ismain_subduction ismain_total ;do
+    echo $t `cat $t.sav | sav2max_ani`
+
+done

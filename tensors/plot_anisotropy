@@ -1,0 +1,143 @@
+#!/bin/bash
+#
+# plot anisotropy components for different tensors
+#
+#
+modes=${1-3}			# 1: hex/ort fraction as bars 2: velocity surface plots 3: rotate and compute VSH/VSV
+#
+tensors="song_kawakatsu12 ismain_subduction ismain_kimberlite  ismain_spreading ji_alligator 
+         ji_castlerock ji_nunuvak   ss.2.200 kkol.atype   kkol.ctype 
+         kr.ol kr.en kr.avg scr.avg kr.ol.bfhex"
+#oname=tcomp
+#xn=5
+
+#tensors="RM MC EHR 
+#         RM.hex MC.hex EHR.hex
+#         kr.ol kr.en kr.ol.bfhex"
+#         ismain_subduction ismain_kimberlite ismain_spreading "
+#ismain_subduction ismain_kimberlite ismain_spreading ji_alligator 
+#             ss.2.200 kkol.atype  kkol.ctype 
+
+oname=tcompn
+xn=3
+
+
+
+for mode in $modes;do
+
+
+    if [ $mode -eq 1 ];then
+
+	fs=""
+	tc=1
+	for t in $tensors ;do
+	    label=`echo $t | gawk -f rename.awk`
+
+	    cat $t.sav | sav2decompose 3 > tmp.dat
+	    read ani hex tet ort mon tri c_33 c_44 epsilon gamma delta < tmp.dat; rm tmp.dat
+
+	    echo $t $label
+	    ofile=$oname.$t.ps
+	    height=5;width=5
+	    xr=0.5/6.5			# 
+	    reg=-R$xr/0/20;proj="-JX"$width"/"$height
+
+	    echo $ani $hex $ort $tri | gawk '{for(i=1;i<=NF;i++)print(i,$i*100)}END{print(i,($1-$2-$3-$4)*100)}' | \
+		psxy $reg -Sb.5 -Y2 $proj \
+		-Gblue -W0.75 -Bf1/a5f.5:"tensor anisotropy [%]"::."$label":Wsn -P -K > $ofile
+
+	    yl=-.4;ts=22;ang=30
+	    cat <<EOF | pstext -N -R -J -O -K >> $ofile
+1 $yl $ts $ang 0 MR total
+2 $yl $ts $ang 0 MR hexagonal
+3 $yl $ts $ang 0 MR orthorhombic
+4 $yl $ts $ang 0 MR triclinic
+5 $yl $ts $ang 0 MR other
+6 $yl $ts $ang 0 MR ort/total
+EOF
+#6 $yl $ts $ang 0 MR ort/hex
+
+	    #reg=-R$xr/0.05/1.2;proj="-JX"$width"/"$height"l"
+	    reg=-R$xr/0.1/1.1;proj="-JX"$width"/"$height"l"
+	    echo 
+	    echo tensor $t hex/ani: `echo $hex $ani | gawk '{print($1/$2)}'` ort/ani: `echo $ort $ani | gawk '{print($1/$2)}'`
+	    echo
+	    
+	    echo $ort $ani | gawk '{print(6,$1/$2)}' | psxy $reg $proj -Sa0.5  -Gorange -W0.5 -B/a2f3:"ort/total ratio":E -O >> $ofile
+	    #echo $hex $ort | gawk '{print(6,$2/$1)}' | psxy $reg $proj -Sa0.5  -Gorange -W0.5 -B/a2f3:"ort/hex ratio":E -O >> $ofile
+	    modifybb $ofile
+	    #gv $ofile ; exit
+	    echo $0: written to $ofile
+	    fs="$fs $ofile"
+	    ((tc=tc+1))
+	done
+
+
+	\epsmerge --orientation Landscape \
+	    -x $xn -y 3 -par --print --postscript $fs > $oname.$mode.ps
+	ps2pdf $oname.$mode.ps
+	rm $oname.$mode.ps $fs
+
+    elif [ $mode -eq 2 ];then
+
+	for use_cart in  3 2 1;do
+		# 1: global cartesian system 
+                                # 2: orient with best-fit hex, old style
+                                # 3: orient with best-fit hex, new style, i.e. using best and worst hex axes as coordinate system
+	    
+	    fs=""
+	    tc=1
+	    for t in $tensors ;do
+		label=`echo $t | gawk -f rename.awk`
+		
+		rotate_beta=0	# dip angle rotation
+		pkr_seis $t.sav 1 2 $use_cart "" $rotate_beta "$label"
+		#gv $t.sav.1.ps; exit
+		fs="$fs $t.sav.1.ps"
+		((tc=tc+1))
+	    done
+	    \epsmerge --orientation Landscape \
+		-x $xn -y 3 -par --print --postscript $fs > $oname.$mode.$use_cart.ps
+	    ps2pdf $oname.$mode.$use_cart.ps
+	    rm $oname.$mode.$use_cart.ps $fs
+	done
+    elif [ $mode -eq 3 ];then
+	fs=""
+	tc=1
+	for t in $tensors ;do
+	    echo $t
+	    label=`echo $t | gawk -f rename.awk`
+	    rm tmp.dat 2> /dev/null
+	    beta=0	# dip angle rotation
+	    while [ $beta -le 90 ];do
+		# compute VSH VSV
+		echo $beta `cat  $t.sav | sav2decompose 18 2> /dev/null | gawk -f ~/awk/6x6tosav.awk| sav2rotate 0 $beta 2> /dev/null | gawk '{printf("0 0 200 ");for(i=4;i<=24;i++)printf("%s ",$i);printf("\n")}' | sav2afactor  50 progs/src/fstrack/sw_sens/PREMb/fsens 0 0 2> /dev/null | gawk '{print(sqrt($20/$17),sqrt($21/$17))}'` >> tmp.dat
+		((beta=beta+1))
+	    done
+	    cat <<EOF > tmp.gpl
+set term post eps enh color solid 36
+set size square
+set title '$label'
+set nokey 
+set out 'tmp.ps'
+set xlabel 'dip angle [^o]'
+set xtics 0,30,90
+set yrange [4.2:5.2]
+set ylabel 'velocity [km/s]'
+plot 'tmp.dat' using 1 : (\$2/1000) title 'v_{SH}' w l lw 8, 'tmp.dat' using 1 : (\$3/1000) title 'v_{SV}' w l lw 8 lt 3
+
+EOF
+	    gnuplot tmp.gpl
+	    modifybb tmp.ps
+	    mv tmp.ps tmp.$t.ps
+	    fs="$fs  tmp.$t.ps"
+	    ((tc=tc+1))
+	done
+	\epsmerge --orientation Landscape \
+		-x $xn -y 3 -par --print --postscript $fs > $oname.$mode.ps
+	ps2pdf $oname.$mode.ps
+	rm $oname.$mode.ps $fs tmp*
+
+    fi
+
+done

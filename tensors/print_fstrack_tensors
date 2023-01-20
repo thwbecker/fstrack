@@ -1,0 +1,54 @@
+#!/bin/bash
+#
+# extract the fstrack elastic tensors
+#
+
+mode=0;name=jules
+sav2decompose $mode > $name.dat
+gawk '{if(NR<=6)print($0)}' $name.dat > 6x6/$name.ol.6x6
+gawk '{if((NR>6)&&(NR<=12))print($0)}' $name.dat > 6x6/$name.en.6x6
+gawk '{if(NR>12)print($0)}' $name.dat > 6x6/$name.avg.6x6
+for t in ol en avg;do
+    gawk -v fac=1 -f 6x6tosav.awk 6x6/$name.$t.6x6 > $name.$t.sav
+done
+rm $name.dat
+
+mode=5;name=kr
+sav2decompose $mode > $name.dat
+gawk '{if(NR<=6)print($0)}' $name.dat > 6x6/$name.ol.6x6
+gawk '{if((NR>6)&&(NR<=12))print($0)}' $name.dat > 6x6/$name.en.6x6
+gawk '{if(NR>12)print($0)}' $name.dat > 6x6/$name.avg.6x6
+for t in ol en avg;do
+    gawk -v fac=1 -f 6x6tosav.awk 6x6/$name.$t.6x6 > $name.$t.sav
+done
+rm $name.dat
+
+mode=6;name=estey_0
+sav2decompose $mode > $name.dat
+gawk '{if(NR<=6)print($0)}' $name.dat > 6x6/$name.ol.6x6
+gawk '{if((NR>6)&&(NR<=12))print($0)}' $name.dat > 6x6/$name.en.6x6
+gawk '{if(NR>12)print($0)}' $name.dat > 6x6/$name.avg.6x6
+for t in ol en avg;do
+    gawk -v fac=1 -f 6x6tosav.awk 6x6/$name.$t.6x6 > $name.$t.sav
+done
+rm $name.dat
+
+mode=7;name=estey_dt
+sav2decompose $mode > $name.dat
+gawk '{if(NR<=6)print($0)}' $name.dat > 6x6/$name.ol.6x6
+gawk '{if((NR>6)&&(NR<=12))print($0)}' $name.dat > 6x6/$name.en.6x6
+gawk '{if(NR>12)print($0)}' $name.dat > 6x6/$name.avg.6x6
+for t in ol en avg;do
+    gawk -v fac=1 -f 6x6tosav.awk 6x6/$name.$t.6x6 > $name.$t.sav
+done
+rm $name.dat
+
+mode=8;name=estey_dp
+sav2decompose $mode > $name.dat
+gawk '{if(NR<=6)print($0)}' $name.dat > 6x6/$name.ol.6x6
+gawk '{if((NR>6)&&(NR<=12))print($0)}' $name.dat > 6x6/$name.en.6x6
+gawk '{if(NR>12)print($0)}' $name.dat > 6x6/$name.avg.6x6
+for t in ol en avg;do
+    gawk -v fac=1 -f 6x6tosav.awk 6x6/$name.$t.6x6 > $name.$t.sav
+done
+rm $name.dat

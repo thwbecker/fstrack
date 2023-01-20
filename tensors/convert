@@ -1,0 +1,10 @@
+#!/bin/bash
+cd vera_lab
+./convert
+
+cd ../kbbf4
+./convert
+cd ..
+
+
+./average

@@ -1,0 +1,27 @@
+set xlabel "depth [km]"
+set ylabel "tensor fractions [%]"
+! sav2decompose 1 > tmp.dat
+#!premtable_z 0 410 10 | gawk '{z=$2;a=$3;b=$4;r=$5;m=r*b*b;k=a*a*r-4./3.*m;if(substr($1,1,1)!="#")print(z,k/1e9,m/1e9)}' > prem.dat
+
+#sav2decompose: output: z T p   K G   ani orth hex mono tet tri
+ 
+set term post enh 
+set out "| sed -f psedit_eps.sed > dani.ps"
+
+plot 'tmp.dat' using 1 : 6 title 'total' w l,\
+'tmp.dat' using 1 : 8 title 'hexagonal' w l,\
+'tmp.dat' using 1 : 7 title 'orthorhombic' w l lt 4,\
+'tmp.dat' using 1 : 9 title 'monoclinic' w l lt 5
+
+set out "| sed -f psedit_eps.sed > prem.ps"
+
+set key bottom
+set ytics nomirror
+set y2tics nomirror
+set ylabel 'temperature [K]'
+set y2label 'moduli [GPa]'
+plot 'tmp.dat' using 1 : 2 title 'T' w l,\
+	'tmp.dat' using 1 : 4 axes x1y2 title 'K' w l lt 4 ,\
+	'prem.dat' using 1 : 2 axes x1y2 title 'PREM K' w l lt 4 lw 2,\
+	'tmp.dat' using 1 : 5 axes x1y2 title 'G' w l lt 5 ,\
+	'prem.dat' using 1 : 3 axes x1y2 title 'PREM G' w l lt 5 lw 2

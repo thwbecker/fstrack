@@ -1,0 +1,40 @@
+
+
+set term post portrait enh color solid 
+set out '| sed -f psedit_eps.sed > hexfac_depth.ps'
+set title 'olivine (70%) + enstatite'
+set multi
+set size 1,.33
+set origin 0,.66
+set ylabel "{/Symbol e}"
+
+plot 'hexfac_dir/hex.1.0.7.0.dat' using 1 : 12 title "old, Voigt" w l,\
+	'hexfac_dir/hex.1.0.7.0.5.dat' using 1 : 12 title "old, VHR" w l,\
+	'hexfac_dir/hex.1.0.7.1.dat' using 1 : 12 title "old, Reuss" w l,\
+	'hexfac_dir/hex.14.0.7.0.dat' using 1 : 12 title "new, Voigt" w l,\
+	'hexfac_dir/hex.14.0.7.0.5.dat' using 1 : 12 title "new, VHR" w l,\
+	'hexfac_dir/hex.14.0.7.1.dat' using 1 : 12 title "new, Reuss" w l
+
+set origin 0,.33
+set title ''
+set ylabel "{/Symbol g}"
+plot 'hexfac_dir/hex.1.0.7.0.dat' using 1 : 13 title "old, Voigt" w l,\
+	'hexfac_dir/hex.1.0.7.0.5.dat' using 1 : 13 title "old, VHR" w l,\
+	'hexfac_dir/hex.1.0.7.1.dat' using 1 : 13 title "old, Reuss" w l,\
+	'hexfac_dir/hex.14.0.7.0.dat' using 1 : 13 title "new, Voigt" w l,\
+	'hexfac_dir/hex.14.0.7.0.5.dat' using 1 : 13 title "new, VHR" w l,\
+	'hexfac_dir/hex.14.0.7.1.dat' using 1 : 13 title "new, Reuss" w l
+
+set origin 0,0
+set ylabel "{/Symbol d}"
+set xlabel "depth [km]"
+plot 'hexfac_dir/hex.1.0.7.0.dat' using 1 : 14 title "old, Voigt" w l,\
+	'hexfac_dir/hex.1.0.7.0.5.dat' using 1 : 14 title "old, VHR" w l,\
+	'hexfac_dir/hex.1.0.7.1.dat' using 1 : 14 title "old, Reuss" w l,\
+	'hexfac_dir/hex.14.0.7.0.dat' using 1 : 14 title "new, Voigt" w l,\
+	'hexfac_dir/hex.14.0.7.0.5.dat' using 1 : 14 title "new, VHR" w l,\
+	'hexfac_dir/hex.14.0.7.1.dat' using 1 : 14 title "new, Reuss" w l
+
+
+
+

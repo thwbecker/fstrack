@@ -1,0 +1,4 @@
+rm -f *~
+rm -f *.mod
+rm -f *.il
+rm -f *.o

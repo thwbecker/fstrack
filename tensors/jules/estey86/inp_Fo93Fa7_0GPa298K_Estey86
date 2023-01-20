@@ -1,0 +1,9 @@
+324e0  235e0  198e0 ** 11,22,33 (GPa)
+ 76e0   66e0   72e0 ** 23,13,12
+ 65e0   79e0   78e0 ** 44,55,66
+  0e0    0e0    0e0 ** 14,15,16
+  0e0    0e0    0e0 ** 24,25,26
+  0e0    0e0    0e0 ** 34,35,36
+  0e0    0e0    0e0 ** 56,46,45
+3.31e0 ** eensity (g/cm3)
+C ** Calculation with C=stiffness,S=compliance

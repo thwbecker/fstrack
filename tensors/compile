@@ -1,0 +1,33 @@
+#!/bin/bash
+
+mode=${1-1}
+
+if [ $mode -eq 1 ];then		# hex fractions
+    rm tmp.1 2> /dev/null
+    for f in `ls *.sav | sort`;do
+	echo $f `cat $f | sav2decompose | \
+	    gawk '{a=(1-$1)*100;hex=$2*100;tet=$3*100;ort=$4*100;mon=$5*100;tri=$6*100;
+                      printf("%g %g %g %g %g\n",hex,tet,ort,mon,tri)}'`  | \
+	    gawk '{printf("%s %11g %11g %11g %11g %11g\n",substr($1,1,length($1)-4),$2,$3,$4,$5,$6)}' >> tmp.1
+    done
+    gawk '{print($1)}' tmp.1 | gawk -f rename.awk  > tmp.2
+    paste tmp.1 tmp.2 | grep -v estey | grep -v jules | \
+	gawk '{printf("%s,%s,%g,%g,%g,%g,%g\n",$1,$7,$2,$3,$4,$5,$6)}'  > fractions.csv
+    emacs fractions.csv
+    rm tmp.1 tmp.2
+fi
+if [ $mode -eq 2 ];then		# eps gamma delta
+    rm tmp.1 2> /dev/null
+    for f in `ls *.sav | sort `;do
+	echo $f `cat $f | sav2decompose | gawk '{print($9/$7,$10/$8,$11/$7)}'` | \
+	    gawk '{printf("%s %11g %11g %11g\n",substr($1,1,length($1)-4),$2,$3,$4)}' >> tmp.1
+
+    done
+    gawk '{print($1)}' tmp.1 | gawk -f rename.awk  > tmp.2
+    paste tmp.1 tmp.2 | grep -v estey | \
+	grep -v jules | \
+	gawk '{printf("%25s\t%10s\t %11g %11g %11g\n",$1,$5,$2,$3,$4)}' > hexfac.dat
+    echo $0: written to hexfac.dat, now edit
+    emacs hexfac.dat
+    rm tmp.1 tmp.2 
+fi

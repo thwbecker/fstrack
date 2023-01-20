@@ -1,0 +1,21 @@
+#!/bin/bash
+abg="0 0 0"			# euler angles for enstatite, no rotation
+#
+#f1=0.283;f2=0.716
+f1=0.3;f2=0.7
+
+#
+# voigt averages of samples
+#
+# Jules' KBBF version
+cat jules-elastic_KBBF4_en.sav | sav2rotate $abg > tmp.sav
+echo $f1 `cat tmp.sav ` > tmp.dat
+echo $f2 `cat jules-elastic_KBBF4_ol.sav ` >> tmp.dat
+gawk -f wmean.awk tmp.dat > jules-elastic_KBBF4_avg.sav ; rm tmp.dat tmp.sav
+
+# original KBBF version
+cat kbbf-enstatite.sav | sav2rotate $abg > tmp.sav
+echo $f1 `cat tmp.sav` > tmp.dat
+echo $f2 `cat kbbf-olivine.sav` >> tmp.dat
+gawk -f wmean.awk tmp.dat > kbbf-avg.sav;rm tmp.dat tmp.sav
+

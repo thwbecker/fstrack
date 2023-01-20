@@ -1,0 +1,7 @@
+I use the convention from voigt 1928, see babuska & cara 1991:
+Cij = cklmn with i=k=l if k=l and i=9-k-l if k != l,
+and j=m=n if m=n and j-=9-m-n if m!=n. So Cij is
+
+c1111 c1122 c1133 c1123 c1113 c1112
+c2211 c2222 c2233 c2223 c2213 c2212
+...

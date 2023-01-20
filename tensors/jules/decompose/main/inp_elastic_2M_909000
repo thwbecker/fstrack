@@ -1,0 +1,8 @@
+2                           ** minerals number
+../data/olivine.1500K       ** elasticity (1)
+0.7D0                       ** volume fraction (1)
+0D0 0D0 0D0                 ** psi,theta,phi (1)
+../data/enstatite.PT        ** elasticity (2)
+0.3D0                       ** volume fraction (2)
+90D0 90D0 0D0               ** psi,theta,phi (2)
+ol.en.909000                ** ouput file

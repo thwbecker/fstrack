@@ -1,0 +1,12 @@
+272e0  160e0  192e0 ** C11,C22,C33 (GPa)
+ 66e0   60e0   56e0 ** C23,C13,C12
+ 49e0   62e0   60e0 ** C44,C55,C66
+  0e0    0e0    0e0 ** C14,C15,C16
+  0e0    0e0    0e0 ** C24,C25,C26
+  0e0    0e0    0e0 ** C34,C35,C36
+  0e0    0e0    0e0 ** C56,C46,C45
+3.212e0             ** density (g/cm3)
+
+Olivine - 1500 K
+Forsterite 90 - Fayalite 10
+Anderson & Isaac 1995

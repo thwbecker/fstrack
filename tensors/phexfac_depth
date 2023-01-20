@@ -1,0 +1,13 @@
+#!/bin/bash
+# plot depth dependence of hex factors
+
+for m in 1 14; do			# old, new
+    for f in 0 0.7;do		# only olivine/ol+en
+	for vhr in 0 0.5 1;do	# voigt/reuss averaging
+	    sav2decompose $m $f $vhr > \
+		hexfac_dir/hex.$m.$f.$vhr.dat
+	done
+    done
+done
+gnuplot phexfac_depth.gpl
+

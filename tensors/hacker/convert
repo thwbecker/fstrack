@@ -1,0 +1,6 @@
+#!/bin/bash
+for t in EHR MC RM;do
+    gawk '{if(NR>3)print($0)}' $t.mb | gawk -v fac=100 -f 6x6tosav.awk > $t.sav
+    cat $t.sav | sav2decompose 24 > $t.hex.sav
+
+done

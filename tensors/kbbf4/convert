@@ -1,0 +1,6 @@
+#!/bin/bash
+gawk -f jules2sav.awk jules-elastic_KBBF4_ol > ../jules-elastic_KBBF4_ol.sav
+gawk -f jules2sav.awk jules-elastic_KBBF4_en > ../jules-elastic_KBBF4_en.sav
+
+gawk -f 6x6tosav.awk kbbf-olivine.6x6 > ../kbbf-olivine.sav
+gawk -f 6x6tosav.awk kbbf-enstatite.6x6 > ../kbbf-enstatite.sav

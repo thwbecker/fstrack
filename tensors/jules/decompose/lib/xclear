@@ -1,0 +1,3 @@
+rm -f *~
+rm -f *.il
+rm -f *.o

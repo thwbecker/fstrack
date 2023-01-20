@@ -1,0 +1,4 @@
+#!/bin/tcsh
+foreach f ( *.cij );
+    gawk -f vera2sav.awk $f > ../$f:r.sav
+end

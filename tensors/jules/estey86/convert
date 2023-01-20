@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# olivine
+angles="90 90 90"
+
+gawk -f jules2sav.awk inp_Fo93Fa7_0GPa298K_Estey86 | sav2rotate $angles > ol.sav 2> /dev/null
+gawk -f jules2sav.awk inp_DP_Fo93Fa7_Estey86 | sav2rotate $angles > ol.dp.sav 2> /dev/null
+gawk -f jules2sav.awk inp_DT_Fo93Fa7_Estey86 | sav2rotate $angles > ol.dt.sav 2> /dev/null
+
+# enstatite 
+angles="0 90 0"
+gawk -f jules2sav.awk inp_En80Fs20_0GPa298K_Estey86 | sav2rotate $angles > en.sav 2> /dev/null
+gawk -f jules2sav.awk inp_DP_En80Fs20_Estey86 | sav2rotate $angles > en.dp.sav 2> /dev/null
+gawk -f jules2sav.awk inp_DT_En80Fs20_Estey86 | sav2rotate $angles > en.dt.sav 2> /dev/null
+
+for f in ol en;do
+    gawk -f sav26x6.awk $f.sav > $f.6x6
+done
+
+

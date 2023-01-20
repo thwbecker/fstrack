@@ -1,0 +1,5 @@
+1                           ** minerals number
+../data/olivine.1500K       ** elasticity (1)
+1D0                         ** volume fraction (1)
+90D0 90D0 90D0                 ** psi,theta,phi (1)
+olr.out                      ** ouput file

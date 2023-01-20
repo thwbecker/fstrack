@@ -1,0 +1,33 @@
+those were comments from Vera in 07/2005:
+
+Here six tensors from two papers. Density is not given
+in the papers, but it should be fine to set it to 3.353
+as before.
+
+xenolith samples from Ji, Zhao, Francis Tectonophys 1994:
+ji_castlerock, ji_alligator, ji_nunuvak. Cij at mantle P/T for
+component where p/T-derivatives available.
+density not given.
+
+olivine fabric averages from Ismail & Mainprice Tectonophys 1998:
+ismain_fastspreading, ismain_subduction, ismain_kimberlites. Cij were
+determined by measuring individual olivine crystal orientations, then
+taking Kumazawa & Anderson 1969 olivine elastic constants at 700K/300MPa
+(upper mantle) and taking Voigt average. Statement on p.147 that anisotropy
+is P/T independent because dCij/dT and dCij/dP are linear is wrong (only
+if they are identical between Cijs).
+fastspreading: very much like olivine, c up, a N-S.
+
+rhofix_* are tensors converted to GPa / 3353 kg/m^3. Probably ok for 
+Ismail & Mainprice Cij since those are based on olivine Cijs at
+mantle P/T. 
+density may be off, but here just taken as scale factor (rho shouldn't
+affect aniso effects).
+
+useful exercise may be to look at change of anisotropy when correct
+dCij/(dT,dP) are applied.
+
+
+rotated tensors:
+
+

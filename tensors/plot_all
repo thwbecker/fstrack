@@ -1,0 +1,65 @@
+#!/bin/bash
+
+fname=""
+i=1
+for f in scr.ol.sav scr.avg.sav ss.2.200.sav ismain_subduction.sav \
+    ismain_spreading.sav ismain_kimberlite.sav  \
+    ji_alligator.sav ji_castlerock.sav ji_nunuvak.sav;do
+  if [ $i -eq 3 ];then
+      use_depth=1
+  else
+      use_depth=0
+  fi
+  pkr_seis $f 1 1 2 "" 0 "" $use_depth
+  fname="$fname $f.1.ps"
+  ((i=i+1))
+done
+
+eopts="-par -lmar 0.1 -rmar 0.1 -tmar 0.1 -bmar 0.1 -cs 0.1"
+
+/usr/local/bin/epsmerge $eopts -x 3 -y 3 \
+    $fname > \
+    $HOME/plates/western_us/pole_figures/compare_splitting_2.ps
+epstopdf     $HOME/plates/western_us/pole_figures/compare_splitting_2.ps
+
+
+pkr_seis ss.2.200.sav 1 1 1 "" 0 "" 1
+fname="ss.2.200.sav.1.ps"
+for f in scr.ol.sav scr.avg.sav  ismain_subduction.sav \
+    ismain_spreading.sav ismain_kimberlite.sav kbbf-avg.sav \
+    ji_alligator.sav ji_castlerock.sav ji_nunuvak.sav;do
+  pkr_seis $f 1 1 1
+  fname="$fname $f.1.ps"
+done
+
+
+/usr/local/bin/epsmerge $eopts -x 3 -y 3 \
+    $fname > \
+    $HOME/plates/western_us/pole_figures/compare_splitting_2.orig.ps
+epstopdf     $HOME/plates/western_us/pole_figures/compare_splitting_2.orig.ps
+	
+
+
+fname=""
+for f in kkol.atype.sav kkol.btype.sav kkol.ctype.sav kkol.etype.sav;do
+  pkr_seis $f 1 1 2
+  fname="$fname $f.1.ps"
+done
+
+
+/usr/local/bin/epsmerge $eopts -x 3 -y 3 \
+    $fname > \
+    $HOME/plates/western_us/pole_figures/compare_splitting_3.ps
+epstopdf     $HOME/plates/western_us/pole_figures/compare_splitting_3.ps
+
+fname=""
+for f in kkol.atype.sav kkol.btype.sav kkol.ctype.sav kkol.etype.sav;do
+  pkr_seis $f 1 1 
+  fname="$fname $f.1.ps"
+done
+
+
+/usr/local/bin/epsmerge $eopts -par -x 3 -y 3 \
+    $fname > \
+    $HOME/plates/western_us/pole_figures/compare_splitting_3.orig.ps
+epstopdf     $HOME/plates/western_us/pole_figures/compare_splitting_3.orig.ps
