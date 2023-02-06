@@ -25,11 +25,11 @@ BDIR = bin/$(ARCH)/
 GMTLIBS = -L$(GMT4HOME)/lib/ -lgmt -L$(NETCDFDIR)/lib/ -lnetcdf 
 #
 # EISPACK
-EISLIBS = -L../eispack/$(ARCH)/ -lmyeis
+EISLIBS = -Leispack/$(ARCH)/ -lmyeis
 #
 # DREX stuff
 #
-DREX_DIR = ./d-rex
+DREX_DIR = d-rex/
 # for detecting dependencies
 DREX_LIB = $(DREX_DIR)/objects/$(ARCH)/libdrex.a 
 DREX_LIBS = -L$(DREX_DIR)/objects/$(ARCH)/ -ldrex
@@ -163,7 +163,7 @@ split_tools:
 lpo_tools: drex calc_lpo_from_streamline generate_vgm
 
 drex:
-	cd ../d-rex/; make ; cd ../fstrack;
+	cd d-rex/; make ; cd ../
 
 
 #
