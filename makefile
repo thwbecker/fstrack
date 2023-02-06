@@ -29,7 +29,7 @@ EISLIBS = -L../eispack/$(ARCH)/ -lmyeis
 #
 # DREX stuff
 #
-DREX_DIR = ../d-rex
+DREX_DIR = ./d-rex
 # for detecting dependencies
 DREX_LIB = $(DREX_DIR)/objects/$(ARCH)/libdrex.a 
 DREX_LIBS = -L$(DREX_DIR)/objects/$(ARCH)/ -ldrex

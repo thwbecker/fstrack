@@ -1,0 +1,6 @@
+#define DREX_PI 3.1415926535897932d0
+#define DREX_HALF_PI 1.57079632679489661d0
+#define DREX_TWO_PI 6.28318530717958647d0
+
+
+#include "drex_coord_convention.h"
