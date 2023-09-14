@@ -34,7 +34,7 @@ HDR_FLS = drex.h
 #
 # scca routine in decmod may use eispack eigensystem routines
 # 
-EISLIB = -L../../eispack/$(ARCH)/ -lmyeis -lm
+EISLIB = -L../eispack/$(ARCH)/ -lmyeis -lm
 
 #
 # DREX original
