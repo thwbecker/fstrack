@@ -1,1 +1,7 @@
-../../../progs/batch/predict_sks_seismogram
+#!/bin/bash
+#
+# construct one seismogram
+#
+slayer=50
+predict_splitting $PWD/ 0 $HOME/tmp/mean_split.out 0 0 $HOME/tmp/split.out $HOME/tmp/split.avg.out 1 $slayer 3.353 0.0189 \
+	0 $HOME/tmp/sirt.out 1
