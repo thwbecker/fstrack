@@ -1,1 +1,206 @@
-../../../progs/batch/pkr_o1xyz
+#!/bin/bash
+#
+# plot pole figures from the orientation of grains
+# from an o1xyz or o3xyz file. use upper hemisphere projection for 
+# pplane 1, then N is up
+#
+file=${1-o1xyz.1.0.00.dat} 		# input file for axes
+mode=${2-0}			# 0: points 
+                                # 1: summed raw
+                                # 2: summed smoothed
+
+pplane=${3-1}			# 1: project into 1-2 Cartesian plane, or S-E plane
+                                # 2: project into 1-3 Cartesian plane (side-view)
+vmode=${4-0}			# 0: produce EPS
+                                # 1: EPS + gv
+                                # 2: convert to SUN rgb
+pmode=${5-1}			# 1=a 2=b 3=c axes for o3xyz mode
+
+
+if [ `echo $file | gawk '{if(match($1,"o1xyz"))print(1);else print(0)}'` -eq 1 ];then
+    echo $0: detected o1xyz mode
+    o1xyz_out=1
+    odfcol=4
+    if [ $pmode -ne 1 ];then
+	echo $0: pmode $pmode only works with o3xyz files
+	exit
+    fi
+else
+    echo $0: detected o3xyz mode
+    o1xyz_out=2
+    odfcol=10
+fi
+
+if [ $pmode -eq 1 ];then
+    echo $0: plotting a axes
+    offset=0
+elif [ $pmode -eq 2 ];then
+    echo $0: plotting b axes
+    offset=3
+else
+    echo $0: plotting c axes
+    offset=6
+fi
+tmpn=/tmp/tmp.$USER.$HOST.$$.pkro
+trap "rm -rf $tmpn* ; exit" 0 1 2 15
+
+ofile=$file.ps
+pname=`basename $0`
+echo $pname: attempting to plot step $step from tracer path in $file
+
+if [ ! -s $file ];then
+    echo $pname: error: file not found
+    exit
+fi
+makecpt -T0/10/0.05 -I -Cseis > $tmpn.o.cpt	# olivine   scale
+n=`head -1 $file | gawk '{print($1)}'` 
+random_dens=`echo $n | gawk '{printf("%12.7e",1/$1)}'`
+echo $pname: input file: $name ngrains: $n 1\/n: $random_dens
+
+size=5
+
+proj=-JA0/90/$size			# Lambert azimuthal equal area
+type=o
+axis=1
+
+modifycptends $tmpn.$type.cpt
+
+#
+# create a random distribution (why?)
+#
+make_random=0
+if [ $make_random -gt 0 ];then
+    # n=20, n^3=8000
+    echo 20 > $tmpn.in
+    ../d-rex/bin/$ARCH/drex_random_cos < $tmpn.in > $tmpn.xyz
+    gawk -f xyz2lonlat.awk $tmpn.xyz | \
+	gawk '{x=$1;y=$2;if(y<0){x+=180;y=-y;if(x>360)x-=360;}print(x,y,1/n)}' n=8000 \
+	> $tmpn.$$
+else
+    #
+    # extract x,y,z coordinates of [100], [010], or [001] (direction cosines, first column
+    # of Euler matrix), convert to lon lat and write
+    # in lon lat odf format
+    #
+    head -1 $file > $tmpn.dat
+    read igrain projected < $tmpn.dat
+    if [ $pplane -eq 1 ];then	# regular
+	gawk -v odfcol=$odfcol -v off=$offset \
+	    '{if(NR>1)print($(off+1),$(off+2),$(off+3),$(odfcol))}' $file > $tmpn.cart
+	if [ $projected -eq 1 ];then
+	    xlabel="E";ylabel="N"
+	else
+	    xlabel="y";ylabel="-x"
+	fi
+    elif [ $pplane -eq 2 ];then	# sideview
+	if [ $projected -eq 1 ];then
+	    echo $0: error: side view only works for Cartesian, o1xyz file is projected
+	    exit
+	fi
+	
+	gawk -v odfcol=$odfcol -v off=$offset \
+	    '{if(NR>1)print(-$(off+3),$(off+1),-$(off+2),$(odfcol))}' $file > $tmpn.cart
+	xlabel="x";ylabel="z"
+    else
+	echo $0: pplane $pplane undefined
+	exit
+    fi
+    #
+    # when views from top, North should be up in plot. 
+    # use upper hemisphere projection. since the output is lon
+    # (where 0 is south), this is OK because GMT plots 0 in S
+    # and 180 in N
+    #
+    gawk -f xyz2lonlatr.awk upper_half=1 $tmpn.cart > $tmpn.dat
+    if [ $pplane -eq 1 ];then
+	gawk '{print($1,$2,$4)}' $tmpn.dat | \
+	    sort -n +2 -r > $tmpn.$$
+    else			# side-view is bottom hemisphere
+	gawk '{x=$1+180;if(x>360)x-=360;print(x,$2,$4)}' $tmpn.dat | \
+	    sort -n +2 -r > $tmpn.$$
+    fi
+fi
+
+
+xinc=5;yinc=$xinc
+reg=-R0/360/0/90
+preg=$reg
+
+freg=-R0/360/-87.5/87.5
+
+#time=`echo $file | gawk '{split($1,a,".");printf("%s.%s",a[3],a[4])}' | gawk '{printf("%.1f",-$1)}'`
+time=`echo $file | gawk '{split($1,a,".");printf("%s.%s",a[3],a[4])}' | gawk '{printf("%.1f",$1)}'`
+
+echo $pname: plotting poles for time $time inc: $xinc/$yinc
+
+label="t @~ = $time@~ Ma"
+if [ $mode -gt 0 ];then
+#
+# sum up contributions for base grid
+#
+    gawk '{x=$1;y=$2;print(x,y,$3);x+=180;y=-y;if(x>360)x-=360;print(x,y,$3)}' $tmpn.$$ | \
+	xyz2grd -N0 -A -F -L $freg  -I$xinc/$yinc -V -fg -G$tmpn.$$.grd
+    #
+    # area factor
+    echo $freg -I$xinc 
+    grdmath -F $freg -I$xinc Y  COSD = $tmpn.lfac
+    grdmath $tmpn.$$.grd $tmpn.lfac DIV = $tmpn.grd;mv $tmpn.grd $tmpn.$$.grd
+
+
+    if [ $mode -gt 1 ];then	# smooth
+	# need to redistribute for shana
+	grd2xyz $tmpn.$$.grd | surface -R0/357/-88.5/88.5 -fg -I3 -G$tmpn.$$.2.grd
+	shana 20 $tmpn.$$.2 2> /dev/null | abconvert 0 1 1 0 0 0 2> /dev/null | \
+	    shsyn 1 0 $tmpn.$$.2 2> /dev/null
+	grdclip  -Sb0/0 $tmpn.$$.2.grd -G$tmpn.$$.grd
+	grdcut  $reg $tmpn.$$.grd -G$tmpn.$$.2.grd; mv $tmpn.$$.2.grd $tmpn.$$.grd
+    fi
+
+    grdmath  $tmpn.$$.grd $random_dens DIV 100 DIV = $tmpn.$type.$axis.grd
+
+    #grdinfo $tmpn.$type.$axis.grd
+
+    #mymakecpt5 $tmpn.$type.$axis.grd 0.7 > $tmpn.$type.cpt
+    
+    makecpt -T0/500/5 -Cwysiwyg > $tmpn.$type.cpt 
+    modifycptends $tmpn.$type.cpt
+    #grdview -Qs70 -Y2 -Bg30 -C$tmpn.$type.cpt $tmpn.$type.$axis.grd \
+    grdimage -Y2 -Bg30 -C$tmpn.$type.cpt $tmpn.$type.$axis.grd \
+	$preg $proj   -P -K > $ofile 
+#    mypsscale -N50 -E-2 -C$tmpn.$type.cpt \
+#	-D2./-.2/3/.25h -B1:"olivine [100]":/:"ODF/ODF@-r@-": \
+#	-O -K >> $ofile
+else
+    # plot each grain
+    gawk '{if($3!=0)print($1,$2,$3**0.3333/10)}' $tmpn.$$ | \
+	psxy -Sc $preg $proj -W0.5 -G255/0/0 -Bg30  -P -K > $ofile 
+    #pscoast $preg $proj -Dc -A10000 -W5 -O -K >> $ofile
+fi
+#labels
+echo -0.02 1.025 22 0 0 ML "$label" | \
+    pstext -R0/1/0/1 -N -JX$size -O -K >> $ofile
+echo  .5 1.03 18 0 2 BC "$ylabel" | \
+    pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+echo 1.03 .5  18 0 2 ML "$xlabel" | \
+    pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+echo 1000 -90 | psxy -Sa.1 -R0/360/0/90 -JA0/90/3 -O >> $ofile
+
+# make plot square
+if [ $mode -eq 0 ];then
+    modifybb $ofile 50 60 460 470
+else
+    modifybb $ofile 50 130 460 540
+fi
+if [ $vmode -eq 0 ];then
+
+    echo $pname: output in $ofile
+elif [ $vmode -eq 1 ];then
+
+    echo $pname: output in $ofile
+    gv $ofile &
+elif [ $vmode -eq 2 ];then
+    convert $ofile $file.sun
+    rm $ofile
+    echo $0: output in $file.sun
+fi
+

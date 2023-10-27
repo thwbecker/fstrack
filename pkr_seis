@@ -1,1 +1,308 @@
-../../../progs/batch/pkr_seis
+#!/bin/bash
+#
+# using an sav file, plot splitting parameter spheres
+#
+file=${1-sav.0.dat}		# lon lat depth Upper_right_triangle_6x6 format
+step=${2-1}			# will be the line number of the file
+label=${3-0}			# generate a label, 1: automatically 2: use lstring
+use_cart=${4-0}			# assume tensors are in a 0: local geographic system
+                                #                         1: global cartesian
+                                # 2: rotate tensor into a hex best-fit system, old mode
+                                # 3: rotate tensor into a hex best-fit system, new mode
+                               
+unzipreg=${5-""}		# if this is set to a region, will unzip the sav file
+                                # and use the middle tensor for visualization
+beta=${6-0}			# rotate tensor?
+lstring=${7-""}			# label string for option label == 2
+use_depth=${8-0}		# use the depth label to estimate density, else default
+show_full=${9-0}		# 1: show the full 0..90 incidence, if zero, will use 0...45
+#
+# if zero, will show difference in vs1 and vs2 velocities
+#splitting_time_layerthick=100	# splitting delay time for layer thickness
+splitting_time_layerthick=0	# s wave velocity difference
+
+if [ $splitting_time_layerthick -eq 0 ];then
+    add_countour=0
+else
+    add_countour=1
+fi
+if [ $show_full -eq 1 ];then
+    preg=-R0/360/0/90
+    ann=-B
+else
+    preg=-R0/360/45/90
+    ann=-B/g15
+fi
+
+
+tmpn=/tmp/tmp.$USER.$HOST.$$.pkro
+trap "rm -rf $tmpn* ; exit" 0 1 2 15
+
+echo $0: file $file step: $step label: $label use_cart: $use_cart \
+    ureg: $unzip_reg beta: $beta lstring: $lstring
+
+if [ ! -s $file ];then
+    echo $0: error $file not found
+    exit
+else
+    if [ `echo $unzipreg | gawk '{if($1!="")print(1);else print(0);}'` -eq 1 ];then
+	# 
+	# tensor from flow
+	# 
+	if [ $use_cart -ne 0 ];then
+	    echo $0: WARNING: trying to find a geographic tensor but use_cart is $use_cart
+	fi
+	geo_select=1
+	fname=`echo $file | gawk '{n=split($1,a,"/");split(a[3],b,".");printf("%s.%s.%s.%s.%s.seis",a[1],b[3],b[4],b[5],b[6])}'`
+	zcat $file | gmtselect $unzipreg > $tmpn.sav
+	nsav=`lc $tmpn.sav`
+	if [ $nsav -ge 2 ];then
+	    ((step=nsav/2+1))
+	else
+	    if [ $nsav -eq 0 ];then
+		echo $0: found no tracers around $unzipreg
+		echo $0: file: $file
+		exit
+	    fi
+	    step=1
+	fi
+	file=$tmpn.sav
+	# if negative, adjust
+	#maxdvs=0.2
+	maxdvs=-1
+    else
+	# 
+	# other (single crystal?) tensor
+	# 
+	#maxdvs=0.4
+	maxdvs=-1
+	fname=$file
+	geo_select=0
+    fi
+    ns=`lc $file`
+    if [ $ns -lt $step ];then
+	echo $0: error, $file has only $ns steps
+	exit
+    fi
+fi
+if [ $beta -ne 0 ];then
+    echo $0: ROTATING by $beta
+    ofile=$fname.$step.$beta.ps
+else
+    ofile=$fname.$step.ps
+fi
+if [ $geo_select -eq 1 ];then
+    ofile=$HOME/tmp/$ofile
+fi
+# convert to 0 ... 360 azimuth 0 .. 90
+oneline $step $file > $tmpn.sav.selected
+if [ ! -s $tmpn.sav.selected ];then
+    echo $0: error
+    exit
+fi
+if [ `gawk '{if(NF!=24)print(1);else print(0)}' $tmpn.sav.selected` -eq 1 ];then
+    echo $0: error: did not find 24 fields in file, maybe the input was not in all row format\?
+    exit
+fi
+if [ $use_depth -eq 1 ];then
+    rho=-1
+else
+    rho=3.353
+fi
+if [[ $use_cart -eq 2 || $use_cart -eq 3 ]];then	# rotate into hex system
+    if [ $beta -ne 0 ];then
+	echo $0: error: applying $beta and best fit hex
+	exit
+    else
+	echo $0: WARNING: rotating into best fit hexagonal system
+    fi
+    if [ $use_cart -eq 2 ];then
+	sspliting_string="$rho 0 0 1 1"
+    else
+	sspliting_string="$rho 0 0 1 0"
+    fi
+    
+else
+    sspliting_string="$rho 0 0 0"
+fi
+
+
+addmaxvslabel=0
+if [ $splitting_time_layerthick -ne 0 ];then
+    # delay times
+    cat $tmpn.sav.selected | \
+	sav2splitting stdin 5 $beta $splitting_time_layerthick $sspliting_string | \
+	gawk '{if(NF==6){x=180-$1;if(x<0)x+=360;if(x>360)x-=360;y=90-$2;
+               print(x,y,$4,$3);if(x==0)print(360,y,$4,$3)}}'  > $tmpn.data
+
+#	surface $preg -I0.5 -G$tmpn.dat.grd -fg -Lud -Lld
+    gawk '{print($1,$2,$3)}' $tmpn.data | \
+	xyz2grd $preg -I0.5 -G$tmpn.dat.grd   -fg
+
+    makecpt -T0/3/0.05 -Chaxby  > $tmpn.cpt
+    label_string="@~d@~t [s]";spac=1
+else
+# Vs surface
+    cmp=polar
+    #cmp=gray
+    #cmp=haxby
+    cat $tmpn.sav.selected | \
+	sav2splitting stdin 5 $beta 10 $sspliting_string | \
+	gawk '{if(NF==6){x=180-$1;if(x<0)x+=360;if(x>360)x-=360;y=90-$2;
+            print(x,y,$5-$6,$3);if(x==0)print(360,y,$5-$6,$3);}}' > $tmpn.data # dvs and fazi
+    # amplitudes
+    gawk '{print($1,$2,$3)}' $tmpn.data | \
+	xyz2grd $preg -I0.5 -G$tmpn.dat.grd -fg 
+#	surface $preg -I0.5 -G$tmpn.dat.grd -fg
+    if [ `echo $maxdvs | gawk '{if($1<0)print(1);else print(0)}'` -eq 1 ];then
+	# adjust to max
+	max=`grd2max $tmpn.dat.grd`
+	min=`grd2min $tmpn.dat.grd`
+	echo $min $max
+	grd2cpt -E11 $tmpn.dat.grd -C$cmp > $tmpn.cpt
+	minvslabel=`echo $min | gawk '{printf("min(@~D@~v@-S@-) = %.2f km/s",$1)}'`
+	maxvslabel=`echo $max | gawk '{printf("max(@~D@~v@-S@-) = %.2f km/s",$1)}'`
+	cont_level=0.1
+	addmaxvslabel=1
+    else
+	makecpt -T0/$maxdvs/0.02 -D -C$cmp -Z > $tmpn.cpt
+	cont_level=0.02
+    fi
+    label_string="@~D@~v@-S@- [km/s]";spac=0.1
+fi
+    #
+    # convert fast azimuths into directions for psxy -Sv
+    #
+gawk '{print($1,$2,cos($4/57.2957795130))}' $tmpn.data | \
+    xyz2grd $preg  -I0.5 -G$tmpn.dy.grd -fg
+#    surface $preg  -I0.5 -G$tmpn.dy.grd
+gawk '{print($1,$2,sin($4/57.2957795130))}' $tmpn.data | \
+    xyz2grd $preg -I0.5 -G$tmpn.dx.grd -fg 
+
+#    surface $preg -I0.5 -G$tmpn.dx.grd
+if [ $show_full -eq 1 ];then
+    zcat $datadir/sphere_points/npoints.-1.lonlat.gz | \
+	gawk '{x=$1+0.5;y=$2+0.5;if(y>=90)y=89.9;print(x,y)}' > $tmpn.asample
+else
+   zcat $datadir/sphere_points/npoints.0.lonlat.gz | \
+	gawk '{x=$1+0.5;y=$2+0.5;if(y>=90)y=89.9;print(x,y)}' > $tmpn.asample
+fi
+grdtrack -fg $tmpn.asample -G$tmpn.dx.grd > $tmpn.1
+grdtrack -fg $tmpn.asample -Z -G$tmpn.dy.grd > $tmpn.2
+grdtrack -fg $tmpn.asample -Z -G$tmpn.dat.grd > $tmpn.a
+paste $tmpn.1 $tmpn.2 $tmpn.a | \
+    gawk '{print($1,$2,atan2($4,$3),$5)}' > $tmpn.azi
+
+
+echo $0: plotting
+size=5
+proj=-JA0/90/$size			# Lambert azimuthal equal area Schmidt
+#proj=-JS0/90/$size			# Lambert azimuthal equal area Wulff
+
+if [ $use_cart -eq 2 ];then # rotated, old
+    xlabel="H@-3@-";ylabel="H@-1@-"
+elif [ $use_cart -eq 3 ];then # rotated, new
+    xlabel="H@-W@-";ylabel="H@-B@-"
+elif [ $use_cart -eq 1 ];then
+    xlabel="y";ylabel="-x"
+else
+    xlabel=E;ylabel=N
+fi
+if [ $geo_select -eq 1 ];then
+    gawk '{printf("%.1f %.1f %.0f\n",$1,$2,$3)}' $tmpn.sav.selected > $tmpn.xyz
+    read lon lat z < $tmpn.xyz
+    if [ $use_cart -eq 2 ];then
+   # extract hex fraction, eps gamma delta
+	stitle=`cat $tmpn.sav.selected | sav2decompose | gawk '{printf("%.0f%%@~{%.2f,%.2f,%.2f@~}@~",$2/$1*100,$9/$7,$10/$8,$11/$7)}'`
+	lstring="$lstring: $stitle"
+    else
+	lstring="$lstring @~(f = $lon@~\312@~, l = $lat@~\312@~)@~"
+	echo $lon $lat $lstring
+	cat $tmpn.sav.selected 
+    fi
+fi
+
+
+rm .gmt* 2> /dev/null
+grdsample $preg -fg -I0.125 -G$tmpn.f.dat.grd $tmpn.dat.grd
+grdimage $ann  -Y2 -C$tmpn.cpt $tmpn.f.dat.grd $preg $proj   -P -K > $ofile 
+if [ $show_full -eq 0 ];then
+    echo labeling
+    cat <<EOF | pstext -R -N -J -O -K -Wwhite >> $ofile
+270 45  18 0 0 CM 45
+270 60  18 0 0 CM 30
+270 75  18 0 0 CM 15
+EOF
+fi
+if [ $add_countour -eq 1 ];then
+    if [ $splitting_time_layerthick -eq 0 ];then # velocity difference
+	grdcontour $tmpn.dat.grd -C$cont_level $preg $proj -W3,orange  -O -K >> $ofile 
+    else				# delay time
+	cat <<EOF > $tmpn.contours
+1
+2
+3
+4
+5
+EOF
+	grdcontour $tmpn.dat.grd -C$tmpn.contours $preg $proj -W3,orange  -O -K >> $ofile 
+    fi
+fi
+if [ -s $tmpn.azi ];then
+    gawk '{print($1,$2,$3*57.295779513082,0.2)}' $tmpn.azi | \
+	psxy  -Sv0.05/0/0 -G200 -W0.5  $preg $proj -O -K >> $ofile
+fi
+echo  .5 1.035 18 0 2 BC "$ylabel" | \
+    pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+echo 1.02 .5  18 0 2 ML "$xlabel" | \
+    pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+if [ $label -eq 1 ];then	# from filename
+    title=`echo $file | gawk '{print(substr($1,1,length($1)-4))}' | gawk -f rename.awk`
+    # extract hex fraction, eps gamma delta
+    stitle=`cat $tmpn.sav.selected | sav2decompose | gawk '{printf("%.0f%%@~{%.2f,%.2f,%.2f@~}@~",$2/$1*100,$9/$7,$10/$8,$11/$7)}'`
+    title="$title $stitle"
+    echo  -0.05 1.15 28 0 0 TL "$title" | \
+	pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+    if [ $beta -ne 0 ];then
+	echo  0.9 1.02 18 0 0 BL "@~b = $beta\312@~" | \
+	    pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+    fi
+elif [ $label -eq 2 ];then
+    echo  -0.05 1.15 28 0 0 TL "$lstring" | \
+	pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+fi
+# for orientation
+#pscoast -Dc $preg $proj -O -K -W1 >> $ofile
+if [ $geo_select -ne 1 ];then
+# scale
+    if [ $addmaxvslabel -eq 0 ];then
+	psscale -N50 -Ef -C$tmpn.cpt -D2.5/-.2/3/.15h -B$spac/:"$label_string": -O -K >> $ofile
+    fi
+fi
+if [ $addmaxvslabel -eq 1 ];then
+    echo $max
+    fp=`echo $max | gawk '{printf("%.0f",$1/9.183200001716614e-01*100)}'`
+#    echo -0.06 -0.1 26 0 2 BL "$maxvslabel ($fp% of SCR)" | \
+    
+    echo -0.06 -0.05 18 0 2 BL "$minvslabel" | \
+	pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+    echo -0.06 -0.1  18 0 2 BL "$maxvslabel ($fp% of SC)" | \
+	pstext -N -R0/1/0/1 -JX$size -O -K  >> $ofile
+fi
+echo 1000 -90 | psxy -Sa.1 $preg $proj -O >> $ofile
+
+if [ $label -eq 0 ];then
+    modifybb $ofile 35 90 485 535
+else
+    modifybb $ofile 50 90 465 565
+fi
+
+
+echo $0: output in $ofile
+if [ $geo_select -eq 1 ];then
+    if [ $use_cart -eq 2 ];then
+	cp $ofile $HOME/tmp/tmp.seis.h.ps
+    else
+	cp $ofile $HOME/tmp/tmp.seis.ps
+    fi
+fi

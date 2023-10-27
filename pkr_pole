@@ -1,1 +1,430 @@
-../../../progs/batch/pkr_pole
+#!/bin/bash
+#
+# plot pole figures from Kaminski & Ribe output
+# the data is summed normalized density
+#
+file=${1-pole.0.dat} 		# input file for tracer
+step=${2-1}			# which step to plot
+mode=${3-0}			# 0: show all, 
+                                # 1: show olivine [100] with decorations
+                                # 2: show olivine [100] without decorations
+                                # 3: show olivine [100] with some decorations, time label
+                                # 4: show olivine [100] with some decorations, strain label
+                                # 5: show olivine [*] with some decorations
+vmode=${4-0}			# 1: white background 2: BW 3: log BW
+normalize=${5-0}		# normalize the densities
+
+
+if [ $mode -eq 0 ];then
+    showenstatite=1
+    showaxes="1 2 3"
+    decorations=2
+elif [ $mode -eq 1 ];then
+    showenstatite=0			
+    showaxes="1"
+    decorations=2
+elif [ $mode -eq 2 ];then
+    showenstatite=0
+    showaxes="1"
+    decorations=0
+elif [ $mode -eq 3 ];then
+    showenstatite=0
+    showaxes="1"
+    decorations=1
+elif [ $mode -eq 4 ];then
+    showenstatite=0
+    showaxes="1"
+    decorations=1
+elif [ $mode -eq 5 ];then
+    showenstatite=0
+    showaxes="1 2 3"
+    decorations=1
+else
+    echo $0: mode $mode undefined
+    exit
+fi
+grdmode=0			# 0: no interp 1: interp
+show_surface=1			# show surface wave 2phi/4phi
+
+
+
+oldbgcol=`gmt_bgcol`
+# viz stuff
+inv=""
+if [ $vmode -eq 1 ];then	# PDF transparent
+    bgcol=255/255/255
+    gmtset BASEMAP_FRAME_RGB $bgcol
+    log=0;tr=-T0/2.5/0.1
+    cmp=haxby
+elif [ $vmode -eq 0 ];then	# regular color
+    bgcol=$oldbgcol;log=0
+#    cmp=haxby;tr=-T0/5/0.1
+    cmp=seis;tr=-T0/5/0.1;inv="-I"
+elif [ $vmode -eq 2 ];then	# BW
+    bgcol=$oldbgcol;log=0
+    cmp=lighter_gray;tr=-T0/2./0.1
+elif [ $vmode -eq 3 ];then	# BW log
+    bgcol=$oldbgcol;log=1
+    cmp=lighter_gray;tr=-T-0.1/.1/0.01
+fi
+if [ $normalize -eq 1 ];then
+    tr=-T0/1/0.1
+fi
+
+ofile=$file.$step.ps
+pname=`basename $0`
+tmpn=/tmp/$USER.$HOST.$$.pkr
+trap "rm -f $tmpn.* ; exit" 0 1 2 15
+#
+if [ ! -s $file ];then
+    echo $pname: error: file not found
+    exit
+fi
+#
+# strain file
+#
+fse_file=`echo $file | gawk '{split($1,a,".");printf("seval.%s.%s",a[2],a[3])}'`
+if [ ! -s $fse_file ];then
+    echo $pname: strain file $fse_file not found
+    exit
+fi
+#
+# transverse Isotropy file
+#
+ti_file=`echo $file | gawk '{split($1,a,".");printf("ti.%s.%s",a[2],a[3])}'`
+if [ ! -s $ti_file ];then
+    ti_file=`echo $file | gawk '{split($1,a,".");printf("tid.%s.%s",a[2],a[3])}'`
+    if [ ! -s $ti_file ];then
+	echo $pname: TI file $ti_file not found
+	exit
+    fi
+fi
+echo $pname: attempting to plot step $step from tracer path in $file
+echo $pname: using FSE from $fse_file using TI from $ti_file
+if [ $show_surface -eq 1 ];then
+#
+# 2phi/4phi
+#
+    phi_file=`echo $file | gawk '{split($1,a,".");printf("rphi.%s.%s",a[2],a[3])}'`
+    if [ ! -s $phi_file ];then
+	echo $pname: RPHI file $phi_file not found
+	show_surface=0
+    fi
+fi
+
+n=`lc $file`
+if [[ $step -gt $n || $step -lt 1 ]];then
+    echo $pname: error: step out of bound, $file has $n steps
+    exit
+fi
+oneline $step $file > $tmpn.dat
+#
+# read in the parameters for this pole figure
+#
+read time size nx ny lon lat depth grcs name < $tmpn.dat
+#
+# compute some geographic bounds
+#
+xinc=`echo $nx | gawk '{print(360/$1)}'`
+xinch=`echo $xinc | gawk '{print($1/2)}'`
+yinc=`echo $ny | gawk '{print(90/$1)}'`
+yinch=`echo $yinc | gawk '{print($1/2)}'`
+#
+# actual grid region as in fstrack run
+reg=-R$xinch/`echo $xinch | gawk '{print(360-$1)}'`/$yinch/`echo $yinch | gawk '{print(90-$1)}'`/
+#
+freg=-R0/360/-90/90		# full region, for smoothing
+preg=-R0/360/0/90		# plotting region, upper hemisphere
+
+strain1=`oneline $step $fse_file | gawk '{print(log($5/$6))}'  | gawk '{printf("%.1f",$1)}'`
+strain2=`oneline $step $fse_file | gawk '{print(log($6/$7))}'  | gawk '{printf("%.1f",$1)}'`
+#
+# echo some information
+#
+echo $pname: plotting upper hemisphere poles for time $time inc: $xinc/$yinc
+echo $pname: log strains: $strain1, $strain2
+echo $pname: input file: $name ngrains: $size 
+echo $pname: lon: $lon lat: $lat depth: $depth
+#
+# switch projection systems
+#
+if [ $grcs -eq 1 ];then		
+    echo $pname: ODF given ENU geographic system
+    xlabel=E;ylabel=N;cartesian=0
+else
+    echo $pname: ODF given in global Cartesian system
+    xlabel="y";ylabel="-x";cartesian=1;show_surface=0
+fi
+naxes=`echo $showaxes | gawk '{print(NF)}'`
+
+#
+# projection parameters
+#
+size=3;xoff=3.3;xoff2=6.6;yoff=4.2;
+proj=-JA0/90/$size		# Lambert equal area
+
+# 
+# extract the strain file
+oneline $step $fse_file  > $tmpn.fse
+# extract TI
+oneline $step $ti_file  > $tmpn.ti
+if [ $show_surface -eq 1 ];then
+# extract 2phi/4phi
+    oneline $step $phi_file > $tmpn.2phi
+fi
+
+if [ $showenstatite -eq 1 ];then
+    types="o e"
+else
+    types="o"
+fi
+tc=1
+for type in $types;do		# oli/ens
+    if [ $tc -eq 1 ];then	# olivine
+	makecpt -C$cmp $tr -Z $inv > $tmpn.$type.cpt	
+    else			# enstatite
+	makecpt -C$cmp $tr -Z $inv > $tmpn.$type.cpt	
+    fi
+    modifycptends $tmpn.$type.cpt
+    naxes=`echo $showaxes | gawk '{print(NF)}'`
+    for axis in $showaxes;do	# axis
+	fname=$name.$type.$axis
+	if [ ! -s $fname ];then
+	    echo $pname: error: $fname not found
+	    exit
+	fi
+#	icmd="grdimage $tmpn.$type.$axis.grd   -C$tmpn.$type.cpt "
+	icmd="grdview -Qs70  $tmpn.$type.$axis.grd   -C$tmpn.$type.cpt "
+#	icmd="grdcontour $tmpn.$type.$axis.grd -C0.002 -S10"
+#	label="-Bg30/g30"
+	label=""
+	echo $pname: working on $fname, expecting $reg grid
+	# make one grid with the summed entries from fstrack, lower hemisphere
+	# data is assumed to be sorted 0...360, 0 ... -90 *downward)
+	xyz2grd -ZTLd $fname $reg  -I$xinc/$yinc  -G$tmpn.dat.grd -V
+	if [ $normalize -eq 1 ];then
+	    nrms=`grd2rms $tmpn.dat.grd | gawk '{printf("%.2f",$1)}'`
+	    grdmath $tmpn.dat.grd $nrms DIV = $tmpn.grd; mv $tmpn.grd $tmpn.dat.grd 
+	elif [ $log -eq 1 ];then
+	    # take the log10
+	    grdmath $tmpn.dat.grd LOG10 = $tmpn.tmp; mv $tmpn.tmp $tmpn.dat.grd
+	fi
+	if [ $grdmode -eq 1 ];then
+	    # fill in lower hemisphere
+	    grd2xyz $tmpn.dat.grd | \
+		gawk '{x=$1;y=$2;z=$3;print(x,y,z);\
+                   x+=180;y=-y;if(x>360)x-=360;print(x,y,z);}'  |\
+		surface $freg -I3  -G$tmpn.dat.2.grd
+#		xyz2grd  $freg  -I3  -G$tmpn.dat.2.grd
+#		xyz2grd -N0 $freg  -I$xinc/$yinc  -G$tmpn.dat.2.grd
+#		ssrf_surface $freg -I3  -G$tmpn.dat.2.grd
+
+#	    grdinfo -L2 $tmpn.dat.2.grd
+
+	    shana 16 $tmpn.dat.2 2> /dev/null | \
+		abconvert 0 1 1 0 0 0 2> /dev/null | \
+		shsyn 3 1 $tmpn.dat 2> /dev/null
+	    grdclip -Sb0/0 $tmpn.dat.grd -G$tmpn.dat.2.grd
+	    mv $tmpn.dat.2.grd $tmpn.dat.grd
+	fi
+
+	cp  $tmpn.dat.grd  $tmpn.$type.$axis.grd
+
+	if [[ $tc -eq 1 && $axis -eq 1 ]];then
+	    #
+	    # olivine [100]
+	    #
+	    $icmd $preg $proj -Y5 $label  -P -K > $ofile 
+	    if [ $normalize -eq 1 ];then
+		grdcontour $preg $proj $tmpn.$type.$axis.grd -C0.2 -S10 -O -K >> $ofile 
+	    fi
+	    # plot map for testing purposes
+	    #pscoast $preg $proj -O -K -W2 -Dc >> $ofile
+	    if [ $decorations -eq 1 ];then
+	    #
+	    # add label for North and East
+	    #
+		if [[ $mode -ne 4 && $mode -ne 5 ]];then
+		    echo  .5 1.02 14 0 2 BC "$ylabel" | \
+			pstext -N -R0/1/0/1 -JX$size -O -K -G$bgcol >> $ofile
+		    echo 1.02 .5  14 0 2 ML "$xlabel" | \
+			pstext -N -R0/1/0/1 -JX$size -O -K  -G$bgcol >> $ofile
+		    echo  0 1.02 14 0 0 BL "t@~ = $time@~ Ma" | \
+			pstext -N -R0/1/0/1 -JX$size -O -K -G$bgcol >> $ofile
+		else		# mode 4
+		    echo  .5 1.02 14 0 2 BC "$ylabel" | \
+			pstext -N -R0/1/0/1 -JX$size -O -K -G$bgcol >> $ofile
+		    echo 1.02 .5  14 0 2 ML "$xlabel" | \
+			pstext -N -R0/1/0/1 -JX$size -O -K  -G$bgcol >> $ofile
+		    echo  0 1.02 14 0 0 BL "@~x = $strain1, z = $strain2@~" | \
+			pstext -N -R0/1/0/1 -JX$size -O -K -G$bgcol >> $ofile
+		fi
+		if [ $normalize -eq 1 ];then
+		    echo  0.6 1.02 14 0 0 BL "@~G@~@-rms@- = $nrms" | \
+			pstext -N -R0/1/0/1 -JX$size -O -K -G$bgcol >> $ofile
+		fi
+		if [ $mode -eq 3 ];then
+		    echo $0: adding scale
+		    psscale -N50 -Ef -C$tmpn.$type.cpt \
+			-D2.55/3.3/.75/.1h -B1/:"@~G@~": \
+			-O -K >> $ofile
+		fi
+
+	    fi
+	    if [ $show_surface -eq 1 ];then
+		if [ $cartesian -eq 1 ];then
+		    echo $pname: error: cartesian does not work 
+		    echo $pname: for show_surface
+		    exit
+		fi
+	    #
+	    # plot the 2phi and four phi terms for 100s surface waves
+	    # normalize the amplitudes by 2phi and turn the azimuths
+	    # (CW from North) into directions. in the plot, N is up
+	    #
+		gawk '{lon=$1;lat=$2;z=$3;time=$4;l=$5;n=$6;
+                       for(i=7;i<=NF;i+=5){p=$i;p2azi=$(i+1);p2amp=$(i+2);p4azi=$(i+3);p4amp=$(i+4);\
+                          if(p==100)print(p2amp/scale,90.0-p2azi,90.0-p4azi,180.0-p4azi,p4amp/scale);}}' \
+			   scale=4 $tmpn.2phi > $tmpn.phidat
+		read amp2p azi2p azi4p1 azi4p2 amp4p < $tmpn.phidat
+		echo $pname: 2phi direction CCW from east: $azi2p amp4p: $amp4p
+	    # 4phi
+		echo 0.5 0.5 $azi4p1 $amp4p | psxy -SvB0.15/0/0 -G128 -W1/1 -O -K -R0/1/0/1 -JX$size >> $ofile
+		echo 0.5 0.5 $azi4p2 $amp4p | psxy -SvB0.15/0/0 -G128 -W1/1 -O -K -R0/1/0/1 -JX$size >> $ofile
+	    # 2phi
+		echo 0.5 0.5 $azi2p $amp2p  | psxy -SvB0.15/0/0 -G255 -W1/1 -O -K -R0/1/0/1 -JX$size >> $ofile
+	    fi
+	    if [[ $naxes -gt 1 && $mode -ne 5 ]];then
+		psscale -N50 -Ef -C$tmpn.$type.cpt \
+		    -D4.8/4/3/.25h -B1:"olivine":/:"ODF/ODF@-r@-": -O -K >> $ofile
+	    fi
+	    #
+	    # add finite strain location, extract 
+	    #
+	    if [ $decorations -eq 1 ];then
+		es="1 2 3"
+	    else
+		es="1"
+	    fi
+	    #
+	    # FSE
+	    #
+	    for e in $es;do	# loop through the eigenvalues
+		#
+		# extract val r t p (OR val x y z, if we are in Cartesian )
+		#
+		gawk '{print($(4+i),$(8+(i-1)*3),$(9+(i-1)*3),$(10+(i-1)*3))}' i=$e $tmpn.fse > $tmpn.e
+		read val r t p < $tmpn.e
+		if [ $cartesian -eq 1 ];then # convert x,y,z to r,t,p
+		    echo $r $t $p | gawk '{print($3,$1,$2)}' > $tmpn.conv
+		    read r t p < $tmpn.conv
+		fi
+		echo $r $t $p | gawk -f rtpvec2lonlatr.awk upper_half=1  | \
+		    gawk '{print($1,$2)}' > $tmpn.lonlat
+		if [ $decorations -eq 1 ];then
+		    cat $tmpn.lonlat | \
+			psxy -Sc.3 -G128 -O -K $preg $proj -W1/0 >> $ofile
+		    echo `cat $tmpn.lonlat` 12 0 1 CM "e@-$e@-" | \
+			pstext -O -K $preg $proj  -N >> $ofile
+	        else
+		    cat $tmpn.lonlat | psxy -Sc.75 -G255 -W1/1 -O -K $preg $proj  >> $ofile
+		fi
+		rm $tmpn.lonlat 2> /dev/null
+	    done
+	    #
+	    # extract the TI axes
+	    #
+	    rm $tmpn.lonlat 2> /dev/null
+	    if [ $cartesian -eq 1 ];then
+		# ti is actually in val x y z
+		gawk '{print($4,$2,$3)}' $tmpn.ti  > $tmpn.conv
+	    else		# ti is in r t p
+		gawk '{print($2,$3,$4)}' $tmpn.ti  > $tmpn.conv
+	    fi
+	    gawk -f rtpvec2lonlatr.awk upper_half=1 $tmpn.conv | \
+		gawk '{print($1,$2)}' > $tmpn.lonlat
+	    if [ $decorations -eq 1 ];then
+		cat $tmpn.lonlat | psxy \
+		    -Sa.5 -O -K $preg $proj -W6/0 >> $ofile
+		echo `cat $tmpn.lonlat` 12 0 1 CM "TI" | \
+		    pstext -O -K $preg $proj -N >> $ofile
+	    else
+		cat $tmpn.lonlat | \
+		    psxy -Sa.75 -O -K $preg $proj -W1/0 -G255/0/0 >> $ofile
+	    fi
+	elif [[ $tc -eq 2 && $axis -eq 1 ]];then # next row
+	    # enstatite [100]
+	    $icmd $preg $proj -X-$xoff2 -Y-$yoff  $label -K  -O  >> $ofile
+	    if [ $naxes -gt 1 ];then
+		psscale -N50 -C$tmpn.$type.cpt \
+		    -D4.8/4/3/.25h -B1:"enstatite":/:"ODF/ODF@-r@-": -Ef -O -K >> $ofile
+	    fi
+	else
+	    $icmd $preg $proj -X$xoff $label  -K -O >> $ofile
+	fi
+	if [[ $decorations -eq 2 || $mode -eq 5 ]];then
+	    if [[ $tc -eq 2 || $showenstatite -eq 0 ]];then
+	    # add label
+		if [ $axis -eq 1 ];then 
+		    label="[100]";
+		elif [ $axis -eq 2 ];then 
+		    label="[010]";
+		else 
+		    label="[001]";
+		fi
+		if [[ $showenstatite -eq 0 && $naxes -eq 1 ]];then
+		    label="olivine $label"
+		fi
+		echo .5 -.1 28 0 0 MC "$label" | \
+		    pstext -N -R0/1/0/1 -JX$size  -G$bgcol -O -K >> $ofile
+	    fi
+	fi
+    done
+    ((tc=tc+1))
+done
+echo 1000 -90 | psxy -Sa.1 -R0/360/0/90 -JA0/90/3 -O >> $ofile
+if [[ $naxes -eq 1 && $showenstatite -eq 0 ]];then
+    if [ $decorations -eq 2 ];then
+	modifybb $ofile 50 315 303 605 2> /dev/null
+	echo $pname: output in $ofile
+    elif [ $decorations -eq 1 ];then
+	if [ $mode -eq 3 ];then
+	    modifybb $ofile 50 350 305 605 2> /dev/null
+	else
+	    modifybb $ofile 60 350 305 600 2> /dev/null
+	fi
+	echo $pname: output in $ofile
+    else
+	modifybb $ofile 70 359 289 578 2> /dev/null
+	if [ $vmode -eq 2 ];then
+	    convert $ofile $file.$step.sun
+	    echo $pname: output in $ofile and $file.$step.sun
+	else
+	    echo $pname: output in $ofile
+	fi
+    fi
+else
+    if [ $showenstatite -eq 1 ];then
+	modifybb $ofile 50 10 770 670 2> /dev/null
+    else
+	if [ $mode -eq 5 ];then
+	    modifybb $ofile 50 320 770 600 2> /dev/null
+	else
+	    modifybb $ofile 50 320 770 670 2> /dev/null
+	fi
+    fi
+    echo $pname: output in $ofile
+fi
+if [ $vmode -eq 1 ];then
+    epstopdf $ofile
+    rm $ofile
+    echo $0: created PDF file
+fi
+
+#gv $ofile
+
+gmtset ANOT_FONT_SIZE         14p  \
+    LABEL_FONT_SIZE        24p  \
+    BASEMAP_FRAME_RGB 0/0/0
+
+rm .gmt* 2> /dev/null
