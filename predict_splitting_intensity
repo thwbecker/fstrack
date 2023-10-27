@@ -1,1 +1,51 @@
-../../../progs/batch/predict_splitting_intensity
+#!/bin/bash
+#
+# predict splitting intensity
+#
+wdir=${1-tensors}
+var_par=${2-0}
+single_layer=${3-0}		# give single layer thickness, or 0
+dset=${4-2}			# depth set, 1: coarse 2: fine 3: finer
+mod_ani=${5-0}		# modify anisotropy?
+smode=${6-1}			# 1: compute SI, use regular splitting intensity filter
+                                # 2: compute SI, use SKS cross-correlation filter
+rayp=${7-0.0189}		# ray parameter
+
+save_splits=1
+#single_layer=0
+
+echo $0: var_par: $var_par single: $single_layer dset: $dset mod_ani: $mod_ani filter: $filter rayp: $rayp
+if [ $mod_ani -ne 0 ];then
+    aniso_scale_file=$datadir/tmp.$$.anisoscales
+    # erase anisotropy in top layer
+    if [ $mod_ani -eq 1 ];then
+	gawk 'BEGIN{for(x=25;x<=350.0001;x+=25)print(x,(x<=50)?(0.000001):(1))}' > $aniso_scale_file
+    elif [ $mod_ani -eq 2 ];then # only odd layers
+	gawk 'BEGIN{i=1;for(x=25;x<=350.0001;x+=25){print(x,((i%2!=0)?(0.000001):(1)));i++;}}' > $aniso_scale_file
+    elif [ $mod_ani -eq 3 ];then
+	gawk 'BEGIN{i=1;for(x=25;x<=350.0001;x+=25){print(x,((i%2==0)?(0.000001):(1)));i++;}}' > $aniso_scale_file
+    fi
+else
+    aniso_scale_file="xxx"
+fi
+
+
+
+
+# this produces output in 
+predict_splitting $wdir $var_par $wdir/mean_split.out 0 $save_splits \
+    $wdir/splitting.out $wdir/mean_split.avgsav.out 1 $single_layer 3.353 $rayp \
+    $smode $wdir/sirt.out 0 $dset  $aniso_scale_file
+
+cd $wdir
+if [ -s sirt.out.r.gz ];then
+# compute files
+    matlab -nodisplay -nodesktop -nojvm -nosplash -r csplit
+fi
+
+
+gnuplot compare.gpl
+
+cd -
+
+

@@ -1,1 +1,312 @@
-../../../progs/batch/predict_splitting_region
+#!/bin/bash
+#
+# predict splitting for a regional LPO computation
+#
+model=${1-pmDsmean_nt}		# model name
+#
+ttype=${2-SAF.s.0.5}		# advection type. can be SAF.s.0.5 or splitting.1.s.0.5
+                                # in latter case, will save the backazimuth dependence
+#
+savtype=${3-savd}		# regular or not (savd)
+#
+prepare=${4-1}			# prepare the input files
+queue=${5-"becker64"}		# PBS queue, use "xxx" for no particular queue
+pbs=${6-1}			# use PBS
+
+walltime=${7-20:00:00}		# time for job
+mod_ani=${8-0}			# 0: no modifications 1: top layer (<=75km) zero 2: lower layer ( >= 300) zero
+
+split_code=${9-1}		# 0: Vera's code 1: Menke 2: Menke and longer period filter 3: Vera and longer period filter
+rcode=${10-8}			# regional code
+
+#
+# change code to minus range of predict splitting
+#
+if [ $split_code -eq 0 ];then
+    c_split_int=0		# vera
+elif [ $split_code -eq 1 ];then
+    c_split_int=-1		# menke
+elif [ $split_code -eq 2 ];then
+    c_split_int=-2		# menke, SK2
+elif [ $split_code -eq 3 ];then
+    c_split_int=-3		# vera, SK2
+fi
+
+
+spacing=-1			# -1: original, all tracers
+                                # >0: only those with even degree spacing
+hpcc=${HPCC-0}
+
+tmpn=/tmp/tmp.$USER.$HOST.$mod_ani.$$
+trap "rm -rf $tmpn.* ; exit" 0 1 2 15
+use_pbst=`echo $HOSTNAME | gawk '{if(match($1,"hpc"))print(1);else print(0)}'`
+if [[ $use_pbst -eq 1 || $pbs -eq 1 ]];then
+    nmachine=8
+    pbs=1
+else
+    nmachine=`lc $HOME/progs/$ARCH/etc/machines.$HOSTNAME`
+fi
+
+if [ `echo $queue | gawk '{if(($1=="")||($1=="xxx"))print(0);else print(1)}'` -eq 1 ];then
+    usequeue="-q $queue"
+else
+    usequeue=""
+fi
+
+
+# variable parameters?
+varpar=`echo $savtype | gawk '{if($1=="savd")print(1);else print(0)}'`
+#
+# depths for tensors
+#depths="25 50 75 100 125 150 175 200 225 250 275 300 325 350"
+depths="10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300 310 320 330 340 350"
+dset=4
+#
+if [ $varpar -eq 1 ];then
+    titype="tid"
+else
+    titype="ti"
+fi
+#
+# data dir
+# input
+model_dir=$datadir/flow_field/finite_strain/$model/results/splitting.$rcode/
+
+# output
+omodel_dir=$datadir/flow_field/finite_strain/$model/results/
+
+
+if [ ! -s  $model_dir/tracer.f.s.50.$ttype.dat.gz ];then
+    echo $0: error: $model_dir/tracer.f.s.50.$ttype.dat.gz not found
+    echo 
+    echo $0: exiting
+    echo 
+    exit
+fi
+if [ `echo $ttype | gawk '{if(match($1,"splitting"))print(1);else print(0);}'` -eq 1 ];then
+    spotted=1			# spotted run
+else
+    spotted=0			# general, regional run
+fi
+#
+# work directories
+#
+type_string=$ttype.$savtype.$mod_ani.$split_code
+
+if [ $hpcc -eq 0 ];then
+    mkdir $omodel_dir/splitting/ 2> /dev/null
+    wdir=$omodel_dir/splitting/$type_string/
+    mkdir $wdir 2> /dev/null
+else				# running on HPCC cluster
+
+    # temporary directories
+    # remove old, if it exists
+    rm -rf $omodel_dir/splitting/$type_string/ 2> /dev/null
+    # make new
+    hpcc_tmpdir=$HOME/tmp/
+    mkdir $hpcc_tmpdir/splitting/ 2> /dev/null
+    mkdir $hpcc_tmpdir/splitting/$model/ 2> /dev/null
+    wdir=$hpcc_tmpdir/splitting/$model/$type_string/
+    mkdir $wdir 2> /dev/null
+    # do not delete contents
+fi
+echo $0: using $wdir for tensors
+
+
+# expand
+
+#
+#
+# output file names
+#
+#
+if [ $spotted -eq 0 ];then
+    ofile=$omodel_dir/tracer.splitting.$ttype.$savtype.$mod_ani.$split_code.dat
+else
+    ofile=$omodel_dir/tracer.spotted.$ttype.$savtype.$mod_ani.$split_code.dat
+    mkdir $omodel_dir/spotted/ 2> /dev/null
+    mkdir $omodel_dir/spotted/$ttype.$savtype.$mod_ani.$split_code/ 2> /dev/null
+    splitdir=$omodel_dir/spotted/$ttype.$savtype.$mod_ani.$split_code/
+    rm $splitdir/* 2> /dev/null
+fi
+
+# delete old file
+rm $ofile 2> /dev/null
+   
+
+# all tracers
+zcat $model_dir/tracer.f.s.50.$ttype.dat.gz | gawk '{print($1,$2)}' > $tmpn.dat
+nl=`lc $tmpn.dat`
+
+if [ $prepare -eq 1 ];then	# start prepare part
+#
+# make tensor directories
+    if [ `echo $spacing | gawk '{if($1!=-1)print(1);else print(0)}'` -eq 1 ];then
+
+	# select a few
+	zcat $model_dir/tracer.f.s.50.$ttype.dat.gz | \
+	    gawk -v s=$spacing '{x=s/2;if((($1-x)%s == 0)&&(($2-x)%s == 0))print($1,$2)}' > $tmpn.dat
+	nnl=`lc $tmpn.dat`
+	if [ $nnl -eq 0 ];then
+	    echo $0: error: no points selected from  $model_dir/tracer.f.s.50.$ttype.dat.gz 
+	    exit
+	else
+	    echo $0: spacing $spacing, selected $nnl points out of $nl
+	fi
+	((nl=nnl))
+    fi
+    echo $0: using $nl points
+
+
+    rm $ofile 2> /dev/null
+    for d in $depths;do
+	#echo $0: $model $savtype $ttype $d
+	if [ ! -s  $model_dir/tracer.$savtype.$d.$ttype.dat.gz ];then
+	    echo $0: $model_dir/tracer.$savtype.$d.$ttype.dat.gz not found 1
+	    exit
+	fi
+	cp $model_dir/tracer.$savtype.$d.$ttype.dat.gz $tmpn.sav.$d.gz
+	gunzip $tmpn.sav.$d.gz
+	if [ ! -s  $model_dir/tracer.$titype.$d.$ttype.dat.gz ];then
+	    echo $0: $model_dir/tracer.$titype.$d.$ttype.dat.gz not found 2
+	    exit
+	fi
+	cp $model_dir/tracer.$titype.$d.$ttype.dat.gz $tmpn.ti.$d.gz
+	gunzip $tmpn.ti.$d.gz
+    done
+# copy binaries and stuff
+    cp `which gmtselect` $tmpn.gmtselect
+    cp $HOME/progs/batch/oneline $tmpn.oneline
+    cp $HOME/awk/meanallcol.awk  $tmpn.meanallcol.awk
+# distribute
+    i=1;j=1;lj=1
+    njump=`echo $nl $nmachine | gawk '{print(int($1/$2))}'`
+    mkdir $wdir/$j/ 2> /dev/null
+    rm -rf $wdir/*/ti_*/   $wdir/*/ti_*/  2> /dev/null
+
+    while [ $i -le $nl ];do
+	$tmpn.oneline $i $tmpn.dat > $tmpn.ll
+	read lon lat < $tmpn.ll
+	echo $lon $lat > $tmpn.pfile
+
+	loc_wdir=$wdir/$j/ti_$lj
+	mkdir $loc_wdir/ 2> /dev/null
+	for d in $depths;do
+	    $tmpn.gmtselect -C1/$tmpn.pfile -fg $tmpn.sav.$d > $loc_wdir/sav.$d
+	    $tmpn.gmtselect -C1/$tmpn.pfile -fg $tmpn.ti.$d > $loc_wdir/ti.$d
+	    n11=`lc  $loc_wdir/ti.$d` 
+	    if [[ $n11 -ne 1 || `lc $loc_wdir/sav.$d` -ne 1 ]];then
+		if [ $n11 -gt 2 ];then
+		    echo $0: averaging $n11  entries
+		fi
+		for xxx in ti sav;do
+		    # uncomment these to see the averagin
+		    #echo $0: extracted `lc  $loc_wdir/$xxx.$d` $xx
+		    #cat $loc_wdir/$xxx.$d
+		    gawk -f $tmpn.meanallcol.awk $loc_wdir/$xxx.$d > $tmpn.xx
+		    mv $tmpn.xx   $loc_wdir/$xxx.$d 
+		    #echo $0: averaged
+		    #cat  $loc_wdir/$xxx.$d 
+		done
+	    fi
+	done
+	echo $wdir $loc_wdir
+	echo $splitdir/split.$j.$lj.location
+	
+	# cp location to make sure assignment works out
+	cp $tmpn.pfile $splitdir/split.$j.$lj.location
+
+#	if [ $lj -eq 3 ];then
+#	    exit
+#	fi
+
+
+	if [ $lj -gt $njump ];then
+	    ((j=j+1))
+	    if [ $j -gt $nmachine ];then
+		j=1
+	    fi
+	    echo $0: prepared $i out of $nl
+	    mkdir $wdir/$j/ 2> /dev/null
+	    lj=0
+	fi
+	((lj=lj+1))
+	((i=i+1))
+    done
+fi				# end prepare part
+
+
+if [ $mod_ani -eq 0 ];then
+    aniso_scale_file=xxx
+elif [ $mod_ani -eq 1 ];then 	# upper zero
+    aniso_scale_file=$wdir/aniso_scale
+    echo $depths | gawk '{for(i=1;i<=NF;i++){z=$i;x=(z<=75)?(0.000001):(1.0);print(z,x)}}' > $aniso_scale_file
+elif [ $mod_ani -eq 2 ];then 	# lower zero
+    aniso_scale_file=$wdir/aniso_scale
+    echo $depths | gawk '{for(i=1;i<=NF;i++){z=$i;x=(z>=300)?(0.000001):(1.0);print(z,x)}}' > $aniso_scale_file
+fi
+
+#
+# count
+#
+i=0;j=1
+while [ $j -le $nmachine ];do
+    k=1
+
+    while [ -s $wdir/$j/ti_$k/ ];do
+	((i=i+1))
+	((k=k+1))
+    done
+    ((j=j+1))
+done
+echo $0: found $i input files
+if [ $i -ne $nl ];then
+    echo $0: only $i out of $nl expected directories found
+    exit
+fi
+
+#
+# start the jobs
+#
+cp $HOME/progs/batch/predict_splitting $wdir/
+
+echo $0: nmachine $nmachine PBS $pbs working directory $wdir
+i=1
+while [ $i -le $nmachine ];do
+    logfile=$wdir/sub.$i.$mod_ani.log
+    logfileo=$wdir/pbs.$i.$mod_ani.log.o
+    logfilee=$wdir/pbs.$i.$mod_ani.log.e
+    if [ $spotted -eq 0 ];then
+	command_line="$wdir/predict_splitting $wdir/$i/ $varpar $ofile 1 0 splitting.out      splitting.avg.out     0 0 3.353 0.0189 $c_split_int sirt.out 0 $dset $aniso_scale_file"
+    else
+	command_line="$wdir/predict_splitting $wdir/$i/ $varpar $ofile 1 1 $splitdir/split.$i $splitdir/split.a.$i  0 0 3.353 0.0189 $c_split_int sirt.out 0 $dset $aniso_scale_file"
+    fi
+    echo $0: using command line: $command_line
+
+    if [ $pbs -eq 1 ];then
+	echo $command_line > $wdir/pbs.$model.$ttype.$mod_ani.$i
+	chmod +x $wdir/pbs.$model.$ttype.$mod_ani.$i
+	echo 
+	echo $0: submitting batch file $wdir/pbs.$model.$ttype.$mod_ani.$i
+	echo $0: log files are $logfileo and $logfilee 
+	echo 
+	qsub $usequeue -d $PWD -V  $wdir/pbs.$model.$ttype.$mod_ani.$i -o $logfileo -e $logfilee  -l walltime=$walltime,nodes=1:ppn=1
+	
+    else
+	host=`oneline $i $HOME/progs/$ARCH/etc/machines.$HOSTNAME`
+	rm $tmpn.tis 2> /dev/null
+	j=1
+	while [ $j -le 9 ];do
+	    ls -d $wdir/$i/ti_$j* >> $tmpn.tis 2> /dev/null
+	    ((j=j+1))
+	done
+	nsplits=`lc $tmpn.tis`
+	if [ $nsplits -gt 1 ];then
+	    echo $0: running $nsplits splits on $host, writing log to $logfile
+	    nohup ssh $host $command_line > $logfile 2>> $logfile & 
+	fi
+    fi
+    ((i=i+1))
+done
+
+
