@@ -221,8 +221,8 @@ c      print *,'OK start', azi_ref,stop_azi
             read *,num_lay
             num_lay=num_lay-1   !shift to include layer # 0
             if (num_lay.gt.max_layer) then
-               print *,'anicake: error: too many layers you have',
-     &              num_lay
+               print *,'anicake: error: too many layers, you have',
+     &              num_lay, ' out of ',max_layer
                stop
             end if
             z=0.0d0

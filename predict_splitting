@@ -66,9 +66,14 @@ aniso_scale_file=${16-xx}
 # 0: new, single program mode
 # 1: old, multi program mode (for debugging)
 #
-old_mode=${17--1}
+#old_mode=${17--1}
+old_mode=${17-1}
 progname=`basename $0`
 
+if [ $old_mode -eq 1 ];then	# debug
+    echo $0: setting loop to zero for debug
+    loop=0
+fi
 if [ $report -eq 1 ];then
     echo $progname: idir: $idir varpar: $varpar ofile: $ofile
     echo $progname: loop: $loop save_splits: $save_splits skssplit_out_file: $skssplit_out_file
@@ -176,9 +181,9 @@ fi
 #
 # make temp directories
 #
-tmpdir=/tmp/tmp.$USER.$HOST.$$/
+tmpdir=`mktemp -d`
 tmpn=$tmpdir/dat
-trap "rm -rf $tmpdir/ ; exit" 0 1 2 15
+trap "rm -rf $tmpdir/ " EXIT
 mkdir $tmpdir;
 #
 # copy binaries, awk scripts and such for faster speed
@@ -324,7 +329,8 @@ fi
 
 ndir=`lc $tmpn.dirlist`
 if [ $ndir -lt 1 ];then
-    echo $progname: error: no tensors found in $idir/
+    echo $progname: error: no tensors found in $idir/ loop $loop
+    cat $tmpn.dirlist
     exit
 fi
 
@@ -383,7 +389,16 @@ while [ $idirc -le $ndir ];do	# START MAIN TENSOR SET LOOP
 	#
 	# convert from sav to cijkl format
 	#
-	$lbdir/sav2cijkl $lidir/sav.$d  $density 0 $aniso_scale > $tensor_dir/depth_$d.cijkl 2> /dev/null
+	$lbdir/sav2cijkl $lidir/sav.$d  $density 0 $aniso_scale > \
+			 $tensor_dir/depth_$d.cijkl 2> $tmpn.run1_log
+	if [ ! -s $tensor_dir/depth_$d.cijkl ];then
+	    echo $0: error on sav2cijkl conversion
+	    echo $0: command run was:
+	    echo "$lbdir/sav2cijkl $lidir/sav.$d  $density 0 $aniso_scale > $tensor_dir/depth_$d.cijkl"
+	    cat $tmpn.run1_log
+	    exit
+	fi
+	    
 	#
 	# get lon lat from first
 	if [ $dc -eq 1 ];then

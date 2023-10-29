@@ -255,10 +255,8 @@ surface wave sensitivities, list of specified periods in [s]
 #else
 #include "auto_proto.sgl.h"
 #endif
-//
-// fortran routines
-//
-#define FTRN_STDOUT 6
+#include "fstrack_ftrn.h"
+
 
 extern void ellsphere_cart(VPREC *,VPREC *,VPREC *,
 			   int *, int *, int *,

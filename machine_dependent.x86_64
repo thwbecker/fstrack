@@ -1,0 +1,2 @@
+LDFLAGS = -lm
+F90FLAGS = -x f95-cpp-input -O2 -Wall

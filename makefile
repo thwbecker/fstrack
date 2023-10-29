@@ -155,8 +155,7 @@ split_tools:
 	cd prem; make; cd ../;\
 	cd single_layer; make; cd ../;\
 	cd multi_layer; make ; cd ../
-# Menke splitting now doesn't compile on Fedora 28 because of the xdr library or something like that
-#	cd menke_splitting; make ; cd ..;
+	cd menke_splitting; make ; cd ..;
 
 #
 # LPO tools

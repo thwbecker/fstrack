@@ -42,6 +42,8 @@
 !
 !    $Id: spectoseis_driver.f90,v 1.2 2005/11/18 19:51:19 becker Exp $ 
 !
+#include "../fstrack_ftrn.h"
+
 program main
 !
 integer,parameter :: imaxfreq=20000 ! max number of samples
@@ -116,12 +118,13 @@ endif
 
 !       defaults:
 !       get input from stdin
-specfile = 5		! stdin
+specfile = FTRN_STDIN		! stdin
 !       timefile will be omitted,
 !       filtered time file is stdout
-filtfile=6
+filtfile = FTRN_STDOUT
 
 print_orig_seis = .false.
+
 #endif
 if(save_rt)then
    sifile=20		! splitting intensity
