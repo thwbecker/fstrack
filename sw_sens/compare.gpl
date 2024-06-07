@@ -1,0 +1,29 @@
+set term post portrait color solid
+set out 'comp.ps'
+set multi
+set size 1,.3
+set origin 0,.66
+
+set xrange [0:700]
+
+set title '150 s, k_A'
+
+plot 'PREMd/fsens.100.dat' using 1 : 2 title 'my old kernel' w l ,\
+     'PREMb/fsens.100.dat' using 1 : ($2*5) title 'new kernel x 5' w l
+
+
+set origin 0,.33
+set title '150 s, k_F'
+
+plot 'PREMd/fsens.100.dat' using 1 : 3 title 'my old kernel' w l ,\
+     'PREMb/fsens.100.dat' using 1 : ($3*5) title 'new kernel x 5' w l
+
+
+set origin 0,.0
+
+set title '150 s, k_L'     
+     
+plot 'PREMd/fsens.100.dat' using 1 : 4 title 'my old kernel' w l ,\
+     'PREMb/fsens.100.dat' using 1 : ($4*5) title 'new kernel x 5' w l
+
+
