@@ -218,7 +218,14 @@ void read_sw_sens(struct mod *model)
   for(i=0;i < N_SW_SENS;i++){
     model->swsens[i].p = p[i];	/* period */
     sprintf(fname,"%s/%s.%g.dat",getenv("HOME"),model->sw_sens_file,model->swsens[i].p);
-    in = myopen(fname,"r","read_sw_sens");
+    in = fopen(fname,"r");
+    if(!in){
+      fprintf(stderr,"read_sw_sens: could not open kernel files\n");
+      fprintf(stderr,"read_sw_sens: make sure to adjust SW_SENS_FILE in filenames.h or use -sws if program allows\n");
+      fprintf(stderr,"read_sw_sens: was looking for %s\n",fname);
+      fprintf(stderr,"read_sw_sens: sw_sens_file: %s\n",model->sw_sens_file);
+      exit(-1);
+    }
     model->swsens[i].n = 0;
     model->swsens[i].l = (struct swss_layer *)malloc(sizeof(struct swss_layer));
     if(!model->swsens[i].l)

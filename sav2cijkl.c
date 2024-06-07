@@ -33,6 +33,7 @@ aniso_scale: output tensor will be iso_comp + anis_scale * aniso_comp, i.e. full
 tensor for aniso_scale = 1, isotropic tensor for aniso_scale = 0
 
 
+
 $Id: sav2cijkl.c,v 1.10 2016/09/05 04:44:47 becker Exp $
 
 
@@ -41,9 +42,10 @@ $Id: sav2cijkl.c,v 1.10 2016/09/05 04:44:47 becker Exp $
 
 int main(int argc, char **argv)
 {
-  VERA_PREC sav[36],cij[81],rho,x[3],alpha,beta,gamma,savr[36],aniso_scale,cani[36],cmon[36],
+  VERA_PREC sav[36],cij[81],x[3],alpha,gamma,savr[36],cani[36],cmon[36],
     kmod,gmod,vel[9],symm_frac[6],tiaxis[6],ciso[36],chex[36],ctet[36],cort[36],ctri[36],
     sav_scc[36],scc_irot[9];
+  double rho,beta,aniso_scale;
   my_boolean rotate = FALSE, rescale = FALSE;
   int i,nr,n,j,iop=FTRN_STDOUT;
   FILE *in;
@@ -115,6 +117,7 @@ int main(int argc, char **argv)
       for(i=0;i<36;i++)
 	sav[i] = ciso[i] + aniso_scale * cani[i];
     }
+    // print C6x6 to stderr
     //print_6by6_nice(sav,stdout);fprintf(stderr,"\n");
     /* print Cij to stderr */
     //print_cij_vera_sorted(sav, stderr);
@@ -122,6 +125,7 @@ int main(int argc, char **argv)
        convert to normalized cijkl format 
     */
     vera_sav_to_cijkl_ftrn(sav,&rho,cij);
+    //fprintf(stderr,"%g %g\n",cij[0],cij[1]);
     /* print to Cijkl stdout */
     vera_print_cijkl_ftrn(cij,&iop);
     n++;
