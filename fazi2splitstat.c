@@ -8,6 +8,7 @@
    into splitting statistics, can select if delay times are used for
    averaging or not (default is not)
    
+   fazi2splitstat file nharm use_dt_for_avg
 
 */
 #define MAX_NR_HARM 10
