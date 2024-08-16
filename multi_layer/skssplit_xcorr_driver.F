@@ -44,6 +44,7 @@ c
 c
 c
 c
+#include "../fstrack_ftrn.h"      
 #define NMAX_SAMPLE 16384
       implicit none
       
@@ -79,8 +80,8 @@ c
       read(rayp_string,*)rayp
       read(az_string,*)az
 
-      iread = 5             ! stdin
-      iout = 6                  ! stdout
+      iread = FTRN_STDIN             ! stdin
+      iout = FTRN_STDOUT                  ! stdout
 #endif
 
       i = 1
