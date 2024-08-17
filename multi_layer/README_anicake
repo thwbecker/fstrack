@@ -1,0 +1,175 @@
+anicake calculates the harmonic response of a stack of anisotropic layers
+at a number of frequencies. The layer matrix formalism follows Kennett's
+book, with anisotropic extensions by Peter Shearer (see references below).
+
+The input parameters are in files such as singleaz_run. All layers
+are anisotropic (define isotropic layer with quasi-zero anisotropy - 
+anisotropy of exactly zero leads to instabilities). The free surface
+is defined by an air layer on top. 
+
+The code has some predefined models of anisotropy (see gethex), but
+all calculations are performed for the general anisotropic case, so
+any symmetry can be used. The predefined models are used to
+calculate the general elastic tensor, so this step can be omitted and
+an arbitrary tensor can be used as direct input (option 9).
+
+The tensors in the layers can be individually rotated around the vertical
+axis (for incidence on different azimuths) and tilted relative to the
+layering. The axes are 1 = horizontal along the layer plane, 2 = horizontal
+into the layer plane, and 3 = vertical (positive down).
+
+The layercake response is calculated at increments in frequency from
+fmin to fmax, also given in the parameter file. The response could
+be output for reflection or transmission at any of the interfaces.
+For the free surface case it's set to transmission at the air-solid
+interface.
+
+The incidence angle of the plane wave is given by the ray parameter in
+s/km.
+
+After anicake calculates the reflection/transmission matrix and
+eigenvectors, aniso_transient calculates the spectra and performs
+an IFFT to produce stick seismograms of displacement. I convolve
+these with the source function in matlab and differentiate to get 
+the velocity seismograms for comparison with fd3. aniso_transient_out
+has time, incident P x, y, z, incident SV x, y, z, incident SH x, y, z.
+
+Overall, since we perform an integration over frequency but not
+over slowness, this is not quite a real reflectivity code. However,
+since we're dealing with plane waves, the slowness integration
+is redundant and the results should be identical to the full
+reflectivity case.
+
+references for anisotropic layer matrix formalism:
+
+   author = {Booth, D.C and S. Crampin}, 
+   title = {The anisotropic reflectivity technique: theory}, 
+   journal = gjras,
+   volume = {72},
+   pages = {31-45},
+   year = {1985}} 
+
+   author = {Chapman, C.H. and P.M. Shearer}, 
+   title = {Ray tracing in azimuthally anisotropic media -- {II}.
+                quasi-shear wave coupling}, 
+   journal = gj,
+   volume = {96},
+   pages = {65-83},
+   year = {1989}} 
+
+   author = {Fryer, L.N. and Frazer, G.J.}, 
+   title = {Seismic waves in stratified anisotropic media}, 
+   journal = gjras,
+   volume = {78},
+   pages = {691-710},
+   year = {1984}} 
+
+   author = {Kennett, B.L.N.}, 
+   title = {Seismic wave propagation in stratified media}, 
+   publisher = {Cambridge University Press}, 
+   address = {New York}, 
+   year = {1983}}
+
+output of anicake:
+ cake_out            
+spectrum
+ (1:gtran-u  2:gref_d) (num_lay) (num_dep)
+   1   3   1
+ (freqmin) (freqmax) (freqspace)
+    0.0000    5.0000    0.0049
+ (pgrad) (dz) (zmax)
+    0.0000   30.0000    0.0000
+  
+ Topmost layer complex eigenvectors, vslow follow
+	x, re   x, im      y, re    y, im      z, re   z, im   vert slow re, im
+qP    0.0000   0.0000     0.0000   0.0000     1.0000   0.0000  9999.9500   0.0000
+qS1  -1.0000   0.0000     0.0000   0.0000     0.0000   0.0000  *********   0.0000
+qS2   0.0000   0.0000    -1.0000   0.0000     0.0000   0.0000  *********   0.0000
+(flipped)
+      0.0000   0.0000     0.0000   0.0000     1.0000   0.0000  *********   0.0000
+      1.0000   0.0000     0.0000   0.0000     0.0000   0.0000  *********   0.0000
+      0.0000   0.0000     1.0000   0.0000     0.0000   0.0000  *********   0.0000
+ Next down layer complex eigenvectors, vslow follow
+   0.4166   0.0000     0.0351   0.0000     0.9084   0.0000     0.1190   0.0000
+  -0.6981   0.0000     0.6981   0.0000     0.1591   0.0000     0.2194   0.0000
+  -0.6669   0.0000    -0.7176   0.0000     0.2008   0.0000     0.1981   0.0000
+  -0.4166   0.0000    -0.0351   0.0000     0.9084   0.0000    -0.1190   0.0000
+   0.6981   0.0000    -0.6981   0.0000     0.1591   0.0000    -0.2194   0.0000
+   0.6669   0.0000     0.7176   0.0000     0.2008   0.0000    -0.1981   0.0000
+ Bottom layer complex eigenvectors, vslow follow
+   0.3900   0.0000     0.0000   0.0000     0.9208   0.0000     0.1181   0.0000
+  -0.9743   0.0000     0.0000   0.0000     0.2252   0.0000     0.2164   0.0000
+   0.0000   0.0000    -1.0000   0.0000     0.0000   0.0000     0.2164   0.0000
+  -0.3900   0.0000     0.0000   0.0000     0.9208   0.0000    -0.1181   0.0000
+   0.9743   0.0000     0.0000   0.0000     0.2252   0.0000    -0.2164   0.0000
+   0.0000   0.0000     1.0000   0.0000     0.0000   0.0000    -0.2164   0.0000
+  Upgoing tt through stack= 55.075108157439274 100.27394490246628 98.14256648184
+251
+ free surface ref_u follows
+  0.7128E+00  0.0000E+00    0.3476E+00  0.0000E+00    0.4472E+00  0.0000E+00
+  0.5659E+00  0.0000E+00   -0.8852E+00  0.0000E+00    0.1477E+00  0.0000E+00
+  0.6601E+00  0.0000E+00    0.1340E+00  0.0000E+00   -0.8277E+00  0.0000E+00
+  
+freq=        0.0000000000000000
+refl/trans matrix coeffs:
+   
+   P->P	  re          im     P->SV  re          im      P->SH re          im
+   SV->P		     SV->SV			SV->SH
+   SH->P		     SH->SV			SH->SH
+
+  0.1744E+01  0.5499E+00    0.4371E+00  0.2702E+00    0.7535E-03 -0.1042E-02
+ -0.8503E+00 -0.2857E+00    0.1642E+01  0.1052E+01    0.2312E-03 -0.3437E-02
+  0.9792E-04  0.1410E-02    0.2653E-03 -0.3150E-02    0.1721E+01  0.1094E+01
+freq=        0.0048828125000000
+ -0.1076E+00  0.1927E+01   -0.4823E+00  0.1698E+00   -0.2137E-03  0.6776E-02
+  0.6417E-01 -0.8086E+00   -0.1842E+01  0.3979E+00    0.3197E-01  0.1839E-01
+ -0.1099E-01  0.5934E-02    0.2877E-01  0.1702E-01   -0.1870E+01  0.4250E+00
+(...)
+
+sorting of eigenvectors and z axis orientation: z is positive down
+see comment from anieigen.f:
+c subroutine ANIEIGEN calculates the eigenvalues and eigenvectors
+c for a general anisotropic solid for a given horizontal slowness.
+c
+c Six solutions are obtained,and are sorted as follows:
+c     (1) = downgoing qP    (positive or larger vertical slowness
+c     (2) = downgoing qSP         or larger imag. part)
+c     (3) = downgoing qSR
+c     (4) = upgoing qP      (negative or smaller vertical slowness
+c     (5) = upgoing qSP           or smaller imag. part)
+c     (6) = upgoing qSR
+c
+c If no symmetry axis is specified, i.e. sym(i)=0., then the qSP and qSR
+c indices correspond to the faster and slower solutions, respectively.
+c This sorting scheme has not been entirely debugged, and may give
+c unpredictable results, especially for extremely anisotropic models
+c and/or evanescent waves.
+c
+c Program is based on equations which can be found in Keith & Crampin
+c (GJRAS 49, 209-223, 1977), Crampin (Wave Motion 3, 343-391,1981), and
+c Garmany (GJRAS 75, 565-569, 1983).
+
+
+aniso_t_S (../s_anicake):
+
+1. read upgoing eigenvectors in top layer (output is set to transmission in top
+   layer, so refl/trans matrices for packet have to be multiplied by EVs in air
+   layer to get seismograms)
+   
+2. for P, there is a polarization ambiguity (dilatation/compression) for the
+   bottom layer eigenvectors, i.e., even when picking the upgoing slowness it
+   may have dilatation or compression particle motion. To get compression 
+   consistently, read bottom layer EVs, check pz sign, and if pz component
+   is positive (= down, i.e. dilatation), multiply solution by -1 in aniso_t_S
+   (all three components)
+   
+3. the polarization 180deg ambiguity is not relevant for S splitting analysis
+   since fast direction is axial.
+   
+4. generally, refl/trans matrix describes top layer EV given the bottom layer EV.
+   to choose S wave polarization, one could see what coefficients are necessary
+   to build desired initial polarization from the bottom layer 2 S eigenvectors,
+   then use the same coefficients to build the desired result from the solution
+   for the top EVs.
+   
+   

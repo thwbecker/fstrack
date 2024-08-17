@@ -1,0 +1,22 @@
+
+sixtensors.cmd in the main calling script, loops over
+incident azimuths. it calls:
+
+anicake - calculates harmonic response of a layer stack with
+arbitrary anisotropies (no dipping interfaces allowed, but
+symmetry axes by in any direction including plunge). incidence
+is in x-z plane, hence the awkwardness in rotating the tensors
+rather than shooting rays in at different angles. ray parameter
+(i.e. incidence angle) is input parameter. output is cake_out.
+
+spectoseis - takes response spectra from anicake (cake_out)
+and calculates seismograms in impulse response (stick) and 
+filtered form. output in comb_out and aniso_filt_out, 
+respectively.
+
+skssplit_xcorr - calculates shear wave splitting by
+cross correlation, input aniso_filt_out, output skssplit_out
+(appends to latter with each run of loop to make a list
+as a function of incidence angle). output is
+ray parameter, rotation angle, fast azimuth in rotated system,
+and dt in s.  

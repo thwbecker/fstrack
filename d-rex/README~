@@ -1,0 +1,250 @@
+################################################################################
+
+FSTRACK PACKAGE
+
+Thorsten Becker, thwbecker@post.harvard.edu, 09/2017
+UT Austin
+
+- fstrack: set of routines to trace particles in mantle flow and
+	compute LPO. Routines use precomputed velocities on GMT grd
+	files.
+	
+	The package also provides a range of anisotropic tensor
+	anylsis and splitting tools. Those do not require the flow
+	package including GMT and netcdf and can be compiled
+	independently.
+
+	See (and cite, if used):
+
+	The most recent paper using different types of LPOs etc:
+
+	Becker et al. (EPSL, 267, 213-237, 2008)
+
+	and for more detail on aspects of the approach
+
+	Becker et al. (JGR, 111, B08309, doi:10.1029/2005JB004095, 2006)
+
+
+May be distributed with 
+
+- d-rex: DREX Kaminski & Ribe texture routines 
+
+  	(c) by Eduard Kaminski, Neil Ribe, and Jules Browaeys, and 
+	    Sebastien Chevrot
+
+	Kaminski & al. (GJI, 157, 1, 2004)
+	Browaeys & Chevrot (GJI, 159, 667, 2004)
+
+	Slightly modified from the original sources to allow for 3D,
+	and some bug fixes.
+
+- single_layer and multi_layer: 
+	shear wave splitting routines by Vera Schulte-Pelkum.
+	See: 
+
+	Schulte-Pelkum & Blackman (GJI, 154, 166, 2003)
+
+- HC: 
+	Mantle flow computation software, see:
+
+	Becker, T.W., O'Neill, C., and Steinberger, B. (2009): HC, a
+	global mantle circulation solver. Available online at
+	https://github.com/geodynamics/hc, accessed 09/2017.
+
+
+	Milner, K., Becker, T. W., Boschi, L., Sain, J., Schorlemmer,
+	D. and H. Waterhouse: The Solid Earth Research and Teaching
+	Environment: a new software framework to share research tools
+	in the classroom and across disciplines. EOS Trans. AGU, 90,
+	12, 2009.
+
+
+- eispack: EISPACK eigensystem routines
+
+- menke_splitting/: Bill Menke's cross-correlation routines 
+
+Copyright for these routines remains with the original authors. 
+
+for the rest
+
+(c) Thorsten Becker 2004 - 2016 twb@ig.utexas.edu
+
+$Id: README,v 1.2 2016/09/05 04:44:36 becker Exp becker $
+
+################################################################################
+
+CONTENTS:
+
+The tar file includes this README, and installation script
+"install_fstrack" and several subdirectories
+
+eispack/ has eigenvector routines
+single_layer/
+multi_layer/  are splitting routines
+d-rex/ holds the DREX LPO and anisotropy routines
+hc/ is a flow solver
+
+
+INSTALLATION:
+
+Short version: There is a script, "install_fstrack" which will by
+default try to install the package without flow tracking, and can be
+called, alternatively, as "install_fstrack 1" to try to install
+everything, including the flow tracker (but see below).
+
+PREREQUISISTES FOR THE FLOW PART (NOT FOR THE REST)
+
+1) GMT, version 4 (not 5)
+
+   http://gmt.soest.hawaii.edu/gmt4/
+
+2) netcdf
+
+   http://www.unidata.ucar.edu/software/netcdf/
+
+   Environment variables $GMTHOME and $NETCDFDIR have to be set to the
+   GMT and netcdf directories, and HC installed, respectively. (The
+   FSE trackers uses netcdf grd files to read in velocity fields.) In
+   my case, those variables point to
+
+> echo $GMTHOME/
+/usr/local/src/gmt-4.5.16/
+
+> echo $NETCDFDIR/
+/usr/local/src/netcdf-3.5.0/
+
+   
+NOTES:
+
+The file "install_fstrack" is a simplified version of these
+installation instructions.
+
+
+This tar file will expand three directories, eispack, d-rex and
+fstrack, for eigenvalue routines, the DREX package and the finite
+strain tracker, respectively. 
+
+You will need a C, F77, and F90 compiler. Make sure your Fortran and C
+compiler flags are set with environment variables CFLAGS and FFLAGS
+(normally they should be already).
+
+Some F90 code expects to be able to use C preprocessor statements, in
+Intel Fortran, this is done by
+
+ifort -fpp
+
+for gfortran F90 code by 
+
+-x f95-cpp-input 
+
+for gfortran F77 code by 
+
+-x f77-cpp-input
+
+See the machine_dependent.*.* files for suggestions for typical compiler flags. 
+
+For Intel, I use
+
+> echo $CC $CFLAGS
+icc -O2 -xW -vec_report0 -static
+
+> echo $F77 $FFLAGS
+ifort -O2 -xW -vec_report0 -static -fpp -nofor-main 
+
+> echo $F90 $F90FLAGS
+ifort -O2 -xW -vec_report0 -static -fpp -nofor-main
+
+
+For GNU, the following setting should work:
+
+echo $CC $CFLAGS
+gcc -O2 -Wall -funroll-loops -fomit-frame-pointer 
+
+
+echo $F77 $FFLAGS
+gfortran -x f77-cpp-input -O2 -Wall -funroll-loops -fomit-frame-pointer
+
+echo $F90 $F90FLAGS
+gfortran -x f95-cpp-input -O2 -Wall -funroll-loops -fomit-frame-pointer
+
+       Here are example Intel and GNU compiler setups:
+
+ if [ $use_intel -eq 1 ];then
+      export F77=ifort
+      export F90=$F77
+      export CC=icc
+      export LDFLAGS="-lm"
+      export CFLAGS="-O3 -DLINUX_SUBROUTINE_CONVENTION"
+      export CFLAGS_DEBUG="-g -DLINUX_SUBROUTINE_CONVENTION"
+      export FFLAGS="-O3 -fpp -nofor-main"
+      export FFLAGS_DEBUG="-g -fpp -nofor-main"
+      export F90FLAGS=$FFLAGS
+      export F90FLAGS_DEBUG=$FFLAGS_DEBUG
+      export F_EXT_SOURCE_FLAG=-extend_source 
+      export FTRN_LIB="-lifcore"
+      export MATHLIBS="-mkl"
+
+  else
+      export F77=gfortran
+      export F90=$F77
+      export CC=gcc
+      export LDFLAGS="-lm"
+      export CFLAGS="-O3 -DLINUX_SUBROUTINE_CONVENTION"
+      export CFLAGS_DEBUG="-g -DLINUX_SUBROUTINE_CONVENTION"
+      export FFLAGS="-O3 -x f77-cpp-input"
+      export FFLAGS_DEBUG="-g -x f77-cpp-input"
+      export F90FLAGS="-O3 -x f95-cpp-input" 
+      export F90FLAGS_DEBUG="-O3 -x f95-cpp-input" 
+      export F_EXT_SOURCE_FLAG=-ffixed-line-length-132 
+      export FTRN_LIB=-lgfortran
+      export MATHLIBS="-llapack -lblas" 
+  fi
+
+
+
+###
+
+The makefile will look for a file machine_dependent.$ARCH where any
+additional flags can be set, else will use existing environment
+variables. 
+
+###
+
+
+
+Procedure:
+
+1) Go to eispack and d-rex directories and make
+
+	First go to eispack, type 'make', then to d-rex and type
+	`make', this should build the DREX based libraries (for
+	copyright see note above).
+
+2) 
+
+A) Go to the fstrack directory, and type 'make' 
+
+This will install anisotropy and splitting tools, but not the flow tracker etc. 
+
+> ls bin/x86_64/
+ah_cross_conv_spectoseis*  c6x6to81_dens*             cvec2ellipsoid*       plot_kernel*      readprem*       sav2rotate*             spectoseis_stream*
+anicake*                   c6x6to81_dens_stream*      fazi2splitstat*       polvgm2cartvgm*   readprem_z*     sav2splitting*          tensor_phase*
+anicake.dbg*               calc_lpo_from_streamline*  generate_vgm*         prem_compute_gp*  sav2afactor*    skssplit_xcorr*         tracerl2cevec*
+average_rphi_tracers*      cijkl2sav*                 make_random_tensors*  premtable*        sav2cijkl*      skssplit_xcorr_stream*
+average_tracers*           cijklrotate*               make_var_tensor*      premtable_z*      sav2decompose*  spectoseis*
+
+
+B) Type  'make really_all' and this will attempt to install the flow tracker, for ppre-reqs, see above
+
+
+USAGE:
+
+The main program is 'fstrack', start with -h option for man
+page. Same for other routines. 
+
+
+STATUS:
+
+Experimental.
+
+

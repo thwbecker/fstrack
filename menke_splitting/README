@@ -1,0 +1,65 @@
+Cross-Convolution Method Software
+by William Menke, 11 November 2002
+Copyright 2001,2002 by Columbia University.
+
+WARNING. NO WARRANTY IS PROVIDED WITH THIS SOFTWARE. USE AT YOUR OWN RISK!
+
+Note: Is it better to solve for just two parameters per layer (i.e. delay
+and fast axis orientation, making the near-vertical incidence approximation)
+or four (i.e. layer thickness, hexagonal tensor oblateness and strike and
+dip of symmetry axis, and allowing for oblique incidence, and possibly
+putting in a free-surface correction?  On the one hand four-parameters
+would be more accurate, but on the other two parameters may be all the
+data can actually resolve.  For the one-layer case I provide software to
+do both, and suggest that you use both, and use an F-test to determine
+whether the reduction in error provided by the 4-parameter case is really
+significant.
+
+ah_cross_conv_1            Determine fast azimuth and delay for single anisotropic layer
+			   using one near vertical incidence radially polarized 
+			   (e.g. SKS) waveform.  Uses vertical incidence impulse
+			   response functions.
+
+ah_cross_conv_1_unk_pol    Determine fast azimuth and delay for single anisotropic layer, and
+			   initial polarization using one near vertical incidence
+			   waveform of unknown polarization.  Uses vertical incidence impulse
+			   response functions.
+
+ah_cross_conv_1_group      Determine fast azimuth and delay for single anisotropic layer
+			   using a group of near vertical incidence radially polarized 
+			   (e.g. SKS) waveforms.  Uses vertical incidence impulse
+			   response functions.
+
+ah_cross_conv_1t_group     Determine thickness, hexagonal tensor oblateness and
+                           strike and dip of symmetry axis for single anisotropic layer
+			   using a group of radially polarized (e.g. SKS) waveforms.
+			   Uses oblique incidence impulse response functions, with
+			   optional free-surface correction.
+
+ah_cross_conv_2            Determine fast azimuths and delays for two anisotropic layers
+			   using one near vertical incidence radially polarized (e.g. SKS)
+			   waveform.   Uses vertical incidence impulse
+			   response functions.
+
+ah_cross_conv_2_group      Determine fast azimuths and delays for two anisotropic layers
+			   using a group of near vertical incidence radially polarized 
+			   (e.g. SKS) waveforms.   Uses vertical incidence impulse
+			   response functions.
+
+ah_est1pulse		   Determines one pulse impulse response functions relating two
+			   timeseries
+
+ah_est2pulse		   Determines two pulse impulse response functions relating two
+			   timeseries
+
+ah_est3pulse		   Determines three pulse impulse response functions relating two
+			   timeseries
+
+ah_est4pulse		   Determines four pulse impulse response functions relating two
+			   timeseries
+
+ah_est5pulse		   Determines five pulse impulse response functions relating two
+			   timeseries
+
+
+
